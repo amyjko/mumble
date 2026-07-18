@@ -7,7 +7,7 @@
  *
  * Deliberately NOT an aria-live region. It would fire on every gesture start
  * and machine-gun a screen reader with something that is purely a pointer
- * affordance; the keyboard equivalents are documented in STYLE.md §5, and the
+ * affordance; the keyboard equivalents are documented in STYLE.md §6, and the
  * page's existing polite region stays the sole announcer.
  */
 class HintState {

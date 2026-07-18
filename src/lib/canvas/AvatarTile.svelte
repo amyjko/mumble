@@ -126,7 +126,7 @@
 
 <!--
 	Same rationale as ObjectFrame: movable canvas object, no fitting ARIA
-	widget role. Verified by axe; logged in STYLE.md §9.
+	widget role. Verified by axe; logged in STYLE.md §10.
 -->
 <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
 <div

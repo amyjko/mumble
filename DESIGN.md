@@ -55,7 +55,7 @@ Every element in a room is an object with the same interactions, permissions, an
 - [ ] **UX-OBJ-4** (MVP) — Timers (countdown/count-up) show the same running state and target time to all viewers.
 - [ ] **UX-OBJ-5** (MVP) — Images are uploadable with a size cap (dimensions and bytes) and stored by reference.
 - [ ] **UX-OBJ-6** (MVP) — Screen shares are objects like A/V tiles, sourced from a screen-capture track; each share is its own object and consumes a video slot from `max_av` (UX-STAGE-1), its source a screen-capture track rather than a camera.
-- [ ] **UX-OBJ-7** (MVP) — Objects can be clipped to shapes: rect, rounded, circle, ellipse, polygon, arbitrary path.
+- [ ] **UX-OBJ-7** (MVP) — Objects can be clipped to shapes: rect, rounded, circle, ellipse, polygon. _Arbitrary path clipping was struck 2026-07-18: because the sticker border width IS the overlap tolerance (UX-OBJ-12), an arbitrary path clip needs an arbitrary-path COLLIDER, not just a renderer — it is a collision-geometry requirement wearing a rendering costume, and it blocked the shape work it was bundled with._
 - [ ] **UX-OBJ-8** (MVP) — The default them gives every object has a sticker border — a cutout-style edge following its clip shape (a circle-clipped video gets a circular sticker border); room/theme default with per-object override, subject to edit permission.
 - [ ] **UX-OBJ-9** (MVP) — Objects can be added at any time during a meeting by any participant permitted to create; creation permission is a room setting (default: all may create, hosts may restrict).
 - [ ] **UX-OBJ-10** (MVP) — Objects are persistent room state: they survive the meeting and reconnects, retained until deleted.
@@ -358,7 +358,7 @@ Once the SFU exists: the media provider bills purely on usage and never hard-cap
 ## 21. Front-end canvas implementation (AR-CANVAS)
 
 - [ ] **AR-CANVAS-1** (MVP) — Every object is a normal DOM node on a single transformed "world" layer inside a container; pan/zoom mutate the container transform (`translate` + `scale`), never the objects. A `<video>` bound to a MediaStream is just another node. — _serves: UX-CANVAS-1..3, UX-OBJ-1, UX-AV-1._
-- [ ] **AR-CANVAS-2** (MVP) — Move/resize/rotate are CSS transforms on the node; shape clipping is CSS `clip-path` (SVG masks for complex shapes); the sticker border follows the clip shape (pure-CSS vs SVG-stroke-layer for arbitrary paths is an open item). — _serves: UX-OBJ-1, UX-OBJ-7..8._
+- [ ] **AR-CANVAS-2** (MVP) — Move/resize/rotate are CSS transforms on the node; shape clipping is CSS `clip-path`. The sticker border follows the clip shape by carrying the SAME percentage clip-path on both the sticker layer and the content layer: percentages resolve against each element's own box, and the content sits inside the sticker's padding, so one string describes both silhouettes and the visible border is the ring between them. — _serves: UX-OBJ-1, UX-OBJ-7..8._
 - [ ] **AR-CANVAS-3** (MVP) — One polymorphic schema for all objects; type-specific data in `payload`:
 
   ```
@@ -368,7 +368,7 @@ Once the SFU exists: the media provider bills purely on usage and never hard-cap
     creator_id         identity_id   immutable (AR-AUTH-1)
     permission         'host' | 'all' | 'none'
     transform          { x, y, width, height, rotation, z }
-    clip               { shape: 'rect'|'rounded'|'circle'|'ellipse'|'polygon'|'path', params }
+    clip               { shape: 'rect'|'rounded'|'circle'|'ellipse'|'polygon', params }
     border             { style }     sticker border (every object has one)
     anchor?            { target_id, offset {x,y}, scale_with_target }
     default_transform  transform     reset target within the active configuration
@@ -481,7 +481,7 @@ The host is chosen on the same criterion as the media plane: **the free tier has
 - Whether a remembered location (UX-AV-9) should survive a host rearranging the configuration around it, or be discarded when the layout it referred to is gone. AR-CTRL-4 currently re-validates and falls through, which is safe but silently forgets.
 - Set image size caps and the storage/serving path (UX-OBJ-5, Supabase Storage).
 - Decide configuration-switch semantics for objects present in one config but not another (hide vs remove from view). **Stub status (2026-07-18):** configurations are implemented as named layout snapshots (transforms + background + title/description), with switch/reset/save/delete; on switch, objects ABSENT from a snapshot are left in place — this open item (hide vs remove) is the one piece deliberately not guessed. The deeper model (separating object content from per-config layout, per-config capacity/default-location) is also deferred; the snapshot approach is an additive stub.
-- Sticker-border rendering against arbitrary path clips (AR-CANVAS-2) — now load-bearing beyond aesthetics, since the border width _is_ the overlap tolerance (UX-OBJ-12).
+- ~~Sticker-border rendering against arbitrary path clips (AR-CANVAS-2).~~ **Resolved 2026-07-18** by striking arbitrary paths (UX-OBJ-7). Border-follows-clip is implemented and regression-tested for the shapes that remain.
 - Define the emote set and per-emote animation approach (UX-AV-4..7).
 
 **Houses / audio (Later):**

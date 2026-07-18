@@ -218,7 +218,7 @@
 	role="application" is ARIA's sanctioned container for widgets with custom
 	keyboard handling (arrows pan, +/- zoom); the compiler's interactive-role
 	list just doesn't include it. Verified by axe in e2e/a11y.e2e.ts; logged in
-	STYLE.md §9.
+	STYLE.md §10.
 -->
 <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
 <div

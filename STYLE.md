@@ -39,21 +39,65 @@ New text-on-surface combinations must be added to `PAIRS` in [theme-contrast.spe
 
 ### Non-color scales
 
-- **Type**: `--font-ui` / `--font-mono` / `--font-emoji`; sizes `--text-xs` (11) / `sm` (12) / `md` (14, body) / `lg` (16); `--leading: 1.45`. Emoji render in self-hosted **Noto Color Emoji (COLRv1)**, vendored from Google Fonts as static assets under [static/fonts/noto-color-emoji/](static/fonts/noto-color-emoji/) (SIL OFL). The `@font-face` src carries `tech(color-COLRv1)`: browsers that can't render COLRv1 — notably WebKit/Safari — skip the face and fall through to the system set (Apple emoji), the requested fallback, by capability rather than UA sniffing. Chunks are unicode-range split (fetch only what's shown) and, as static assets, don't count against the worker-script cap. **Trap logged:** the `@fontsource/noto-color-emoji` npm package ships the **OT-SVG** build, which Chromium renders blank — verified by screenshot. Only the COLRv1 build works cross-browser; there is no COLRv1 build on npm, hence the vendored files.
+- **Type**: `--font-ui` / `--font-mono` / `--font-emoji`; sizes `--text-xs` (13) / `sm` (14) / `md` (16, body) / `lg` (18) / `xl` (22); `--leading: 1.45`. **Nothing renders below `--text-xs` (13px).** The chrome previously sat at 11–12px, which is not comfortably readable at arm's length; canvas *content* still scales with zoom on top of this floor. Emoji render in self-hosted **Noto Color Emoji (COLRv1)**, vendored from Google Fonts as static assets under [static/fonts/noto-color-emoji/](static/fonts/noto-color-emoji/) (SIL OFL). The `@font-face` src carries `tech(color-COLRv1)`: browsers that can't render COLRv1 — notably WebKit/Safari — skip the face and fall through to the system set (Apple emoji), the requested fallback, by capability rather than UA sniffing. Chunks are unicode-range split (fetch only what's shown) and, as static assets, don't count against the worker-script cap. **Trap logged:** the `@fontsource/noto-color-emoji` npm package ships the **OT-SVG** build, which Chromium renders blank — verified by screenshot. Only the COLRv1 build works cross-browser; there is no COLRv1 build on npm, hence the vendored files.
 - **Space**: 4px base — `--space-1..8` (4/8/12/16/24/32). No ad-hoc pixel gaps.
 - **Radii**: `--radius-sm` (6) / `md` (10) / `lg` (16) / `full`. Panels are `md`; buttons/inputs `sm`.
 - **Elevation**: `--shadow-1` (floating panels, canvas objects) / `--shadow-2` (modals, future).
-- **`--target-min: 24px`** — WCAG 2.2 §2.5.8. Every clickable control sets `min-height`/`min-width` from it.
+- **`--target-min: 24px`** — WCAG 2.2 §2.5.8, the floor. `--control-height: 32px` is the comfortable default; [Button](src/lib/ui/Button.svelte) sets **both** `min-height` and `min-width`, because setting height alone left `×` controls narrower than the minimum.
+- **Focus ring**: `--ring-width: 3px` / `--ring-offset: 2px`, ONE width for every indicator — object and control alike. This supersedes the earlier per-object rule (ring = that object's sticker border), which produced a 10px ring that swallowed a 24px handle and a **0px** ring on drawings, i.e. no indicator at all (2.4.7 failure).
+- **Layering**: chrome uses `--z-canvas/-chrome/-popover/-overlay` (single digits). That is only viable because `.canvas` and `.world` set `isolation: isolate` — before that, unbounded per-object `z` from `maxZOf` competed with page chrome in the root stacking context and chrome had to bid 10000. Inside the world, [layers.ts](src/lib/canvas/layers.ts) holds `AVATAR_Z` and `RAISED_Z` **together**, because their relationship (a hovered object must beat an avatar) is the whole point.
 
-## 3. Theme mechanism (AR-STYLE-2)
+## 3. The components (AR-STYLE-1)
+
+Tokens alone did not produce consistency: thirty `<button>` elements each
+hand-rolled their own CSS, so the "secondary button" recipe existed in ~10
+copies and the pressed state in 5. There was nothing to be consistent *with*.
+Everything interactive now renders through [src/lib/ui/](src/lib/ui/):
+
+| Component | Use for | Notes |
+| --- | --- | --- |
+| [Button](src/lib/ui/Button.svelte) | every button, everywhere | `variant` secondary/primary/chrome, `shape` text/icon, optional `pressed` |
+| [Field](src/lib/ui/Field.svelte) | every text input | wraps a real `<label>`; `oncommit` hands back a typed string |
+| [Popover](src/lib/ui/Popover.svelte) | chrome menus | native Popover API |
+| [SwatchPicker](src/lib/ui/SwatchPicker.svelte) | color choice | APG radiogroup |
+
+Rules that keep it that way:
+
+- **Callers never write color, font, or size on a control.** Variants name an
+  *intent*; the component resolves it to tokens. This is what keeps
+  `no-raw-color.spec.ts` honest as the surface grows.
+- **Never the `font:` shorthand** — it silently resets `line-height`, which is
+  why visually identical buttons had different line boxes. Longhand only.
+- **Variant and shape are `data-` attributes, not classes.** As classes they put
+  generic words like `text` in every button's class namespace; `.btn.text`
+  immediately collided with the chat log's own `.text` span and broke a
+  selector. A shared primitive must not squat on generic names.
+- **`pressed` present ⇒ toggle.** Omitting it omits `aria-pressed` entirely,
+  rather than emitting `false` and making every plain button announce as a
+  toggle.
+- **Optional props spell `| undefined`.** Under `exactOptionalPropertyTypes`,
+  `variant?: 'a' | 'b'` refuses an explicit `undefined`, so callers could not
+  forward their own optionals — which is the normal thing to want.
+
+**Dialogs and menus use the platform.** Chrome menus are `popover="auto"`,
+which supplies light-dismiss, Escape, mutual exclusion (one open at a time),
+*and* the top layer for free. Fullscreen is a modal `<dialog>` opened with
+`showModal()`: the top layer is the only way it can paint above chrome, since
+the overlay is nested inside `main` and a fixed toolbar in the ROOT stacking
+context wins on z-index no matter how high the overlay bids. The modal also
+brings a real focus trap, which the previous hand-rolled `aria-modal="true"`
+div never had. Prefer this over hand-rolled behavior; do not reach for CSS
+anchor positioning (Chromium-only).
+
+## 4. Theme mechanism (AR-STYLE-2)
 
 `data-theme` on `<html>`: absent = system, `light`/`dark` = explicit. Persisted at `localStorage['mumble:theme']`; applied **pre-paint** by the inline script in [app.html](src/app.html), so there is never a flash of the wrong theme; runtime side in [theme.ts](src/lib/theme/theme.ts) (SSR-safe — `getTheme()` must not touch `localStorage` on the server; that bug 500'd the landing page once already). The toggle is global chrome and lives in the **layout**, bottom-left, cycling system → light → dark with its current mode in its accessible name. Theme is AR-SYNC-1 class-4 state: local, never synced.
 
-## 4. Motion policy
+## 5. Motion policy
 
 Motion is a courtesy, never a carrier of information. All non-essential animation dies under `prefers-reduced-motion` via the global kill-switch in app.css — no per-component opt-in to forget. Programmatic camera fits animate (240ms) so auto-zoom is legible as an *action*; user-driven pan/zoom is always 1:1, never animated.
 
-## 5. Keyboard map (UX-A11Y-2)
+## 6. Keyboard map (UX-A11Y-2)
 
 | Context | Key | Action |
 | --- | --- | --- |
@@ -61,7 +105,8 @@ Motion is a courtesy, never a carrier of information. All non-essential animatio
 | | `+` / `-` | zoom about center |
 | | `0` | re-enable auto-fit |
 | Object / avatar (focused) | Arrows | move 16px, **through the overlap solver** |
-| | Shift+Arrows | move 1px |
+| | Shift+Arrows | move 1px (FINE) |
+| Pointer drag / resize / rotate | Shift | snap — 16px lattice for move/resize, 15° for rotate |
 | | Enter | edit (note → textarea) |
 | | Delete/Backspace | delete (if permitted) |
 | Note textarea | Escape | commit + return focus to the frame (no trap) |
@@ -69,26 +114,26 @@ Motion is a courtesy, never a carrier of information. All non-essential animatio
 
 Keyboard movement debounces its commit (250ms after the last keypress) and rides the same optimistic/revert path as dragging — a keyboard user sees (and hears, via the live region) the same rejection behavior as a pointer user.
 
-## 6. Screen-reader model (UX-A11Y-3)
+## 7. Screen-reader model (UX-A11Y-3)
 
 - **Names carry content**: a note's accessible name is its text (`Note: <first 40 chars>` / `Empty note`); an avatar's is the participant's name. Chrome-only names ("Canvas object") are a defect.
 - **Announcements**: one polite `aria-live` region per room page, fed by `SyncClient.announce()` — commit rejections ("Change rejected: …"), creations, deletions. The alternating-space nonce in `announce()` is deliberate: it forces re-announcement of repeated identical messages.
 - **Decorative content is silenced**: avatar emoji are `aria-hidden` (the name is the information).
 
-## 7. The per-component checklist
+## 8. The per-component checklist
 
 Every new component answers these before merge — this is the convention half of UX-A11Y-1, covering what automation can't judge:
 
 1. **Name**: does everything interactive have an accessible name that carries *content*, not chrome?
 2. **Role**: is the element's role honest (a button is a `<button>`, a region has a role)?
 3. **Keyboard**: can everything the pointer does be done from the keyboard, per the map above? No traps?
-4. **Focus**: is focus visible (global `:focus-visible` ring — never disable it), and does focus go somewhere sensible after destructive actions? **Canvas objects** use an always-on `:focus-within` selection ring (thickness = their sticker border), deliberately stronger than 2.4.7 requires — on a canvas, focus is selection and must never be invisible after a click.
+4. **Focus**: is focus visible (global `:focus-visible` ring — never disable it), and does focus go somewhere sensible after destructive actions? **Canvas objects** show a selection ring when the frame itself holds focus, or when focus is inside their own `[data-editable]` content — deliberately stronger than 2.4.7 requires, since on a canvas focus is selection and must never be invisible after a click. It is NOT `:focus-within`: that lit the object ring whenever a chrome button was focused, so two things looked focused at once. The ring is an inflated clipped sibling rather than an `outline`, because `outline` follows `border-radius` but not `clip-path`, and only a same-shape layer tracks an ellipse edge.
 5. **Contrast**: does every new text/surface pairing appear in the contrast table (add it to `PAIRS`)?
 6. **Motion**: is any new animation non-essential and killed by reduced-motion?
 7. **Targets**: is every control ≥ `--target-min`?
 8. **Announce**: do outcomes invisible to a screen reader get an `announce()`?
 
-## 8. Enforcement inventory (AR-STYLE-3)
+## 9. Enforcement inventory (AR-STYLE-3)
 
 | Guarantee | Mechanism | Runs |
 | --- | --- | --- |
@@ -99,9 +144,9 @@ Every new component answers these before merge — this is the convention half o
 | Keyboard journey works end-to-end | same E2E: create → arrow-move (solver-constrained) → edit → escape → delete | `pnpm test:e2e` / CI |
 | Theme persists, applies pre-paint | same E2E | `pnpm test:e2e` / CI |
 
-Axe covers the automatable subset of AA (roughly 30–40% of criteria); the checklist in §7 owns the rest. Neither alone is conformance.
+Axe covers the automatable subset of AA (roughly 30–40% of criteria); the checklist in §8 owns the rest. Neither alone is conformance.
 
-## 9. Exemptions log
+## 10. Exemptions log
 
 Each exemption names its WCAG basis — an exemption without one is a violation:
 

@@ -316,8 +316,8 @@
 	ARIA has no role for a movable canvas object. role="group" + tabindex is
 	the least-wrong mapping: a widget role like button would nest interactive
 	controls (the textarea, delete) inside an interactive element, which is a
-	real violation. Keyboard behavior per STYLE.md §5; verified by axe; logged
-	in STYLE.md §9.
+	real violation. Keyboard behavior per STYLE.md §6; verified by axe; logged
+	in STYLE.md §10.
 -->
 <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
 <div
