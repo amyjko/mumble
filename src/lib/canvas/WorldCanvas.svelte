@@ -212,7 +212,7 @@
 	bind:clientWidth={width}
 	bind:clientHeight={height}
 	style:background={roomBg}
-	style:cursor={drawMode ? 'crosshair' : 'default'}
+	style:cursor={drawMode ? 'crosshair' : null}
 	onwheel={onWheel}
 	onpointerdown={onBackgroundDown}
 	onpointermove={onBackgroundMove}
@@ -320,6 +320,16 @@
 		overflow: hidden;
 		background: var(--bg-canvas);
 		touch-action: none;
+		/* Contain the world's stacking context. Per-object z comes from maxZOf
+		   and grows without bound; before this, those values competed directly
+		   with page chrome in the root stacking context, which is why chrome
+		   had to bid 10000 to stay on top. Isolated, chrome needs only --z-chrome. */
+		isolation: isolate;
+		/* Dragging the background pans the camera, so say so (UX-CANVAS-1). */
+		cursor: grab;
+	}
+	.canvas:active {
+		cursor: grabbing;
 	}
 	.grid {
 		position: absolute;
@@ -380,7 +390,7 @@
 	.fullscreen-overlay {
 		position: absolute;
 		inset: 0;
-		z-index: 20000;
+		z-index: var(--z-overlay);
 		display: flex;
 		flex-direction: column;
 		background: var(--bg-canvas);

@@ -239,7 +239,7 @@
 		position: fixed;
 		top: var(--space-3);
 		left: var(--space-3);
-		z-index: 10000;
+		z-index: var(--z-chrome);
 		display: flex;
 		gap: var(--space-3);
 		align-items: center;

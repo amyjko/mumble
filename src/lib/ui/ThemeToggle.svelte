@@ -20,7 +20,7 @@
 		position: fixed;
 		bottom: var(--space-3);
 		left: var(--space-3);
-		z-index: 10000;
+		z-index: var(--z-chrome);
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);

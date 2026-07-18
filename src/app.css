@@ -43,6 +43,19 @@
 	--note-quote-border: light-dark(#2920184d, #2920184d);
 	--grid-dot: light-dark(#78716c59, #a8a29e40);
 
+	/* Room brightness (UX-CANVAS-5). Five steps that mean the same thing in both
+	   themes: level 5 is brighter than level 1 either way. The light ramp walks
+	   toward paper-white; the dark ramp walks from near-black up to charcoal —
+	   never to white, so --text keeps its 4.5:1. Every step is contrast-checked
+	   against --text and --focus-ring in theme-contrast.spec.ts (20 assertions).
+	   These replaced the old named presets (Dawn/Spotlight), which were opaque
+	   and, being gradients, unrankable. */
+	--bg-level-1: light-dark(#dcd8d4, #0a0908);
+	--bg-level-2: light-dark(#e6e3e0, #131110);
+	--bg-level-3: light-dark(#f0eeec, #1a1815);
+	--bg-level-4: light-dark(#f8f7f6, #221f1c);
+	--bg-level-5: light-dark(#ffffff, #2b2724);
+
 	/* Elevation */
 	--shadow-1: 0 2px 10px light-dark(#0000002e, #00000066);
 	--shadow-2: 0 4px 24px light-dark(#00000033, #00000080);
@@ -57,13 +70,18 @@
 	   through to the system set — Apple emoji on macOS/iOS, the requested
 	   fallback, by capability rather than UA sniffing. */
 	--font-emoji: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
-	--text-xs: 11px;
-	--text-sm: 12px;
-	--text-md: 14px;
-	--text-lg: 16px;
+	/* Readability floor: nothing in the product renders below --text-xs (13px).
+	   The chrome used to sit at 11–12px, which is too small to read comfortably
+	   at arm's length; canvas content still scales with zoom on top of this. */
+	--text-xs: 13px;
+	--text-sm: 14px;
+	--text-md: 16px;
+	--text-lg: 18px;
+	--text-xl: 22px;
 	--leading: 1.45;
 
 	/* Space (4px base) and radii */
+	--space-0: 2px;
 	--space-1: 4px;
 	--space-2: 8px;
 	--space-3: 12px;
@@ -77,6 +95,21 @@
 
 	/* Interaction */
 	--target-min: 24px; /* WCAG 2.2 §2.5.8 minimum target size */
+	--control-height: 32px; /* comfortable height for 14px labels; ≥ target-min */
+	/* ONE ring width for every focus indicator — objects and controls alike, so
+	   focus reads the same everywhere. Supersedes the old per-object rule
+	   (ring = the object's sticker border), which produced a 10px ring that
+	   swallowed a 24px handle and a 0px ring on drawings (2.4.7 failure). */
+	--ring-width: 3px;
+	--ring-offset: 2px;
+
+	/* Layering. Four single-digit steps, viable because .canvas/.world isolate
+	   their stacking contexts — before that, unbounded per-object z leaked into
+	   the root context and chrome had to bid 10000 to stay on top. */
+	--z-canvas: 0;
+	--z-chrome: 10;
+	--z-popover: 20;
+	--z-overlay: 30;
 }
 
 :root[data-theme='light'] {
@@ -95,10 +128,13 @@ body {
 	background: var(--bg-canvas);
 }
 
-/* Focus is always visible (WCAG 2.4.7), always from the token. */
+/* Focus is always visible (WCAG 2.4.7), always from the token, always the same
+   width. outline (not box-shadow) follows border-radius, so the ring wraps the
+   control's actual shape — and being painted on the control itself, no
+   ancestor's clip-path can erase it. */
 :focus-visible {
-	outline: 2px solid var(--focus-ring);
-	outline-offset: 2px;
+	outline: var(--ring-width) solid var(--focus-ring);
+	outline-offset: var(--ring-offset);
 }
 
 /* Screen-reader-only utility (announcements, labels). */

@@ -55,7 +55,7 @@
 		position: fixed;
 		top: var(--space-3);
 		right: var(--space-3);
-		z-index: 10000;
+		z-index: var(--z-chrome);
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);

@@ -25,6 +25,12 @@ export default defineConfig({
 						provider: playwright(),
 						instances: [{ browser: 'chromium', headless: true }]
 					},
+					// Load the design tokens into the test page. Components resolve
+					// every size and color from app.css; without it a rule like
+					// `width: var(--control-height)` is invalid and the element
+					// collapses to content width — so a component test would be
+					// measuring a component that cannot exist in the real app.
+					setupFiles: ['./src/lib/test/browser-setup.ts'],
 					include: ['src/**/*.svelte.{test,spec}.{js,ts}'],
 					exclude: ['src/lib/server/**']
 				}

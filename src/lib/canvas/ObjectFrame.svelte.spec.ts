@@ -76,7 +76,12 @@ describe('drag spike (pointer capture in browser mode)', () => {
 		// [data-editable] correctly refuses to start a drag (that's the UX).
 		const target = dropTarget(before.left + 340, before.top + 120);
 		await userEvent.dragAndDrop(frame, page.elementLocator(target), {
-			sourcePosition: { x: 5, y: 5 }
+			// Top edge MIDPOINT, not the corner: the corner resize handles are
+			// 12px and overhang the frame by 4px, so a grab at (5,5) lands on
+			// `nw` and resizes instead of dragging. (That only surfaced once the
+			// design tokens were loaded into the test page and the handles got
+			// their real size — before that they collapsed to zero width.)
+			sourcePosition: { x: 100, y: 5 }
 		});
 
 		// The commit lands asynchronously (optimistic overlay first — AR-SYNC-2).
@@ -108,7 +113,12 @@ describe('drag spike (pointer capture in browser mode)', () => {
 		// touch at x = 120, so the solver must clamp there.
 		const target = dropTarget(before.left + 500, before.top + 4);
 		await userEvent.dragAndDrop(frame, page.elementLocator(target), {
-			sourcePosition: { x: 5, y: 5 }
+			// Top edge MIDPOINT, not the corner: the corner resize handles are
+			// 12px and overhang the frame by 4px, so a grab at (5,5) lands on
+			// `nw` and resizes instead of dragging. (That only surfaced once the
+			// design tokens were loaded into the test page and the handles got
+			// their real size — before that they collapsed to zero width.)
+			sourcePosition: { x: 100, y: 5 }
 		});
 
 		await vi.waitFor(() => {
