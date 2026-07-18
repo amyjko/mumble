@@ -9,6 +9,7 @@
 	import ObjectContent from '$lib/objects/ObjectContent.svelte';
 	import { displayMs, formatMs } from '$lib/model/timer';
 	import { clipPathCss, nextClip } from '$lib/model/clip';
+	import { resizeTransform, rotationForPointer, snapRotation, type ResizeHandle } from './resize';
 
 	interface Props {
 		object: CanvasObject;
@@ -90,6 +91,52 @@
 		void sync.commit({ kind: 'move_object', id: object.id, transform: final }, object.id);
 	}
 
+	function commitTransform(next: Transform): void {
+		void sync.commit({ kind: 'move_object', id: object.id, transform: next }, object.id);
+	}
+
+	// Resize / rotate via handles. Both preview through the overlay and commit
+	// move_object on release, so the solver validates the final transform (an
+	// overlapping result reverts, UX-PERM-4). NOTE: resize/rotate math works on
+	// world axes and ignores rotation — a prototype approximation; true
+	// rotated-handle resize and rotated-shape collision are deferred.
+	let handleKind = $state<ResizeHandle | 'rotate' | null>(null);
+	const zeroT: Transform = { x: 0, y: 0, width: 0, height: 0, rotation: 0, z: 0 };
+	let handleStart: Transform = zeroT;
+	let handlePointer: Point = { x: 0, y: 0 };
+	let handleLast: Transform = zeroT;
+
+	function onHandleMove(event: PointerEvent): void {
+		if (handleKind === null) return;
+		const world = viewport.toWorld({ x: event.clientX, y: event.clientY });
+		if (handleKind === 'rotate') {
+			const center = { x: handleStart.x + handleStart.width / 2, y: handleStart.y + handleStart.height / 2 };
+			handleLast = { ...handleStart, rotation: snapRotation(rotationForPointer(center, world), event.shiftKey) };
+		} else {
+			handleLast = resizeTransform(handleStart, handleKind, world.x - handlePointer.x, world.y - handlePointer.y);
+		}
+		sync.objectOverlays.set(object.id, handleLast);
+	}
+
+	function onHandleUp(): void {
+		window.removeEventListener('pointermove', onHandleMove);
+		if (handleKind === null) return;
+		handleKind = null;
+		commitTransform(handleLast);
+	}
+
+	// Window listeners rather than pointer capture on the handle: reliable under
+	// both real and synthetic (test) pointer streams.
+	function onHandleDown(kind: ResizeHandle | 'rotate', event: PointerEvent): void {
+		event.stopPropagation();
+		handleKind = kind;
+		handleStart = { ...effective };
+		handleLast = handleStart;
+		handlePointer = viewport.toWorld({ x: event.clientX, y: event.clientY });
+		window.addEventListener('pointermove', onHandleMove);
+		window.addEventListener('pointerup', onHandleUp, { once: true });
+	}
+
 	function onPointerDown(event: PointerEvent): void {
 		if (!editable || isEditableTarget(event.target)) return;
 		event.stopPropagation();
@@ -153,6 +200,27 @@
 			return;
 		}
 		if (!editable) return;
+		if (event.key === '[' || event.key === ']') {
+			const delta = event.key === '[' ? -15 : 15;
+			commitTransform({ ...object.transform, rotation: snapRotation(object.transform.rotation + delta, true) });
+			event.preventDefault();
+			return;
+		}
+		if (event.altKey && event.key.startsWith('Arrow')) {
+			const g = 16;
+			const t = object.transform;
+			const grow =
+				event.key === 'ArrowRight'
+					? { width: t.width + g }
+					: event.key === 'ArrowLeft'
+						? { width: Math.max(40, t.width - g) }
+						: event.key === 'ArrowDown'
+							? { height: t.height + g }
+							: { height: Math.max(40, t.height - g) };
+			commitTransform({ ...t, ...grow });
+			event.preventDefault();
+			return;
+		}
 		const step = event.shiftKey ? 1 : 16;
 		let dx = 0;
 		let dy = 0;
@@ -246,6 +314,22 @@
 		<ObjectContent {object} {sync} {editable} {identity} onexit={exitToFrame} />
 	</div>
 	{#if editable}
+		{#each ['nw', 'ne', 'sw', 'se'] as const as h (h)}
+			<button
+				class="resize {h}"
+				aria-label="Resize from {h}"
+				onpointerdown={(e) => {
+					onHandleDown(h, e);
+				}}
+			></button>
+		{/each}
+		<button
+			class="rotate"
+			aria-label="Rotate"
+			onpointerdown={(e) => {
+				onHandleDown('rotate', e);
+			}}
+		></button>
 		<button
 			class="shape"
 			aria-label="Change shape (currently {object.clip.shape})"
@@ -345,6 +429,56 @@
 	.delete {
 		right: calc(-1 * var(--space-3));
 	}
+	.resize {
+		position: absolute;
+		width: var(--space-3);
+		height: var(--space-3);
+		padding: 0;
+		border: 1px solid var(--accent);
+		border-radius: 2px;
+		background: var(--surface);
+		opacity: 0;
+		transition: opacity 120ms;
+	}
+	.resize.nw {
+		top: calc(-1 * var(--space-1));
+		left: calc(-1 * var(--space-1));
+		cursor: nwse-resize;
+	}
+	.resize.ne {
+		top: calc(-1 * var(--space-1));
+		right: calc(-1 * var(--space-1));
+		cursor: nesw-resize;
+	}
+	.resize.sw {
+		bottom: calc(-1 * var(--space-1));
+		left: calc(-1 * var(--space-1));
+		cursor: nesw-resize;
+	}
+	.resize.se {
+		bottom: calc(-1 * var(--space-1));
+		right: calc(-1 * var(--space-1));
+		cursor: nwse-resize;
+	}
+	.rotate {
+		position: absolute;
+		top: calc(-1 * var(--space-6));
+		left: 50%;
+		transform: translateX(-50%);
+		width: var(--space-3);
+		height: var(--space-3);
+		padding: 0;
+		border: 1px solid var(--accent);
+		border-radius: var(--radius-full);
+		background: var(--surface);
+		cursor: grab;
+		opacity: 0;
+		transition: opacity 120ms;
+	}
+	.frame:hover .resize,
+	.frame:focus-within .resize,
+	.frame:hover .rotate,
+	.frame:focus-within .rotate,
 	.frame:hover .fullscreen,
 	.frame:focus-within .fullscreen,
 	.frame:hover .shape,
