@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { joinRoom } from './support/join';
 
 /**
  * The page-level guard (AR-TEST-9's first slice): runs against the BUILT
@@ -23,13 +24,11 @@ test('two pages share a room: create in A, see in B, no page errors', async ({ b
 	}
 
 	// A joins; the join effect must settle (one avatar, no loop).
-	await pageA.goto(`/hey/${room}`);
-	await expect(pageA.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(pageA, room);
 	await expect(pageA.locator('.avatar')).toHaveCount(1);
 
 	// B joins the same room in the same context (same identity, same avatar).
-	await pageB.goto(`/hey/${room}`);
-	await expect(pageB.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(pageB, room);
 
 	// A creates a note AFTER B is up — so B seeing it proves live
 	// BroadcastChannel sync, not just localStorage hydration.

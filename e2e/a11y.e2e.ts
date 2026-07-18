@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { joinRoom } from './support/join';
 
 /**
  * UX-A11Y-1's automatable half (AR-STYLE-3): axe scans in BOTH themes, plus
@@ -22,7 +23,7 @@ for (const theme of ['light', 'dark'] as const) {
 		await page.goto('/');
 		await expectNoViolations(page);
 
-		await page.goto(`/hey/axe-${theme}-${Date.now().toString(36)}`);
+		await joinRoom(page, `axe-${theme}-${Date.now().toString(36)}`);
 		await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
 		await page.getByRole('button', { name: '+ note' }).click();
 		await expect(page.locator('textarea.note')).toHaveCount(1);
@@ -31,8 +32,7 @@ for (const theme of ['light', 'dark'] as const) {
 }
 
 test('keyboard journey: create, move (solver-constrained), edit, delete', async ({ page }) => {
-	await page.goto(`/hey/kbd-${Date.now().toString(36)}`);
-	await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(page, `kbd-${Date.now().toString(36)}`);
 
 	// Create from the keyboard.
 	await page.getByRole('button', { name: '+ note' }).focus();
@@ -62,7 +62,7 @@ test('keyboard journey: create, move (solver-constrained), edit, delete', async 
 });
 
 test('auto-fit toggle receives clicks and refits (regression: canvas capture)', async ({ page }) => {
-	await page.goto(`/hey/fit-${Date.now().toString(36)}`);
+	await joinRoom(page, `fit-${Date.now().toString(36)}`);
 	const canvas = page.getByRole('application', { name: 'Room canvas' });
 	await expect(canvas).toBeVisible();
 	const toggle = page.getByRole('button', { name: /auto-fit/ });
@@ -86,7 +86,7 @@ test('auto-fit toggle receives clicks and refits (regression: canvas capture)', 
 });
 
 test('tabbing to an off-screen object scrolls it into view', async ({ page }) => {
-	await page.goto(`/hey/reveal-${Date.now().toString(36)}`);
+	await joinRoom(page, `reveal-${Date.now().toString(36)}`);
 	const canvas = page.getByRole('application', { name: 'Room canvas' });
 	await expect(canvas).toBeVisible();
 	// Two notes, then zoom in so they can't both be on screen.

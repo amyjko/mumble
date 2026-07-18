@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { joinRoom } from './support/join';
 
 /**
  * Concurrent note editing (UX-OBJ-2 / AR-SYNC-4). This is the test the whole
@@ -11,8 +12,7 @@ test('crdt: two tabs typing in one note keep BOTH contributions', async ({ brows
 	const a = await context.newPage();
 	const b = await context.newPage();
 
-	await a.goto(`/hey/${room}`);
-	await expect(a.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(a, room);
 	await a.getByRole('button', { name: '+ note' }).click();
 
 	const editorA = a.getByRole('textbox', { name: 'Note text (markdown)' });
@@ -20,7 +20,7 @@ test('crdt: two tabs typing in one note keep BOTH contributions', async ({ brows
 	await editorA.pressSequentially('Alice writes. ');
 
 	// B opens the same room and sees Alice's text.
-	await b.goto(`/hey/${room}`);
+	await joinRoom(b, room);
 	const editorB = b.getByRole('textbox', { name: 'Note text (markdown)' });
 	await expect(editorB).toHaveValue(/Alice writes\./);
 
@@ -55,15 +55,14 @@ test('crdt: a remote insert does not strand your caret', async ({ browser }) => 
 	const a = await context.newPage();
 	const b = await context.newPage();
 
-	await a.goto(`/hey/${room}`);
-	await expect(a.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(a, room);
 	await a.getByRole('button', { name: '+ note' }).click();
 
 	const editorA = a.getByRole('textbox', { name: 'Note text (markdown)' });
 	await editorA.click();
 	await editorA.pressSequentially('END');
 
-	await b.goto(`/hey/${room}`);
+	await joinRoom(b, room);
 	const editorB = b.getByRole('textbox', { name: 'Note text (markdown)' });
 	await expect(editorB).toHaveValue('END');
 

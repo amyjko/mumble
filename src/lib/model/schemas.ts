@@ -240,6 +240,14 @@ export const mutationSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('set_participant_clip'), id: z.uuid(), clip: clipSchema }),
 	z.object({ kind: z.literal('set_hand'), id: z.uuid(), raised: z.boolean() }),
 	z.object({ kind: z.literal('set_away'), id: z.uuid(), away: z.boolean() }),
+	// Change your own name or camera-off face (UX-ID-1, UX-AV-3). Self-only:
+	// your identity is yours, the same rule that governs emotes (UX-AV-7).
+	z.object({
+		kind: z.literal('set_identity'),
+		id: z.uuid(),
+		name: z.string().min(1).max(40),
+		emoji: z.string().min(1)
+	}),
 	z.object({
 		kind: z.literal('set_background'),
 		value: z.string().refine(isSafeBackground, 'Unsafe background value')

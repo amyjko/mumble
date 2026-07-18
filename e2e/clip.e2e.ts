@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { joinRoom } from './support/join';
 
 /**
  * The clip lives on the inner .clip layer, not .frame: clip-path clips
@@ -13,8 +14,7 @@ test('clip: cycling an object shape applies a clip-path and syncs', async ({ bro
 	const a = await context.newPage();
 	const b = await context.newPage();
 
-	await a.goto(`/hey/${room}`);
-	await expect(a.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(a, room);
 	await a.getByRole('button', { name: '+ note' }).click();
 	const frameA = a.locator('.frame');
 	await frameA.hover();
@@ -29,7 +29,7 @@ test('clip: cycling an object shape applies a clip-path and syncs', async ({ bro
 		.toContain('ellipse');
 
 	// Shape is shared state — B sees the clip too.
-	await b.goto(`/hey/${room}`);
+	await joinRoom(b, room);
 	const frameB = b.locator('.frame');
 	await expect(frameB).toHaveCount(1);
 	await expect
@@ -49,8 +49,7 @@ test('clip: cycling an object shape applies a clip-path and syncs', async ({ bro
  */
 test('clip: the sticker border follows the silhouette all the way around', async ({ page }) => {
 	const room = `clipborder-${Date.now().toString(36)}`;
-	await page.goto(`/hey/${room}`);
-	await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(page, room);
 	await page.getByRole('button', { name: '+ note' }).click();
 	await page.locator('.frame').hover();
 
@@ -94,8 +93,7 @@ test('clip: the sticker border follows the silhouette all the way around', async
  */
 test('clip: controls stay reachable in every shape (no trapped object)', async ({ page }) => {
 	const room = `cliptrap-${Date.now().toString(36)}`;
-	await page.goto(`/hey/${room}`);
-	await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(page, room);
 	await page.getByRole('button', { name: '+ note' }).click();
 
 	const frame = page.locator('.frame');

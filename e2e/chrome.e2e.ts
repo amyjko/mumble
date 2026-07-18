@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { joinRoom } from './support/join';
 
 /**
  * Floating chrome behavior. The menus were <details> elements with no
@@ -11,8 +12,7 @@ import { expect, test } from '@playwright/test';
 
 test('chrome: only one menu is open at a time', async ({ page }) => {
 	const room = `chrome-${Date.now().toString(36)}`;
-	await page.goto(`/hey/${room}`);
-	await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(page, room);
 
 	const configs = page.locator('#config-menu');
 	const background = page.locator('#bg-menu');
@@ -29,8 +29,7 @@ test('chrome: only one menu is open at a time', async ({ page }) => {
 
 test('chrome: clicking outside dismisses the open menu', async ({ page }) => {
 	const room = `chrome-out-${Date.now().toString(36)}`;
-	await page.goto(`/hey/${room}`);
-	await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(page, room);
 
 	const background = page.locator('#bg-menu');
 	await page.getByRole('button', { name: /background/ }).click();
@@ -43,8 +42,7 @@ test('chrome: clicking outside dismisses the open menu', async ({ page }) => {
 
 test('chrome: Escape dismisses the open menu', async ({ page }) => {
 	const room = `chrome-esc-${Date.now().toString(36)}`;
-	await page.goto(`/hey/${room}`);
-	await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(page, room);
 
 	const configs = page.locator('#config-menu');
 	await page.getByRole('button', { name: /configs/ }).click();
@@ -62,8 +60,7 @@ test('chrome: Escape dismisses the open menu', async ({ page }) => {
  */
 test('chrome: a maximized object covers the toolbar and holds focus', async ({ page }) => {
 	const room = `chrome-fs-${Date.now().toString(36)}`;
-	await page.goto(`/hey/${room}`);
-	await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(page, room);
 	await page.getByRole('button', { name: '+ note' }).click();
 	await page.locator('.frame').hover();
 	await page.getByRole('button', { name: 'Fill screen with this object' }).click();
@@ -118,8 +115,7 @@ test('chrome: a maximized object covers the toolbar and holds focus', async ({ p
 test('chrome: the toolbar stays within a narrow viewport', async ({ page }) => {
 	const room = `chrome-narrow-${Date.now().toString(36)}`;
 	await page.setViewportSize({ width: 560, height: 800 });
-	await page.goto(`/hey/${room}`);
-	await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(page, room);
 
 	const overflow = await page.locator('header.bar').evaluate((el) => {
 		const box = el.getBoundingClientRect();

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { joinRoom } from './support/join';
 
 /**
  * Scale-to-fullscreen (UX-CANVAS-4): per-viewer view state — opens an overlay,
@@ -11,10 +12,9 @@ test('fullscreen: overlay opens, Escape closes, nothing is mutated', async ({ br
 	const a = await context.newPage();
 	const b = await context.newPage();
 
-	await a.goto(`/hey/${room}`);
-	await expect(a.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(a, room);
 	await a.getByRole('button', { name: '+ note' }).click();
-	await b.goto(`/hey/${room}`);
+	await joinRoom(b, room);
 	await expect(b.locator('.frame')).toHaveCount(1);
 
 	// Fill the screen with the note.

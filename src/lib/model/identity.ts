@@ -2,7 +2,12 @@ import { parseJson, storedIdentitySchema } from './schemas';
 import type { StoredIdentity } from './types';
 
 const KEY = 'mumble:identity';
-const EMOJI = ['🦊', '🐙', '🦎', '🐸', '🦜', '🐢', '🦔', '🐳', '🦩', '🐝'];
+/**
+ * Camera-off faces a participant can pick (UX-AV-3). Glyph data lives in a
+ * module so every render goes through <Emoji> and therefore --font-emoji
+ * (no-raw-emoji.spec.ts enforces this).
+ */
+export const AVATAR_EMOJI = ['🦊', '🐙', '🦎', '🐸', '🦜', '🐢', '🦔', '🐳', '🦩', '🐝', '🦋', '🐬'];
 
 /**
  * Faces for dev-panel fake participants. Glyph data belongs in a module, not
@@ -18,19 +23,30 @@ export const FAKE_EMOJI_FALLBACK = '🐨';
  * Supabase anonymous auth when the real store lands; the id remains a UUID so
  * nothing downstream changes shape.
  */
-export function getOrCreateIdentity(): StoredIdentity {
+/**
+ * The identity stored in this browser, or null on a first visit.
+ *
+ * Returning null rather than inventing one is the point: UX-ID-1 says joining
+ * may be anonymous but **a name is required**, and a generated `guest-473` is
+ * not a name anyone chose. The caller asks before joining.
+ */
+export function loadIdentity(): StoredIdentity | null {
 	const raw = localStorage.getItem(KEY);
-	if (raw !== null) {
-		const parsed = storedIdentitySchema.safeParse(parseJson(raw));
-		if (parsed.success) return parsed.data;
-	}
-	const fresh: StoredIdentity = {
-		id: crypto.randomUUID(),
-		name: `guest-${String(Math.floor(Math.random() * 1000))}`,
-		emoji: EMOJI[Math.floor(Math.random() * EMOJI.length)] ?? '🐙'
-	};
-	localStorage.setItem(KEY, JSON.stringify(fresh));
-	return fresh;
+	if (raw === null) return null;
+	const parsed = storedIdentitySchema.safeParse(parseJson(raw));
+	return parsed.success ? parsed.data : null;
+}
+
+/** A suggested face for the join prompt, so the picker starts somewhere. */
+export function suggestedEmoji(): string {
+	return AVATAR_EMOJI[Math.floor(Math.random() * AVATAR_EMOJI.length)] ?? '🐙';
+}
+
+/** Mint an identity for a name the participant actually chose. */
+export function createIdentity(name: string, emoji: string): StoredIdentity {
+	const identity: StoredIdentity = { id: crypto.randomUUID(), name: name.trim(), emoji };
+	saveIdentity(identity);
+	return identity;
 }
 
 export function saveIdentity(identity: StoredIdentity): void {

@@ -362,6 +362,14 @@ export class MemoryRoomStore implements RoomStore {
 				existing.updated_at = nowIso();
 				break;
 			}
+			case 'set_identity': {
+				this.requireSelf(m.id, 'You can only change your own name');
+				const participant = this.state.participants[m.id];
+				if (participant === undefined) throw new StoreRejection('invalid', 'Unknown participant');
+				participant.name = m.name;
+				participant.emoji = m.emoji;
+				break;
+			}
 			case 'set_background': {
 				// Room-level state. Host-gating arrives with the host role (UX-ROOM-6);
 				// for now, open like other room edits in the stub.

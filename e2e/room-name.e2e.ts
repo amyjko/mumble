@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { joinRoom } from './support/join';
 
 /**
  * Room names (UX-ROOM-9/10). The pattern used to exist in two places with each
@@ -26,8 +27,7 @@ test('a malformed name is refused the same way', async ({ page }) => {
 test('a well-formed name still resolves', async ({ page }) => {
 	// Guards the negative cases above: if every route errored, they would pass
 	// while proving nothing.
-	await page.goto(`/hey/ok-${Date.now().toString(36)}`);
-	await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(page, `ok-${Date.now().toString(36)}`);
 	await expect(page.getByText('No such room')).toHaveCount(0);
 });
 
@@ -58,8 +58,7 @@ test('case-insensitive: LCI reaches the same room as lci', async ({ page }) => {
 
 test('rename warns that existing links will break (UX-ROOM-10)', async ({ page }) => {
 	const room = `rn-${Date.now().toString(36)}`;
-	await page.goto(`/hey/${room}`);
-	await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(page, room);
 
 	await page.getByRole('button', { name: room }).click();
 	const field = page.getByRole('textbox', { name: 'New room name' });

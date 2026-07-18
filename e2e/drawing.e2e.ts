@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { joinRoom } from './support/join';
 
 /** Drawings (UX-OBJ-11): draw mode captures a stroke into a synced drawing object. */
 test('drawing: a stroke drawn in A becomes a drawing and syncs to B', async ({ browser }) => {
@@ -7,7 +8,7 @@ test('drawing: a stroke drawn in A becomes a drawing and syncs to B', async ({ b
 	const a = await context.newPage();
 	const b = await context.newPage();
 
-	await a.goto(`/hey/${room}`);
+	await joinRoom(a, room);
 	const canvas = a.getByRole('application', { name: 'Room canvas' });
 	await expect(canvas).toBeVisible();
 	await a.getByRole('button', { name: '✎ draw' }).click();
@@ -21,7 +22,7 @@ test('drawing: a stroke drawn in A becomes a drawing and syncs to B', async ({ b
 
 	// A drawing object (svg path) now exists and syncs to B.
 	await expect(a.locator('.drawing path')).toHaveCount(1);
-	await b.goto(`/hey/${room}`);
+	await joinRoom(b, room);
 	await expect(b.locator('.drawing path')).toHaveCount(1);
 
 	await context.close();
@@ -51,8 +52,7 @@ test('drawing: a stroke drawn in A becomes a drawing and syncs to B', async ({ b
  */
 test('drawing: a stroke can start on top of an object', async ({ page }) => {
 	const room = `over-${Date.now().toString(36)}`;
-	await page.goto(`/hey/${room}`);
-	await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(page, room);
 
 	await page.getByRole('button', { name: '+ note' }).click();
 	const frame = page.locator('.frame');

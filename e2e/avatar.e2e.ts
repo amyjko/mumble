@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { joinRoom } from './support/join';
 
 /**
  * Avatars are canvas objects (UX-AV-1): resizable, rotatable, and reshapeable
@@ -11,8 +12,7 @@ test('avatar: resize and reshape your own, and it syncs', async ({ browser }) =>
 	const a = await context.newPage();
 	const b = await context.newPage();
 
-	await a.goto(`/hey/${room}`);
-	await expect(a.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(a, room);
 	const avatar = a.locator('.avatar');
 	await expect(avatar).toHaveCount(1);
 	await avatar.hover();
@@ -35,7 +35,7 @@ test('avatar: resize and reshape your own, and it syncs', async ({ browser }) =>
 	await expect(a.getByRole('button', { name: 'Resize avatar from se' })).toBeVisible();
 
 	// Shape is participant state, so a peer sees it.
-	await b.goto(`/hey/${room}`);
+	await joinRoom(b, room);
 	await expect
 		.poll(async () => b.locator('.avatar .skin').first().evaluate((el) => getComputedStyle(el).clipPath))
 		.toContain('ellipse');
@@ -61,8 +61,7 @@ test('avatar: resize and reshape your own, and it syncs', async ({ browser }) =>
  */
 test('avatar: multiple reactions float at once', async ({ page }) => {
 	const room = `avatar-react-${Date.now().toString(36)}`;
-	await page.goto(`/hey/${room}`);
-	await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(page, room);
 
 	await page.getByRole('button', { name: 'Celebrate' }).click();
 	await page.getByRole('button', { name: 'Heart' }).click();
@@ -74,8 +73,7 @@ test('avatar: multiple reactions float at once', async ({ page }) => {
 /** Persistent states must be legible across the room (UX-AV-5). */
 test('avatar: raised hand and away are prominent badges', async ({ page }) => {
 	const room = `avatar-badge-${Date.now().toString(36)}`;
-	await page.goto(`/hey/${room}`);
-	await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(page, room);
 
 	await page.getByRole('button', { name: 'Raise hand' }).click();
 	const hand = page.getByRole('img', { name: 'hand raised' });
@@ -91,8 +89,7 @@ test('avatar: raised hand and away are prominent badges', async ({ page }) => {
 /** Every emoji renders in the vendored Noto face, not the system set. */
 test('avatar: emoji use the emoji font everywhere', async ({ page }) => {
 	const room = `avatar-font-${Date.now().toString(36)}`;
-	await page.goto(`/hey/${room}`);
-	await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(page, room);
 	await page.getByRole('button', { name: 'Celebrate' }).click();
 
 	const fonts = await page.evaluate(() =>

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { joinRoom } from './support/join';
 
 /** Canvas background (UX-CANVAS-5): shared room state, applied to the canvas. */
 test('background: a preset chosen in A applies and syncs to B', async ({ browser }) => {
@@ -7,7 +8,7 @@ test('background: a preset chosen in A applies and syncs to B', async ({ browser
 	const a = await context.newPage();
 	const b = await context.newPage();
 
-	await a.goto(`/hey/${room}`);
+	await joinRoom(a, room);
 	const canvasA = a.getByRole('application', { name: 'Room canvas' });
 	await expect(canvasA).toBeVisible();
 	const before = await canvasA.evaluate((el) => getComputedStyle(el).backgroundColor);
@@ -26,7 +27,7 @@ test('background: a preset chosen in A applies and syncs to B', async ({ browser
 		.not.toBe(before);
 
 	// A second viewer sees the same room background.
-	await b.goto(`/hey/${room}`);
+	await joinRoom(b, room);
 	const canvasB = b.getByRole('application', { name: 'Room canvas' });
 	await expect(canvasB).toBeVisible();
 	await expect

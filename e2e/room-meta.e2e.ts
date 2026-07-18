@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { joinRoom } from './support/join';
 
 /** Room title (UX-ROOM-2) syncs; rename (UX-ROOM-10) navigates carrying state. */
 test('title syncs to peers; rename navigates and carries state', async ({ browser }) => {
@@ -7,8 +8,7 @@ test('title syncs to peers; rename navigates and carries state', async ({ browse
 	const a = await context.newPage();
 	const b = await context.newPage();
 
-	await a.goto(`/hey/${room}`);
-	await expect(a.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(a, room);
 	await a.getByRole('button', { name: '+ note' }).click(); // some state to carry
 
 	// Set a title via the room popover.
@@ -17,7 +17,7 @@ test('title syncs to peers; rename navigates and carries state', async ({ browse
 	await a.getByRole('textbox', { name: 'Room title' }).blur();
 
 	// B sees the title.
-	await b.goto(`/hey/${room}`);
+	await joinRoom(b, room);
 	await expect(b.getByText('Design Sync')).toBeVisible();
 
 	// Rename → new URL, and the note came along.

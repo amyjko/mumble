@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { joinRoom } from './support/join';
 
 /** Emotes (UX-AV-4/5/7): raise-hand persists + syncs; reactions are self-initiated. */
 test('raise hand persists and syncs; a peer cannot toggle it', async ({ browser }) => {
@@ -7,8 +8,7 @@ test('raise hand persists and syncs; a peer cannot toggle it', async ({ browser 
 	const a = await context.newPage();
 	const b = await context.newPage();
 
-	await a.goto(`/hey/${room}`);
-	await expect(a.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(a, room);
 	// A raises hand from the dedicated emote bar. It used to hang off your own
 	// avatar and appear only on hover, which was hard to find and unreachable
 	// on touch; there is now exactly one always-visible launcher.
@@ -18,7 +18,7 @@ test('raise hand persists and syncs; a peer cannot toggle it', async ({ browser 
 	// B sees A's raised hand (persistent, synced). Self-only is now structural:
 	// the single bar can address nobody but you, and the store enforces it too
 	// (memory-store.spec.ts covers the rejection).
-	await b.goto(`/hey/${room}`);
+	await joinRoom(b, room);
 	await expect(b.locator('.avatar.raised')).toHaveCount(1);
 
 	await context.close();

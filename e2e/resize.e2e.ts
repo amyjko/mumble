@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { joinRoom } from './support/join';
 
 /**
  * Resize + rotate (UX-OBJ-1). Driven by keyboard for determinism (the pointer
@@ -11,8 +12,7 @@ test('resize: Alt+Arrow grows a focused object, synced', async ({ browser }) => 
 	const a = await context.newPage();
 	const b = await context.newPage();
 
-	await a.goto(`/hey/${room}`);
-	await expect(a.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(a, room);
 	await a.getByRole('button', { name: '+ note' }).click();
 	const frame = a.locator('.frame');
 	await frame.focus();
@@ -25,7 +25,7 @@ test('resize: Alt+Arrow grows a focused object, synced', async ({ browser }) => 
 	await expect.poll(async () => worldWidth(frame)).toBeGreaterThan(before);
 
 	// Size is shared state — B sees the new width.
-	await b.goto(`/hey/${room}`);
+	await joinRoom(b, room);
 	const frameB = b.locator('.frame');
 	await expect(frameB).toHaveCount(1);
 	await expect.poll(async () => worldWidth(frameB)).toBeGreaterThan(before);
@@ -34,8 +34,7 @@ test('resize: Alt+Arrow grows a focused object, synced', async ({ browser }) => 
 });
 
 test('rotate: [ and ] keys rotate a focused object', async ({ page }) => {
-	await page.goto(`/hey/rot-${Date.now().toString(36)}`);
-	await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(page, `rot-${Date.now().toString(36)}`);
 	await page.getByRole('button', { name: '+ note' }).click();
 	const frame = page.locator('.frame');
 	await frame.focus();

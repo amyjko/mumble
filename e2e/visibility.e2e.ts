@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { joinRoom } from './support/join';
 
 /**
  * Object visibility (UX-ROOM-3). Hiding is a LAYOUT property captured per
@@ -9,8 +10,7 @@ import { expect, test } from '@playwright/test';
  */
 test('visibility: hiding ghosts the object for its creator and frees its space', async ({ page }) => {
 	const room = `vis-${Date.now().toString(36)}`;
-	await page.goto(`/hey/${room}`);
-	await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(page, room);
 	await page.getByRole('button', { name: '+ note' }).click();
 
 	const frame = page.locator('.frame');
@@ -32,8 +32,7 @@ test('visibility: hiding ghosts the object for its creator and frees its space',
 /** A configuration restores visibility along with position and size. */
 test('visibility: a configuration remembers what was hidden', async ({ page }) => {
 	const room = `viscfg-${Date.now().toString(36)}`;
-	await page.goto(`/hey/${room}`);
-	await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(page, room);
 	await page.getByRole('button', { name: '+ note' }).click();
 	await expect(page.locator('.frame')).toHaveCount(1);
 

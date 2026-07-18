@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
+import { joinRoom } from './support/join';
 
 /** Note markdown rendering (UX-OBJ-2): rendered when unfocused, raw when editing. */
 test('markdown: a note renders when unfocused and edits raw on focus', async ({ page }) => {
-	await page.goto(`/hey/md-${Date.now().toString(36)}`);
-	await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(page, `md-${Date.now().toString(36)}`);
 	await page.getByRole('button', { name: '+ note' }).click();
 
 	const ta = page.locator('textarea.note');

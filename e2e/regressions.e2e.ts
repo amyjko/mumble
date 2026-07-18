@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { joinRoom } from './support/join';
 
 /**
  * Fixes for bugs found by auditing DESIGN.md against the code rather than
@@ -12,8 +13,7 @@ import { expect, test } from '@playwright/test';
  */
 test('a11y: delete names the object type, not always "note"', async ({ page }) => {
 	const room = `noun-${Date.now().toString(36)}`;
-	await page.goto(`/hey/${room}`);
-	await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(page, room);
 
 	await page.getByRole('button', { name: '+ timer' }).click();
 	await page.locator('.frame').hover();
@@ -32,7 +32,7 @@ test('a11y: delete names the object type, not always "note"', async ({ page }) =
  */
 test('auto-fit frames a resized avatar instead of cropping it', async ({ page }) => {
 	const room = `fit-${Date.now().toString(36)}`;
-	await page.goto(`/hey/${room}`);
+	await joinRoom(page, room);
 	const canvas = page.getByRole('application', { name: 'Room canvas' });
 	await expect(canvas).toBeVisible();
 
@@ -89,8 +89,7 @@ test('auto-fit frames a resized avatar instead of cropping it', async ({ page })
  */
 test('reset is disabled until a configuration exists', async ({ page }) => {
 	const room = `reset-${Date.now().toString(36)}`;
-	await page.goto(`/hey/${room}`);
-	await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(page, room);
 
 	await page.getByRole('button', { name: /configs/ }).click();
 	const reset = page.getByRole('button', { name: /reset layout/ });
