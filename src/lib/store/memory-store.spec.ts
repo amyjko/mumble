@@ -285,3 +285,49 @@ describe('room title/description (UX-ROOM-2)', () => {
 		expect(store.state.description).toBe('daily sync');
 	});
 });
+
+describe('configurations (UX-ROOM-3..6) — snapshot model', () => {
+	it('save captures layout; switch/reset restore per-config transforms', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const n = note(ALICE, 0);
+		await store.commit({ kind: 'create_object', object: n });
+		const cfg = '99999999-9999-4999-8999-999999999999';
+		await store.commit({ kind: 'save_config', id: cfg, name: 'A' });
+		expect(store.state.active_config).toBe(cfg);
+
+		// Move the note, then switch back to config A — layout restored.
+		await store.commit({ kind: 'move_object', id: n.id, transform: { ...n.transform, x: 500 } });
+		expect(store.state.objects[n.id]?.transform.x).toBe(500);
+		await store.commit({ kind: 'switch_config', id: cfg });
+		expect(store.state.objects[n.id]?.transform.x).toBe(0);
+
+		// Reset re-applies the active snapshot (UX-ROOM-5).
+		await store.commit({ kind: 'move_object', id: n.id, transform: { ...n.transform, x: 700 } });
+		await store.commit({ kind: 'reset_config' });
+		expect(store.state.objects[n.id]?.transform.x).toBe(0);
+	});
+
+	it('switching restores per-config background/title; content persists', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const n = note(ALICE, 0);
+		await store.commit({ kind: 'create_object', object: n });
+		await store.commit({ kind: 'set_room_meta', title: 'A', description: '' });
+		await store.commit({ kind: 'save_config', id: '11111111-1111-4111-8111-aaaaaaaaaaaa', name: 'ConfA' });
+		await store.commit({ kind: 'set_room_meta', title: 'B', description: '' });
+		await store.commit({ kind: 'edit_note', id: n.id, payload: { text: 'kept' } });
+		await store.commit({ kind: 'switch_config', id: '11111111-1111-4111-8111-aaaaaaaaaaaa' });
+		expect(store.state.title).toBe('A'); // layout/meta restored
+		expect(store.state.objects[n.id]?.type === 'note' && store.state.objects[n.id]?.payload).toBeTruthy();
+		const obj = store.state.objects[n.id];
+		if (obj?.type === 'note') expect(obj.payload.text).toBe('kept'); // content persisted
+	});
+
+	it('delete removes a config and clears active if it was active', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const cfg = '22222222-2222-4222-8222-bbbbbbbbbbbb';
+		await store.commit({ kind: 'save_config', id: cfg, name: 'X' });
+		await store.commit({ kind: 'delete_config', id: cfg });
+		expect(store.state.configurations[cfg]).toBeUndefined();
+		expect(store.state.active_config).toBeNull();
+	});
+});

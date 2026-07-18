@@ -19,6 +19,10 @@ import { nearestLegal, placementLegal } from '$lib/canvas/geometry';
 import type { SolverShape } from '$lib/model/types';
 import type { RoomStore } from './room-store';
 
+function freshState(): RoomState {
+	return { objects: {}, participants: {}, background: '', title: '', description: '', configurations: {}, active_config: null };
+}
+
 export const AVATAR_SIZE = 96;
 export const AVATAR_BORDER = 6;
 
@@ -39,7 +43,7 @@ export const AVATAR_BORDER = 6;
  * real arbitration arrives with the Supabase store.
  */
 export class MemoryRoomStore implements RoomStore {
-	state = $state<RoomState>({ objects: {}, participants: {}, background: '', title: '', description: '' });
+	state = $state<RoomState>(freshState());
 
 	/** DevPanel knobs. */
 	latencyMs = $state(0);
@@ -87,13 +91,13 @@ export class MemoryRoomStore implements RoomStore {
 	}
 
 	private hydrate(): RoomState {
-		if (typeof localStorage === 'undefined') return { objects: {}, participants: {}, background: '', title: '', description: '' };
+		if (typeof localStorage === 'undefined') return freshState();
 		const raw = localStorage.getItem(this.storageKey);
-		if (raw === null) return { objects: {}, participants: {}, background: '', title: '', description: '' };
+		if (raw === null) return freshState();
 		const parsed = roomStateSchema.safeParse(parseJson(raw));
 		if (!parsed.success) {
 			console.warn('mumble: stored room state failed validation; starting fresh');
-			return { objects: {}, participants: {}, background: '', title: '', description: '' };
+			return freshState();
 		}
 		return parsed.data;
 	}
@@ -262,7 +266,58 @@ export class MemoryRoomStore implements RoomStore {
 				this.state.description = m.description;
 				break;
 			}
+			case 'save_config': {
+				// Capture the current layout as a named snapshot (UX-ROOM-3).
+				const transforms: Record<string, Transform> = {};
+				for (const [id, o] of Object.entries(this.state.objects)) transforms[id] = { ...o.transform };
+				this.state.configurations[m.id] = {
+					id: m.id,
+					name: m.name,
+					snapshot: {
+						transforms,
+						background: this.state.background,
+						title: this.state.title,
+						description: this.state.description
+					}
+				};
+				this.state.active_config = m.id;
+				break;
+			}
+			case 'switch_config': {
+				const config = this.state.configurations[m.id];
+				if (config === undefined) throw new StoreRejection('invalid', 'Unknown configuration');
+				this.state.active_config = m.id;
+				this.applySnapshot(config.snapshot);
+				break;
+			}
+			case 'reset_config': {
+				// UX-ROOM-5: restore the active config's layout; content untouched.
+				if (this.state.active_config === null) break;
+				const config = this.state.configurations[this.state.active_config];
+				if (config !== undefined) this.applySnapshot(config.snapshot);
+				break;
+			}
+			case 'delete_config': {
+				this.state.configurations = omitKey(this.state.configurations, m.id);
+				if (this.state.active_config === m.id) this.state.active_config = null;
+				break;
+			}
 		}
+	}
+
+	/**
+	 * Apply a configuration snapshot: set each present object's transform, and
+	 * the background/title/description. DEFERRED (DESIGN.md open item): objects
+	 * absent from the snapshot are left in place — hide-vs-remove is unresolved.
+	 */
+	private applySnapshot(snapshot: { transforms: Record<string, Transform>; background: string; title: string; description: string }): void {
+		for (const [id, t] of Object.entries(snapshot.transforms)) {
+			const object = this.state.objects[id];
+			if (object !== undefined) object.transform = { ...t };
+		}
+		this.state.background = snapshot.background;
+		this.state.title = snapshot.title;
+		this.state.description = snapshot.description;
 	}
 
 	private requireObject(id: string): CanvasObject {

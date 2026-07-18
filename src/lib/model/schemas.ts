@@ -129,6 +129,30 @@ export const participantSchema = z.object({
 	away: z.boolean().default(false)
 });
 
+/**
+ * Configurations (UX-ROOM-3..6). A configuration is a NAMED SNAPSHOT of layout:
+ * per-object transforms plus background/title/description. Switching re-applies
+ * a snapshot to the live objects; reset (UX-ROOM-5) re-applies the active
+ * snapshot (layout only — content persists). This additive snapshot model keeps
+ * object CONTENT at the room level and LAYOUT in the snapshot, without
+ * restructuring the object schema.
+ *
+ * DEFERRED (explicit DESIGN.md open item): what happens to objects present in
+ * one config but not another — hide vs remove. Here, objects absent from a
+ * snapshot are left in place on switch; the real semantics await a decision.
+ */
+export const configSnapshotSchema = z.object({
+	transforms: z.record(z.uuid(), transformSchema),
+	background: z.string(),
+	title: z.string(),
+	description: z.string()
+});
+export const configurationSchema = z.object({
+	id: z.uuid(),
+	name: z.string().min(1).max(60),
+	snapshot: configSnapshotSchema
+});
+
 export const roomStateSchema = z.object({
 	objects: z.record(z.uuid(), canvasObjectSchema),
 	participants: z.record(z.uuid(), participantSchema),
@@ -136,7 +160,9 @@ export const roomStateSchema = z.object({
 	background: z.string().default(''),
 	/** Room title/description (UX-ROOM-2); '' title falls back to the name. */
 	title: z.string().max(120).default(''),
-	description: z.string().max(2000).default('')
+	description: z.string().max(2000).default(''),
+	configurations: z.record(z.uuid(), configurationSchema).default({}),
+	active_config: z.uuid().nullable().default(null)
 });
 
 /**
@@ -173,7 +199,11 @@ export const mutationSchema = z.discriminatedUnion('kind', [
 		kind: z.literal('set_room_meta'),
 		title: z.string().max(120),
 		description: z.string().max(2000)
-	})
+	}),
+	z.object({ kind: z.literal('save_config'), id: z.uuid(), name: z.string().min(1).max(60) }),
+	z.object({ kind: z.literal('switch_config'), id: z.uuid() }),
+	z.object({ kind: z.literal('reset_config') }),
+	z.object({ kind: z.literal('delete_config'), id: z.uuid() })
 ]);
 
 /** Ephemeral traffic (AR-SYNC-1 class 2/3): never persisted, throttled ~15–20 Hz. */

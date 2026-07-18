@@ -27,6 +27,7 @@
 	let drawMode = $state(false);
 	let drawColor = $state(DEFAULT_DRAW_COLOR);
 	let renameDraft = $state('');
+	let configNameDraft = $state('');
 	const ROOM_NAME = /^[a-z0-9_-]{2,32}$/i;
 
 	$effect(() => {
@@ -83,6 +84,24 @@
 	function saveMeta(title: string, description: string): void {
 		void sync.commit({ kind: 'set_room_meta', title, description });
 	}
+	function saveConfig(): void {
+		const name = configNameDraft.trim();
+		if (name === '') return;
+		void sync.commit({ kind: 'save_config', id: crypto.randomUUID(), name });
+		sync.announce(`Saved configuration ${name}`);
+		configNameDraft = '';
+	}
+	function switchConfig(id: string): void {
+		void sync.commit({ kind: 'switch_config', id });
+		sync.announce('Switched configuration');
+	}
+	function resetConfig(): void {
+		void sync.commit({ kind: 'reset_config' });
+		sync.announce('Layout reset');
+	}
+	function deleteConfig(id: string): void {
+		void sync.commit({ kind: 'delete_config', id });
+	}
 	function renameRoom(): void {
 		const name = renameDraft.trim().toLowerCase();
 		if (!ROOM_NAME.test(name) || name === data.room) return;
@@ -137,6 +156,38 @@
 	<button class="add" onclick={addNote}>+ note</button>
 	<button class="add" onclick={addTimer}>+ timer</button>
 	<button class="add" onclick={addChat}>+ chat</button>
+	<details class="room">
+		<summary>configs</summary>
+		<div class="room-menu">
+			{#each Object.values(store.state.configurations) as config (config.id)}
+				<div class="config-row">
+					<button
+						type="button"
+						class="config-switch"
+						aria-pressed={store.state.active_config === config.id}
+						onclick={() => {
+							switchConfig(config.id);
+						}}>{config.name}</button
+					>
+					<button
+						type="button"
+						aria-label="Delete configuration {config.name}"
+						onclick={() => {
+							deleteConfig(config.id);
+						}}>×</button
+					>
+				</div>
+			{/each}
+			<button type="button" onclick={resetConfig}>↺ reset layout</button>
+			<label class="field">
+				Save current layout as
+				<span class="rename-row">
+					<input bind:value={configNameDraft} aria-label="Configuration name" placeholder="e.g. Standup" />
+					<button type="button" onclick={saveConfig}>save</button>
+				</span>
+			</label>
+		</div>
+	</details>
 	<details class="bg">
 		<summary>background</summary>
 		<div class="bg-menu">
@@ -254,6 +305,46 @@
 		background: var(--surface-2);
 		color: var(--text);
 		padding: var(--space-1) var(--space-2);
+		font: var(--text-sm) var(--font-ui);
+	}
+	.config-row {
+		display: flex;
+		gap: var(--space-1);
+		align-items: center;
+	}
+	.config-switch {
+		flex: 1;
+		min-height: var(--target-min);
+		padding: var(--space-1) var(--space-2);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		background: var(--surface-2);
+		color: var(--text);
+		text-align: left;
+		cursor: pointer;
+		font: var(--text-sm) var(--font-ui);
+	}
+	.config-switch[aria-pressed='true'] {
+		background: var(--accent);
+		color: var(--accent-contrast);
+		border-color: var(--accent);
+	}
+	.config-row button:last-child {
+		min-height: var(--target-min);
+		min-width: var(--target-min);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		background: var(--surface-2);
+		color: var(--text);
+		cursor: pointer;
+	}
+	.room-menu > button {
+		min-height: var(--target-min);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		background: var(--surface-2);
+		color: var(--text);
+		cursor: pointer;
 		font: var(--text-sm) var(--font-ui);
 	}
 	.rename-row {

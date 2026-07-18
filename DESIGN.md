@@ -480,7 +480,7 @@ The host is chosen on the same criterion as the media plane: **the free tier has
 - **Concurrent-drag overlap race** (AR-CANVAS-5): two participants can drop into the same gap having each passed their own client-side check; the server rejects the loser, whose object snaps back. Confirm the revert reads as fair rather than arbitrary — this is the one place UX-OBJ-12 and UX-QOS-1 genuinely pull against each other.
 - Whether a remembered location (UX-AV-9) should survive a host rearranging the configuration around it, or be discarded when the layout it referred to is gone. AR-CTRL-4 currently re-validates and falls through, which is safe but silently forgets.
 - Set image size caps and the storage/serving path (UX-OBJ-5, Supabase Storage).
-- Decide configuration-switch semantics for objects present in one config but not another (hide vs remove from view).
+- Decide configuration-switch semantics for objects present in one config but not another (hide vs remove from view). **Stub status (2026-07-18):** configurations are implemented as named layout snapshots (transforms + background + title/description), with switch/reset/save/delete; on switch, objects ABSENT from a snapshot are left in place — this open item (hide vs remove) is the one piece deliberately not guessed. The deeper model (separating object content from per-config layout, per-config capacity/default-location) is also deferred; the snapshot approach is an additive stub.
 - Sticker-border rendering against arbitrary path clips (AR-CANVAS-2) — now load-bearing beyond aesthetics, since the border width _is_ the overlap tolerance (UX-OBJ-12).
 - Define the emote set and per-emote animation approach (UX-AV-4..7).
 
