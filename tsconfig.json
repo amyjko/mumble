@@ -15,7 +15,11 @@
 			"./worker-configuration.d.ts"
 		],
 		"erasableSyntaxOnly": true,
-		"verbatimModuleSyntax": true
+		"verbatimModuleSyntax": true,
+		"noUncheckedIndexedAccess": true,
+		"exactOptionalPropertyTypes": true,
+		"noImplicitOverride": true,
+		"noFallthroughCasesInSwitch": true
 	},
 	"exclude": [
 		"node_modules/**",

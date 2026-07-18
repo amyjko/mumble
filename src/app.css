@@ -1,0 +1,123 @@
+/*
+ * The design system's single source of truth (AR-STYLE-1). Every color a
+ * component uses comes from a token here; raw color literals anywhere else
+ * fail no-raw-color.spec.ts. Colors use light-dark() so each token is defined
+ * exactly once for both themes; the pairs' WCAG contrast ratios are computed
+ * and asserted by theme-contrast.spec.ts — keep each color token on ONE line,
+ * the spec parses this file.
+ *
+ * Theme selection (AR-STYLE-2): color-scheme flips via data-theme on <html>
+ * (absent = follow the system), applied pre-paint by the inline script in
+ * app.html. Theme is local-only state (AR-SYNC-1 class 4) — never synced.
+ */
+
+:root {
+	color-scheme: light dark;
+
+	/* Surfaces */
+	--bg-canvas: light-dark(#f4f2f0, #131110);
+	--surface: light-dark(#ffffff, #221f1c);
+	--surface-2: light-dark(#f7f6f5, #1a1815);
+
+	/* Text */
+	--text: light-dark(#211e1b, #f0eeec);
+	--text-muted: light-dark(#57534e, #a8a29e);
+
+	/* Lines and rings */
+	--border: light-dark(#d9d5d1, #3a3633);
+	--border-strong: light-dark(#8a857f, #7d7873);
+	--focus-ring: light-dark(#1d4ed8, #8fb6ff);
+
+	/* Intent */
+	--accent: light-dark(#1d4ed8, #8fb6ff);
+	--accent-contrast: light-dark(#ffffff, #131110);
+	--danger: light-dark(#b91c1c, #f87171);
+
+	/* Canvas objects: the sticker aesthetic is the product (UX-OBJ-8) — notes
+	   stay sticky-yellow and stickers stay white in both themes, deliberately. */
+	--sticker: light-dark(#ffffff, #ffffff);
+	--note: light-dark(#fef3c7, #fef3c7);
+	--note-text: light-dark(#292018, #292018);
+	--sticker-text: light-dark(#57534e, #57534e);
+	--grid-dot: light-dark(#78716c59, #a8a29e40);
+
+	/* Elevation */
+	--shadow-1: 0 2px 10px light-dark(#0000002e, #00000066);
+	--shadow-2: 0 4px 24px light-dark(#00000033, #00000080);
+
+	/* Type */
+	--font-ui:
+		system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+	--font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+	/* Noto Color Emoji (COLRv1, self-hosted) for cross-platform consistency.
+	   The @font-face uses src ... tech(color-COLRv1), so browsers that can't
+	   render COLRv1 (notably WebKit/Safari) can't load the face and fall
+	   through to the system set — Apple emoji on macOS/iOS, the requested
+	   fallback, by capability rather than UA sniffing. */
+	--font-emoji: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+	--text-xs: 11px;
+	--text-sm: 12px;
+	--text-md: 14px;
+	--text-lg: 16px;
+	--leading: 1.45;
+
+	/* Space (4px base) and radii */
+	--space-1: 4px;
+	--space-2: 8px;
+	--space-3: 12px;
+	--space-4: 16px;
+	--space-6: 24px;
+	--space-8: 32px;
+	--radius-sm: 6px;
+	--radius-md: 10px;
+	--radius-lg: 16px;
+	--radius-full: 999px;
+
+	/* Interaction */
+	--target-min: 24px; /* WCAG 2.2 §2.5.8 minimum target size */
+}
+
+:root[data-theme='light'] {
+	color-scheme: light;
+}
+:root[data-theme='dark'] {
+	color-scheme: dark;
+}
+
+body {
+	margin: 0;
+	font-family: var(--font-ui);
+	font-size: var(--text-md);
+	line-height: var(--leading);
+	color: var(--text);
+	background: var(--bg-canvas);
+}
+
+/* Focus is always visible (WCAG 2.4.7), always from the token. */
+:focus-visible {
+	outline: 2px solid var(--focus-ring);
+	outline-offset: 2px;
+}
+
+/* Screen-reader-only utility (announcements, labels). */
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* Motion is a courtesy, never a requirement (WCAG 2.3.3 / UX-A11Y-4). */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		transition-duration: 0.01ms !important;
+		animation-duration: 0.01ms !important;
+	}
+}

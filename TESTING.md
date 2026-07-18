@@ -117,6 +117,7 @@ The split *is* the strategy: each layer proves something the others structurally
 | Claim reality | Vitest + supabase-js | local stack | Auth really emits `is_anonymous` |
 | Auth flows | Vitest + supabase-js | local stack | anonymous, magic link, SSR cookie session |
 | E2E | Playwright → `wrangler dev` | real Chromium + **workerd** | canvas, sync, two-peer WebRTC — and the only exercise of the production runtime |
+| Design conformance | contrast + no-raw-color specs (node); axe + keyboard journey (E2E) | node + workerd | the design system's WCAG 2.2 AA claims — see [STYLE.md](STYLE.md) §8 |
 
 **E2E targets `wrangler dev`, not `vite dev`.** SvelteKit's dev server runs on Node while production runs workerd, and no plugin closes that gap ([STACK.md](STACK.md) §5). So the E2E layer carries a second job beyond browser behavior: it is where the production runtime gets tested at all (AR-DEPLOY-4). Pointing it at `vite dev` because that's faster would silently void that.
 
@@ -225,9 +226,14 @@ We are choosing `vitest-browser-svelte` **because we need real layout**, not bec
 
 Note also that Svelte's own [testing docs](https://svelte.dev/docs/svelte/testing) still document `@testing-library/svelte` + jsdom and never mention `vitest-browser-svelte`, while `npx sv add vitest` scaffolds the opposite. The CLI is the newer artifact and reflects the team's current default. Don't be thrown by the contradiction — and don't cite the docs page as an argument.
 
-### The open risk
+### The open risk — RESOLVED: the drag spike passed (2026-07-17)
 
-`userEvent` pointer-event fidelity (`pointerdown`, `pointermove`, `setPointerCapture`) in browser mode is **not documented by any primary source I could find**, and drag implementations relying on pointer capture are the usual friction point. **Spike a real drag test in week one** (build-order step 2). If browser mode can't drive our drag primitives, drag coverage moves to Playwright — where `page.mouse.move/down/up` gives full control — and AR-TEST-3's split changes. Find out before building on it.
+The question was whether browser-mode `userEvent` could drive a pointer-capture drag; no primary source documented it. The spike ([ObjectFrame.svelte.spec.ts](src/lib/canvas/ObjectFrame.svelte.spec.ts)) settles it: **`userEvent.dragAndDrop` is provider-backed (Playwright CDP), so its input is trusted — the pointerId is real, `setPointerCapture` works, and our `pointerdown/move/up` handlers fire with real coordinates.** The suite proves a free drag commits, a constrained drag clamps at content contact (the solver ran with real geometry), and `getBoundingClientRect` returns real layout. Drag coverage stays in browser mode; AR-TEST-3's split stands.
+
+Two findings for future drag tests:
+
+- **Grab position matters.** `dragAndDrop` targets the element center by default — which on a note is the textarea, and `[data-editable]` correctly refuses to start a drag there (that's the product's drag-by-the-sticker-edge UX, not a bug). Pass `sourcePosition: { x: 5, y: 5 }` to grab the border ring.
+- **Static-prop harnesses don't re-render from store state** — in the app, WorldCanvas re-derives props from `store.state`; a spike that passes an object literal keeps the stale prop after commit. Assert on store state and overlay cleanup, and leave DOM-position-after-commit assertions to tests that render the full canvas.
 
 ---
 
@@ -397,7 +403,7 @@ A test suite is a claim about the system, and claims need checking. Run these wh
 2. **Mutation-test the RLS suite** — flip one policy from `restrictive` to permissive and confirm pgTAP goes **red**. If it stays green, the suite is decorative and AR-TEST-5 is unmet. **This is the highest-value check in this document**: AR-AUTH-2's footgun is invisible to code review and invisible to passing tests — the only way to know the suite can see it is to show it failing.
 3. **The role guard bites** — comment out `set local role authenticated` in one test; confirm the `current_setting('role')` assertion catches it rather than passing as `postgres`.
 4. **The claim is real** — AR-TEST-7 asserts a genuine `signInAnonymously()` token contains `is_anonymous: true`. If it doesn't, every pgTAP RLS test is built on a false premise and green means nothing.
-5. **Drag spike in browser mode** (week one) — the load-bearing unknown of §6.
+5. **Drag spike in browser mode** — ✅ passed 2026-07-17; findings recorded in §6.
 6. **pgTAP version** — `select extversion from pg_extension where extname = 'pgtap';` The docs never state what the image ships. Record it in §11.
 7. **Two-peer E2E connects** — two contexts, both video elements live. Then re-read §9 and remember what it didn't prove.
 
@@ -442,12 +448,13 @@ Each of these produces a test that lies, or a guide that misleads:
 
 ```yaml
 - pnpm install --frozen-lockfile
-- tsc --noEmit             # TypeScript 7 (STACK.md §4)
-- svelte-check             # TS6 path until 7.1
+- pnpm lint                # eslint strict-type-checked — the norms gate (STACK.md §4)
+- pnpm check:ts            # TypeScript 7 (STACK.md §4)
+- pnpm check:svelte        # svelte-check on the TS6 path until 7.1; a11y warnings are FAILURES
 - supabase start           # pin the CLI version explicitly — the floor matters
 - supabase test db         # pgTAP: RLS matrix
 - vitest --run             # both projects: node + browser
-- playwright test          # E2E incl. two-peer WebRTC
+- playwright test          # E2E incl. two-peer WebRTC + axe scans in both themes
 - check bundle + CPU       # AR-DEPLOY-3 thresholds: 3 MB compressed, 10 ms SSR CPU
 # → on main, and only if all of the above are green: deploy to production
 # → on PRs: preview deployment

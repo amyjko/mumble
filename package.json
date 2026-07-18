@@ -13,9 +13,9 @@
 		"preview": "wrangler dev .svelte-kit/cloudflare/_worker.js --port 4173",
 		"prepare": "svelte-kit sync || echo ''",
 		"gen": "wrangler types",
-		"check": "pnpm run check:ts && pnpm run check:svelte",
+		"check": "pnpm run lint && pnpm run check:ts && pnpm run check:svelte",
 		"check:ts": "node_modules/ts7/bin/tsc --noEmit",
-		"check:svelte": "wrangler types && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:svelte": "wrangler types && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"supabase:start": "supabase start",
 		"supabase:stop": "supabase stop",
@@ -23,19 +23,28 @@
 		"test:unit": "vitest",
 		"test:rls": "supabase test db",
 		"test": "pnpm run test:unit -- --run && pnpm run test:e2e",
-		"test:e2e": "playwright install && playwright test"
+		"test:e2e": "playwright install && playwright test",
+		"lint": "eslint .",
+		"gen:db": "supabase gen types typescript --local > src/lib/database.types.ts"
 	},
 	"devDependencies": {
+		"@axe-core/playwright": "^4.12.1",
+		"@eslint/js": "^10.0.1",
 		"@playwright/test": "^1.60.0",
 		"@sveltejs/adapter-cloudflare": "^7.2.0",
 		"@sveltejs/kit": "^2.63.0",
 		"@sveltejs/vite-plugin-svelte": "^7.1.2",
+		"@types/node": "^24",
 		"@vitest/browser-playwright": "^4.1.0",
+		"eslint": "^10.4.1",
+		"eslint-plugin-svelte": "^3.19.0",
+		"globals": "^17.6.0",
 		"playwright": "^1.60.0",
 		"svelte": "^5.56.0",
 		"svelte-check": "^4.6.0",
 		"ts7": "npm:typescript@^7.0.0",
 		"typescript": "^6.0.0",
+		"typescript-eslint": "^8.60.1",
 		"vite": "^8.0.0",
 		"vitest": "^4.1.0",
 		"vitest-browser-svelte": "^3.0.0",
@@ -43,6 +52,7 @@
 	},
 	"dependencies": {
 		"@supabase/ssr": "^0.12.0",
-		"@supabase/supabase-js": "^2.100.0"
+		"@supabase/supabase-js": "^2.100.0",
+		"zod": "^4.4.3"
 	}
 }

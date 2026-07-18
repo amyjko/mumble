@@ -172,6 +172,18 @@ For reference, `sv create` currently scaffolds `typescript: ^6.0.3` — the scaf
 
 `strict: true` is now default · `types` defaults to `[]` (was `["*"]`) · `rootDir` defaults to `./` · hard errors on `es5`/`amd`/`umd`/`classic` moduleResolution.
 
+### Norms (set 2026-07-17, enforced mechanically)
+
+Strict typing, no `as`, no dodging; catch everything possible at compile time; extra effort at type-unsafe boundaries. Enforcement is compiler + linter, never review vigilance:
+
+**tsconfig** (on top of `strict`, `erasableSyntaxOnly`, `verbatimModuleSyntax`): `noUncheckedIndexedAccess` (indexed access is `T | undefined` — the one that bites most usefully), `exactOptionalPropertyTypes`, `noImplicitOverride`, `noFallthroughCasesInSwitch`. Note `checkJs` is deliberately **off** — see gotchas.
+
+**ESLint** (`typescript-eslint` **strict-type-checked** + `eslint-plugin-svelte`): `consistent-type-assertions: never` bans `as` outright; `no-explicit-any` + the `no-unsafe-*` family catch `any` *leaking through* calls, not just written; `no-non-null-assertion` bans `!`; `ban-ts-comment` requires a written reason on `@ts-expect-error` and bans `ts-ignore`/`ts-nocheck` entirely. Generated files (`worker-configuration.d.ts`, `src/lib/database.types.ts`) are exempt — norms govern what we write.
+
+**The boundary pattern**: `any` exists only at the edge and is immediately laundered to `unknown` — `const parseJson = (t: string): unknown => JSON.parse(t)` needs no assertion — then parsed with a **zod** schema (`safeParse`), never hand-narrowed. Zod schemas in `src/lib/model/schemas.ts` are the single source of truth for boundary-crossing shapes; types come from `z.infer`, so schema and type cannot drift. The same mutation schemas later validate AR-SYNC-3's server route bodies. Cross-tab messages ride a **versioned envelope** (`{ v: 1, ... }`); unknown versions are dropped silently — type safety against a stale tab running older code, which models the stale-client reality the real backend will have.
+
+**Proven, not asserted** (2026-07-17): planting a deliberate `as`, an explicit `any`, and a bare `@ts-expect-error` turned lint red on all three (plus two `no-unsafe-*` leak catches); removal restored green. The norms also caught real things on day one: the scaffold's own untyped `$props()`, a floating promise in its demo test, `zod`'s `z.uuid()` rejecting malformed test UUIDs (RFC-4122 variant bits), and `erasableSyntaxOnly` rejecting constructor parameter properties in freshly written store code — AR-STACK-2 enforcing itself.
+
 ### A convergence worth noticing
 
 Node v26 **removed `--experimental-transform-types`**, settling permanently on erasable-syntax-only. Node's built-in type stripping (stable since 24.12.0) is erasure only — no enums, no decorators, no namespaces, and it never typechecks. That is the same constraint AR-STACK-2 already imposed, arrived at independently. The industry moved to where the requirement already was.
@@ -277,6 +289,7 @@ Each of these produces a wrong decision, and each contradicts something widely r
 - **`@supabase/ssr` on Workers may not need `nodejs_compat` any more.** Widely-repeated advice (and Supabase's own issue tracker) says it does, and that the `Dynamic require of "stream" is not supported` error is the tell. But the 2026-07-16 spike ran both Supabase libraries under workerd with **`nodejs_als` only** — the flag `sv create` scaffolds — and served 200s with no such error. Plausibly the recent `compatibility_date` (2026-07-17) does the work. **Don't cargo-cult the flag**: if that error appears, add `nodejs_compat`; until then the scaffold's default is evidently enough. Caveat: the spike exercised client construction, cookies, and a query — not the full auth surface, so a deeper path could still want it.
 - **The `tsc` bin collides** when TypeScript is aliased — confirmed in this repo: `node_modules/.bin/tsc` → 7.0.2 while `require('typescript')` → 6.0.3. That is the split we want, but by accident of bin-resolution order. Scripts call `node_modules/ts7/bin/tsc` explicitly (§4).
 - **`svelte-check --tsgo` is broken** (4.7.3, both flags, both TS versions). The flag existing is not the same as the flag working.
+- **Type-aware linting rides the TS6 API until 7.1** — typescript-eslint imports `typescript` (6.0.3 in our split), same constraint and same resolution as svelte-check. The dual install incidentally keeps lint working today.
 - **`checkJs: false` is load-bearing — don't turn it back on.** The scaffold ships `checkJs: true`. With it, *both* `tsc` and `svelte-check` report ~568 errors in generated code after any build, and `exclude` does not help. The chain took `--explainFiles` to see:
 
   ```

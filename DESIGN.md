@@ -162,18 +162,27 @@ The platform is realtime by nature; distributed participants must experience it 
 - [ ] **UX-QOS-5** (V2) — When a publisher's connection degrades, the room adapts (transport promotion) rather than the call failing or stuttering indefinitely.
 - [ ] **UX-QOS-6** (MVP) — Joining works on restrictive networks (NATs/firewalls that block direct P2P) — the ~10–15% of connections needing a relay still connect. MVP because the MVP is P2P (AR-TRANSPORT-1): the relay tail is the one media cost the free tier carries, not a V2 concern.
 
+## 12. Accessibility (UX-A11Y)
+
+Accessibility is user experience, not compliance paperwork: a meeting product that some participants cannot operate is failing UX-CANVAS/UX-OBJ/UX-STAGE for those people, not merely a checklist. Conformance target: **WCAG 2.2 Level AA**.
+
+- [ ] **UX-A11Y-1** (MVP) — The product conforms to WCAG 2.2 AA. Conformance is mechanically enforced where automatable — axe scans in CI (both themes), computed contrast on every design-token pair, compiler accessibility warnings as build failures — and convention-enforced otherwise via STYLE.md's per-component checklist. A criterion neither machine- nor checklist-covered is a bug in the checklist.
+- [ ] **UX-A11Y-2** (MVP) — Every canvas operation is keyboard-operable: objects and participants are focusable with real names, arrow keys move them **through the same solver and permission gate as dragging** (UX-OBJ-12 and UX-PERM apply identically), and create/edit/delete need no pointer. Keyboard is a first-class input, not a fallback.
+- [ ] **UX-A11Y-3** (MVP) — The canvas is legible to screen readers: objects expose content as their accessible name (a note reads as its text, a participant as who they are), and transient outcomes — rejected changes (UX-PERM-4's revert), creations, deletions — are announced via a live region. What sighted users see happen, screen-reader users hear happen.
+- [ ] **UX-A11Y-4** (MVP) — Visual preferences are respected: system/light/dark theme applied before first paint and persisted per browser; `prefers-reduced-motion` disables all non-essential motion. Canvas legibility (auto-zoom state, zoom level) is visible mode, never hidden state.
+
 ---
 
 # Part II — Architecture requirements
 
-## 12. Stack (AR-STACK)
+## 13. Stack (AR-STACK)
 
 - [ ] **AR-STACK-1** (MVP) — Front end and control plane are SvelteKit (latest, Svelte 5) + TypeScript; SvelteKit server routes host the token endpoint, signaling, and all server-authoritative logic. — _serves: foundation for all of Part I (delivery vehicle; see AR-CTRL, AR-SYNC)._
 - [ ] **AR-STACK-2** (MVP) — The codebase stays compatible with the native TypeScript 7 compiler: plain TS, no compiler plugins, no decorators, no enums or runtime namespaces — erasable syntax only, enforced mechanically by `erasableSyntaxOnly` + `verbatimModuleSyntax` rather than by discipline. **TypeScript 7.0 shipped 2026-07-08**, so this is no longer futureproofing: `tsc --noEmit` runs the native compiler now. The constraint was always on us, not on TypeScript, and we already meet it. The lag is `svelte-check`, which needs the TS6 programmatic API and **crashes outright under TS7** (verified 2026-07-16: `ts.sys` is undefined, because the Go binary does not expose it) — so TS6 and TS7 are installed side by side until 7.1, one for `svelte-check` and one for `tsc`. Node converged on the same rule independently: v26 removed `--experimental-transform-types`, settling permanently on erasable-syntax-only. **[NO-UX-LINK — developer experience/futureproofing.]**
 - [ ] **AR-STACK-3** (MVP) — Node (Active LTS) is the development, test, and build runtime — **not Bun and not Deno**. The reason is about our stack rather than theirs: AR-TEST-1 commits us to Vitest and Playwright, which are precisely the two tools with the worst Bun support (Vitest's Bun issue has been open ~3 years; Playwright closed Bun compatibility as *not planned*), and we compound them by running Vitest browser mode with the Playwright provider. Deno is ruled out for a different reason — it would mean a prod runtime our tests never exercise, which AR-TEST-10 says we cannot afford. Track the LTS line; the current version and bump date live in `STACK.md`. **[NO-UX-LINK — developer experience.]**
 - [ ] **AR-STACK-4** (MVP) — pnpm is the package manager, chosen for supply-chain defaults rather than speed: a dependency cooldown on by default (raised to 7 days — 24h is short against real detection windows), blocked exotic sub-dependencies, and symlinked `node_modules` that makes phantom dependencies fail loudly. A small team cannot audit its transitive tree, so the defaults have to do that work. **Do not depend on Corepack** — it is unbundled from Node 25 onward; pin via the `packageManager` field plus the CI action instead. **[NO-UX-LINK — developer experience; supply-chain risk.]**
 
-## 13. Backend platform: Supabase (AR-BACKEND)
+## 14. Backend platform: Supabase (AR-BACKEND)
 
 **Decision (July 2026):** Supabase is the application backend — Postgres for persisted state and the ledger, Supabase Realtime for sync, Supabase Auth for identity, Supabase Storage for images. Chosen over Firebase primarily on realtime latency for ephemeral fan-out, relational fit for the ledger, first-party SvelteKit support, and the anonymous→permanent identity upgrade path. Full rationale and evidence: [Appendix A](#appendix-a--backend-decision-record-supabase-vs-firebase-july-2026). The backend never carries media (Part I of the media architecture, AR-MEDIA/AR-TRANSPORT, handles A/V).
 
@@ -188,7 +197,7 @@ The platform is realtime by nature; distributed participants must experience it 
 - [ ] **AR-BACKEND-9** (MVP) — TypeScript types are generated from the Postgres schema (`supabase gen types typescript`) and used end-to-end; local dev runs the full Supabase stack via the CLI. **[NO-UX-LINK — developer experience.]**
 - [ ] **AR-BACKEND-10** (MVP) — Room names are enforced in the schema, not just in application code: `rooms.name` is `citext` with a unique index (giving case-insensitive uniqueness for free) plus a `CHECK` constraint for the charset and length rule; reserved names live in a table the same constraint path consults. The room route is `src/routes/hey/[room]/+page.svelte`; a name that does not resolve 404s. — _serves: UX-ROOM-8..10._
 
-## 14. Authentication and identity (AR-AUTH)
+## 15. Authentication and identity (AR-AUTH)
 
 - [ ] **AR-AUTH-1** (MVP) — Supabase Auth is the single identity system. Anonymous guests use `signInAnonymously()` — replacing the previously-planned hand-rolled local-storage identity token — so `creator_id` = the auth user id for guests and account holders alike, one code path. — _serves: UX-ID-1, UX-ID-5._
 - [ ] **AR-AUTH-2** (MVP) — Anonymous vs. permanent distinctions use the `is_anonymous` JWT claim, and policies that restrict anonymous users are written as **RESTRICTIVE** RLS policies (permissive policies OR together — a documented footgun). — _serves: UX-ID-4, UX-PERM-1._
@@ -197,7 +206,7 @@ The platform is realtime by nature; distributed participants must experience it 
 - [ ] **AR-AUTH-5** (Later) — Adopt passkeys when Supabase's support leaves beta (beta since May 2026: first-factor, discoverable credentials; requires explicit client opt-in; anonymous users must link email/phone before registering one). — _serves: UX-ID-7._
 - [ ] **AR-AUTH-6** (MVP) — Accepted limitation, surfaced in UX copy: an anonymous identity is browser/device-bound (lost on sign-out, cleared storage, or another device); cross-device continuity requires upgrading to an account first. — _serves: UX-ID-5, UX-ID-6 (defines their boundary)._
 
-## 15. Synchronization model (AR-SYNC)
+## 16. Synchronization model (AR-SYNC)
 
 - [ ] **AR-SYNC-1** (MVP) — Shared state is classified into exactly four classes, each with one sync path:
 
@@ -206,7 +215,7 @@ The platform is realtime by nature; distributed participants must experience it 
   | Persisted shared       | Postgres + Broadcast-from-DB (AR-BACKEND-4) | object fields (transform, permission, clip, border, anchor, default_transform, payload), drawings, chat logs, timer state, background, configurations, room name, default location, participant locations (AR-CTRL-6), host roles, admission state, titles/descriptions, capacity numbers & slot holders & queue (room_state), ledger/cap state; house metadata, regions, positions (Later) |
   | Ephemeral shared       | Broadcast (AR-BACKEND-2)                    | expressive states, raise-hand, active whisper routing, transport-flip transitional state, drag-in-progress deltas                                                                                                                                                                                                                                                                           |
   | Fire-and-forget events | Broadcast, no ack                           | transient reactions (floating emoji, bounce)                                                                                                                                                                                                                                                                                                                                                |
-  | Local, never synced    | client only                                 | camera pan/zoom, auto-zoom flag, scale-to-fill, proximity-audio attenuation, ducking levels, selection/hover                                                                                                                                                                                                                                                                                |
+  | Local, never synced    | client only                                 | camera pan/zoom, auto-zoom flag, scale-to-fill, theme choice, proximity-audio attenuation, ducking levels, selection/hover                                                                                                                                                                                                                                                                                |
 
   — _serves: UX-CANVAS-2, UX-OBJ-10, UX-AV-4..6, UX-AV-9, UX-ROOM-7, UX-QOS-1..3._
 
@@ -214,7 +223,7 @@ The platform is realtime by nature; distributed participants must experience it 
 - [ ] **AR-SYNC-3** (MVP) — Every persisted-state mutation goes through the control plane (SvelteKit server route using the service-role client), which enforces UX-PERM before writing; clients hold no write path that bypasses it. Client-side checks exist only for responsiveness. — _serves: UX-PERM-1..4._
 - [ ] **AR-SYNC-4** (MVP) — Notes (UX-OBJ-2) use a CRDT (e.g. Yjs) with updates carried over the room's Broadcast channel and persistence into the object payload; exact provider/compaction strategy is an open item. — _serves: UX-OBJ-2._
 
-## 16. Media model and stage enforcement (AR-MEDIA)
+## 17. Media model and stage enforcement (AR-MEDIA)
 
 A room has publishers and subscribers; slot count bounds publishers, subscription rules bound what subscribers receive. Everything below the media plane is transport- and stage-agnostic.
 
@@ -237,7 +246,7 @@ A room has publishers and subscribers; slot count bounds publishers, subscriptio
 - [ ] **AR-MEDIA-7** (Later) — Proximity audio selects contributing streams server-side with an audible-distance cutoff and max-contributing-speakers cap per listener, plus voice-activity gating — distant inaudible streams are never sent (client-side attenuation alone still pays egress). Client applies the distance→volume curve. — _serves: UX-AUDIO-1._
 - [ ] **AR-MEDIA-8** (Later) — Whisper is a routing/mix change, not an extra stream (bandwidth-neutral): A's audio routes to B only; A and B's receive mixes duck the group. Authorized at the AR-MEDIA-2 gate; state synchronized while active per AR-SYNC-1. — _serves: UX-AUDIO-2..4._
 
-## 17. Transport (AR-TRANSPORT)
+## 18. Transport (AR-TRANSPORT)
 
 Two interchangeable WebRTC backends carry the same layer ladder (AR-MEDIA-3); a room flips between them. **P2P is the MVP and ships alone; the SFU is the V2 scale-out.** Both live behind one adapter (AR-TRANSPORT-10), which is what makes the SFU additive rather than a rewrite — and what makes one SFU provider replaceable by another.
 
@@ -261,7 +270,7 @@ Two interchangeable WebRTC backends carry the same layer ladder (AR-MEDIA-3); a 
 - [ ] **AR-TRANSPORT-9** (MVP) — Taking a slot pre-warms the incoming publisher's connection a beat before the visible grant; handoff renegotiation is independent of the transport flip, and on P2P means establishing peer connections to current subscribers before the grant lands. — _serves: UX-STAGE-8._
 - [ ] **AR-TRANSPORT-10** (MVP) — **The media-provider adapter.** One interface, implemented per transport: publish/unpublish a track at a given layer, subscribe/unsubscribe at a layer, pause/resume a subscription, per-peer connection lifecycle, and a normalized connection-stats surface (feeding AR-TRANSPORT-5). P2P is the first implementation; an SFU is the second; a different SFU is a third that changes nothing above the line. **The standing rule: no consumer of this interface may name a provider.** Provider identifiers, SDKs, and vendor-shaped concepts live inside an implementation and nowhere else — that constraint is what AR-TRANSPORT-3 means operationally and what makes "swap the SFU" a contained change instead of an audit. — _serves: UX-ECON-1, UX-QOS-4, UX-ECON-4._
 
-## 18. Control plane (AR-CTRL)
+## 19. Control plane (AR-CTRL)
 
 - [ ] **AR-CTRL-1** (MVP) — SvelteKit server routes own the control plane: token endpoint, publisher authorization, signaling, admission, ledger and caps. Transport- and stage-agnostic; none of it moves to P2P. — _serves: UX-STAGE-6, UX-ECON-2..3, UX-ID-3._
 - [ ] **AR-CTRL-2** (MVP) — Room state is authoritative and shaped as:
@@ -297,7 +306,7 @@ Two interchangeable WebRTC backends carry the same layer ladder (AR-MEDIA-3); a 
 
   Written on drop alongside the object transform (AR-BACKEND-4), read at entry and on configuration switch (AR-CTRL-4). Keyed per configuration so a spot that suits one layout never leaks into another (UX-AV-9). Rows for anonymous identities are subject to the same cleanup as their auth users (AR-AUTH-3). — _serves: UX-AV-9, UX-AV-2._
 
-## 19. Cost model and enforcement (AR-COST)
+## 20. Cost model and enforcement (AR-COST)
 
 **The MVP has almost nothing to meter for money.** P2P media (AR-TRANSPORT-1) generates no egress bill; the only media spend at ship is the TURN tail (AR-TRANSPORT-8). So this section splits along the transport phase: **the weekly _time_ budget is MVP** (transport-agnostic, and the thing that actually bounds abuse of a free product), while **everything measured in gigabytes is V2**, arriving with the SFU that makes gigabytes cost money. The schema below is written whole up front so V2 populates columns rather than migrating tables.
 
@@ -346,7 +355,7 @@ Once the SFU exists: the media provider bills purely on usage and never hard-cap
 - [ ] **AR-COST-8** (V2) — An out-of-band provider budget alert (~80% of budget) acts as a drift tripwire — it notifies but never enforces. **[NO-UX-LINK — operator-facing tripwire.]**
 - [ ] **AR-COST-9** (MVP) — Watch the TURN relay fraction and its GB from the first week (AR-TRANSPORT-8). It is the MVP's only media spend, it is assumed at ~10–15% of connections (UX-QOS-6) on no evidence yet, and it is the one number that could falsify "P2P is near-free" before the SFU ever lands. **[NO-UX-LINK — operator-facing tripwire; protects UX-ECON-1.]**
 
-## 20. Front-end canvas implementation (AR-CANVAS)
+## 21. Front-end canvas implementation (AR-CANVAS)
 
 - [ ] **AR-CANVAS-1** (MVP) — Every object is a normal DOM node on a single transformed "world" layer inside a container; pan/zoom mutate the container transform (`translate` + `scale`), never the objects. A `<video>` bound to a MediaStream is just another node. — _serves: UX-CANVAS-1..3, UX-OBJ-1, UX-AV-1._
 - [ ] **AR-CANVAS-2** (MVP) — Move/resize/rotate are CSS transforms on the node; shape clipping is CSS `clip-path` (SVG masks for complex shapes); the sticker border follows the clip shape (pure-CSS vs SVG-stroke-layer for arbitrary paths is an open item). — _serves: UX-OBJ-1, UX-OBJ-7..8._
@@ -373,7 +382,13 @@ Once the SFU exists: the media provider bills purely on usage and never hard-cap
 - [ ] **AR-CANVAS-4** (MVP) — DOM-on-a-transformed-canvas is scoped to room-scale content (tens to low-hundreds of objects, several live videos). Define and measure the object-count/drawing-complexity budget on target devices; virtualize or rasterize static layers past the ceiling. — _serves: UX-QOS-1..2 (keeps interactions smooth at target scale)._
 - [ ] **AR-CANVAS-5** (MVP) — The overlap constraint (UX-OBJ-12) is solved in two places for two different reasons. **Client, every frame of a drag:** a legal-position solver runs locally so the constraint feels like contact rather than lag (UX-QOS-1) — the dragged node stops at the boundary and slides along it. **Server, on drop:** the committed transform is re-validated with the same rule (AR-SYNC-3) and an illegal position is rejected, reverting per UX-PERM-4. The server pass is not redundant: two participants dragging into the same gap can both pass their own client check, and only the server sees both. Collision tests the clip shape's geometry rather than the raw bounding rect — a circle-clipped tile must not reserve its corners, or round objects would repel each other at a distance. Drawings and anchored objects skip the solver entirely (UX-OBJ-12). — _serves: UX-OBJ-12, UX-AV-2, UX-QOS-1._
 
-## 21. Testing (AR-TEST)
+## 22. Design system (AR-STYLE)
+
+- [ ] **AR-STYLE-1** (MVP) — All color, type, spacing, radius, and elevation values are design tokens defined once in `src/app.css` (CSS custom properties; colors via `light-dark()` so each token carries both themes in one declaration). **No raw color literals outside app.css** — mechanically enforced by a test that scans every component. The canvas-background token is the *default* that UX-CANVAS-5's per-configuration background will override; the sticker and note colors are deliberately theme-invariant (the cutout aesthetic is the product — UX-OBJ-8). — _serves: UX-A11Y-1, UX-A11Y-4, UX-OBJ-8._
+- [ ] **AR-STYLE-2** (MVP) — Theme choice is local-only state (AR-SYNC-1 class 4): `data-theme` on the document root (absent = follow the system via `color-scheme`), persisted per browser, applied by a pre-paint inline script so no flash of the wrong theme is ever visible. — _serves: UX-A11Y-4._
+- [ ] **AR-STYLE-3** (MVP) — The accessibility enforcement stack runs in CI: WCAG contrast ratios computed from the token file for every declared pair in both themes; axe (wcag2a/wcag2aa/wcag22aa) against real pages in both themes; Svelte's compiler accessibility warnings promoted to failures. What automation cannot judge is owned by STYLE.md's per-component checklist. — _serves: UX-A11Y-1..3 (protects them)._
+
+## 23. Testing (AR-TEST)
 
 **There is no staging environment** — only local and prod, deliberately, to control cost. The local Supabase stack therefore _is_ the pre-production environment, which loads more weight onto local fidelity than a three-environment project would carry. The corollary is AR-TEST-10: what local cannot prove has to be named out loud, because a green suite that is silent about its blind spots reads as confidence it has not earned.
 
@@ -390,7 +405,7 @@ Test requirements mostly _protect_ UX rather than deliver it, so they use the `(
 - [ ] **AR-TEST-9** (MVP) — End-to-end tests use Playwright, driven against **the built worker running in workerd** (`wrangler dev`), never against the Node dev server. That target is not incidental: per AR-DEPLOY-4 it is the only place the production runtime gets exercised, so pointing E2E at `vite dev` for convenience would quietly void the parity guarantee. Multi-participant is one browser with fake-media-device flags plus **one context per participant**: two peers join a room and both video elements are asserted live. This is the only layer that exercises the P2P path (AR-TRANSPORT-1) and Realtime signaling together, and the only one that can catch a stage handoff that renders but never connects. **Chromium only** — fake media devices are unsupported on WebKit. — _serves: UX-QOS-1..3, UX-STAGE-3..6, UX-STAGE-8, UX-ROOM-1 (protects them)._
 - [ ] **AR-TEST-10** (MVP) — **What local cannot prove is written down.** With no staging, a green local suite is not evidence for: NAT traversal or the TURN relay fraction (loopback between local contexts never leaves the machine — AR-TRANSPORT-8, AR-COST-9, UX-QOS-6); intercontinental Broadcast latency (AR-BACKEND-7, UX-QOS-2); Realtime quota and message-counting semantics (AR-BACKEND-5); real OAuth provider handshakes (AR-TEST-8); and real egress cost (AR-COST-1, V2). Each carries a named owner and a first-week-in-prod measurement, and the list is reviewed whenever a requirement it touches is checked off. Every item here is already an Open item — this requirement exists so they are read as _untested_ rather than merely unfinished. **[NO-UX-LINK — protects UX-ECON-1 and UX-QOS-2/6 from false confidence.]**
 
-## 22. Deployment (AR-DEPLOY)
+## 24. Deployment (AR-DEPLOY)
 
 The host is chosen on the same criterion as the media plane: **the free tier has to be genuinely free, or UX-ECON-1 is a slogan rather than an economic fact.** Cloudflare wins on cost and on consolidation — it already carries TURN (AR-TRANSPORT-8), the V2 SFU (AR-TRANSPORT-2), and the Durable Object contingency (AR-BACKEND-8) — but it is a bet with two measurable limits, and AR-DEPLOY-3 exists so the bet is settled early and cheaply rather than late and expensively.
 
@@ -404,6 +419,8 @@ The host is chosen on the same criterion as the media plane: **the free tier has
 ---
 
 ## Build order (by requirement ID)
+
+> **Deviation (2026-07-17):** canvas core (step 2) proceeds ahead of the control plane (step 1), behind a `RoomStore` seam — the third application of the AR-TRANSPORT-10 provider-neutrality idiom, after transport and host. The in-memory store models latency, rejection, permission checks, and the commit-side overlap pass, so AR-SYNC-2/UX-PERM-4/AR-CANVAS-5 behavior is real from day one; the Supabase-backed store is the seam's second implementation and lands with step 1. Nothing stub-backed checks a checkbox.
 
 0. **Harness and the hosting bet** — AR-STACK-3..4 (runtime, package manager), AR-TEST-1..2 (the runner and the offline Supabase stack), and **AR-DEPLOY-3's spike, which gates AR-DEPLOY-1**: measure the compressed bundle against 3 MB and SSR against 10 ms CPU *before* the host is committed to. A failed spike selects AR-DEPLOY-5's fallback and costs a day; the same discovery after the control plane is written costs a rewrite. Confirm AR-DEPLOY-4 here too — if the dev server won't run in workerd, the parity argument for this host is gone and the answer changes. Everything after this step is built and tested against these choices.
 1. **Control plane core** — AR-CTRL-1..2, AR-COST-2..3 skeleton (time only), AR-BACKEND-1, AR-BACKEND-10 (rooms are addressable before anything else can be visited), AR-AUTH-1..2, and **AR-TEST-5..7 in the same step**: RLS policies and the tests that prove they combine correctly are one deliverable, not two — AR-AUTH-2's footgun is invisible to review and visible only to a behavioral test. Testable without media.
