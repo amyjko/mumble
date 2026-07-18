@@ -250,7 +250,6 @@ export const roomStateSchema = z.object({
 	video_holders: z.array(z.uuid()).default([]),
 	audio_holders: z.array(z.uuid()).default([]),
 	queue: z.array(z.uuid()).default([]),
-	mode: z.enum(['open', 'moderated']).default('open'),
 	transport: z.enum(['p2p', 'promoting', 'sfu', 'demoting']).default('p2p'),
 	/** UX-OBJ-8's room default. New objects inherit it; each may override. */
 	border_default: z.number().nonnegative().max(40).default(DEFAULT_BORDER_WIDTH),

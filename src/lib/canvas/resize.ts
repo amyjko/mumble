@@ -4,9 +4,10 @@ import type { Transform } from '$lib/model/types';
  * Pure resize/rotate transform math (UX-OBJ-1), node-tested. Both feed
  * move_object, so the store's overlap solver validates the result — these just
  * compute the desired transform from a handle drag. Deltas are in world
- * coordinates. Resize operates on world axes and ignores rotation (a
- * prototype-acceptable approximation; true rotated-handle resize is deferred
- * with rotated-shape collision — see the note in ObjectFrame).
+ * coordinates. Resize operates on world axes and ignores rotation. That is a
+ * DECISION, not a gap (ratified 2026-07-18): rotated-shape collision is exact
+ * (SAT/OBB, see geometry.ts), and only the drag-to-resize feel is approximate,
+ * which has not bothered anyone in use. Do not "fix" it without a report.
  */
 
 export const MIN_SIZE = 40;

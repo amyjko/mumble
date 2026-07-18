@@ -19,6 +19,7 @@
 	import SwatchPicker from '$lib/ui/SwatchPicker.svelte';
 	import { DRAW_COLORS } from '$lib/model/palette';
 	import { canonicalRoomName, roomNameMessage, roomNameProblem } from '$lib/model/room-name';
+	import { wasDisplaced } from '$lib/model/placement';
 	import { counts as stageCounts, type Capacity, type StageState } from '$lib/model/stage';
 	import { AVATAR_EMOJI, saveIdentity } from '$lib/model/identity';
 	import EmojiPicker from '$lib/ui/EmojiPicker.svelte';
@@ -98,6 +99,31 @@
 	const count = $derived(Object.keys(store.state.participants).length);
 
 	/**
+	 * Say so when the room moved you (AR-CTRL-4).
+	 *
+	 * Entry re-validates a remembered location rather than trusting it, so
+	 * someone who returns to a spot that content has since taken lands
+	 * somewhere else. That was correct but SILENT — you came back, you were
+	 * somewhere new, and nothing accounted for it. Sighted users at least see
+	 * the difference; without vision there was no signal at all.
+	 *
+	 * Derived, not plumbed: both the remembered spot and the actual one are
+	 * already in room state, so the displacement is a comparison rather than a
+	 * new channel through the store seam.
+	 */
+	const displaced = $derived(wasDisplaced(store.state, identity.id));
+	let announcedDisplacement = false;
+	$effect(() => {
+		if (!displaced) {
+			announcedDisplacement = false;
+			return;
+		}
+		if (announcedDisplacement) return;
+		announcedDisplacement = true;
+		sync.announce('Your usual spot was taken, so you were placed nearby');
+	});
+
+	/**
 	 * UX-STAGE-9: the room surfaces live counts and the queue with its order,
 	 * so "scarcity is legible before you bump into it". Computed by the pure
 	 * module — this component renders it, it does not derive it (AR-TEST-4).
@@ -106,8 +132,7 @@
 		capacity: store.state.capacity,
 		video_holders: store.state.video_holders,
 		audio_holders: store.state.audio_holders,
-		queue: store.state.queue,
-		mode: store.state.mode
+		queue: store.state.queue
 	});
 	const slots = $derived(stageCounts(stage));
 	const nameOf = (id: string): string => store.state.participants[id]?.name ?? 'Someone';

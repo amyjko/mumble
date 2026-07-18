@@ -55,8 +55,7 @@
 		capacity: store.state.capacity,
 		video_holders: store.state.video_holders,
 		audio_holders: store.state.audio_holders,
-		queue: store.state.queue,
-		mode: store.state.mode
+		queue: store.state.queue
 	});
 	const hasVideo = $derived(holdsVideo(stage, identity.id));
 	const videoFree = $derived(freeSlots(stage, 'video'));

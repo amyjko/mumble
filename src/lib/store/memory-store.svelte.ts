@@ -19,6 +19,7 @@ import type {
 import { untrack } from 'svelte';
 import { canEdit } from '$lib/model/permissions';
 import { ellipsePoints, nearestLegal, placementLegal } from '$lib/canvas/geometry';
+import { locationKey } from '$lib/model/placement';
 import { applyEncodedUpdate, docFromEncoded, encodeDoc, mergeEncoded, noteText } from '$lib/model/ydoc';
 import {
 	admits,
@@ -180,8 +181,7 @@ export class MemoryRoomStore implements RoomStore {
 			capacity: this.state.capacity,
 			video_holders: this.state.video_holders,
 			audio_holders: this.state.audio_holders,
-			queue: this.state.queue,
-			mode: this.state.mode
+			queue: this.state.queue
 		};
 	}
 
@@ -190,7 +190,6 @@ export class MemoryRoomStore implements RoomStore {
 		this.state.video_holders = next.video_holders;
 		this.state.audio_holders = next.audio_holders;
 		this.state.queue = next.queue;
-		this.state.mode = next.mode;
 	}
 
 	/** Solver view of current occupancy (objects + avatars), minus exclusions. */
@@ -638,7 +637,7 @@ export class MemoryRoomStore implements RoomStore {
 
 	/** Key for AR-CTRL-6's table. room_id is implicit: this store IS one room. */
 	private locationKey(participantId: string): string {
-		return `${participantId}:${this.state.active_config ?? 'none'}`;
+		return locationKey(participantId, this.state.active_config);
 	}
 
 	/**

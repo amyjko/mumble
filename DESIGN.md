@@ -288,7 +288,6 @@ Two interchangeable WebRTC backends carry the same layer ladder (AR-MEDIA-3); a 
     video_holders     participant_id[]  -- |video_holders| ≤ max_av
     audio_holders     participant_id[]  -- |audio_holders| ≤ max_audio
     queue             participant_id[]  -- raise-hand / slot-request queue, FIFO
-    mode              'open' | 'moderated'
     transport         'p2p' | 'promoting' | 'sfu' | 'demoting'   -- non-'p2p' values V2
   }
   ```
@@ -458,7 +457,7 @@ The host is chosen on the same criterion as the media plane: **the free tier has
 **Stage / capacity:**
 
 - **Implemented 2026-07-18 as control plane only.** The capacity/slot/queue state machine is `model/stage.ts`, pure and node-tested per AR-TEST-4, with the store calling into it once per mutation. What remains A/V-blocked is only *media authorization* (UX-STAGE-5/6/8, AR-MEDIA-2): holding a slot means you MAY publish, and nothing yet publishes. Two decisions the spec left open were taken and are pinned by tests: someone who leaves is **dequeued**, and lowering `max_participants` **never evicts anyone** — the gate applies to new admissions only, because removing a person because a host changed a number is a worse failure than a briefly over-capacity room.
-- **`mode: 'moderated'` is carried but has no MVP semantics anywhere in DESIGN.md.** The code treats it as "self-take always queues; only a host grant allocates", which is an invention. Either specify it or drop the field.
+- ~~`mode: 'moderated'` is carried but has no MVP semantics.~~ **Dropped 2026-07-18.** It named nothing anyone could point at, and its only implementation was an invention of mine. A field that carries no agreed meaning is not neutral — it invites a reader to implement whatever they assume it meant. If moderation is wanted later it should arrive with its semantics written first.
 - **Mute releases the audio slot unconditionally** (UX-STAGE-10) — even with an empty queue, so someone else may take it before you unmute. Intended when `max_audio` is scarce (that _is_ the conch) and invisible when capacity exceeds attendance. Confirm it isn't hostile in the middle case; the alternative is releasing only when someone is waiting, which is friendlier but makes "do I still have the floor?" depend on invisible state.
 - Whether `max_participants` should be bounded directly by AR-TRANSPORT-4's uplink math, or whether that math should merely _suggest_ a ceiling to the host. With P2P as the MVP and no SFU to promote to, per-publisher uplink is the real limit on room size and nothing currently stops a host setting `max_participants` past what P2P can carry.
 - Reverse-acquisition-order release when a configuration switch lowers a cap (AR-MEDIA-1, AR-COST-5): confirm "last to take it, first to lose it" is the fairest rule, and what the displaced person sees.
@@ -482,13 +481,15 @@ The host is chosen on the same criterion as the media plane: **the free tier has
 
 **Canvas / front-end:**
 
+- ~~Rotated-handle resize operates on world axes and ignores rotation.~~ **Accepted 2026-07-18 as intended behavior**, not a defect to fix. Rotated-shape COLLISION is exact (SAT/OBB); only the drag-to-resize math is world-axis, which is a UX approximation nobody has been bothered by. Documented in `canvas/resize.ts` so it stays a decision rather than reading as an oversight.
+
 - Define the object-count and drawing-complexity budget; measure on target devices (AR-CANVAS-4).
 - Decide anonymous-creator object leave-behavior default and host controls (UX-ID-5).
 - Specify the legal-position solver (AR-CTRL-4, AR-CANVAS-5): the contact-and-slide algorithm, spacing, collision geometry per clip shape, and the search order when the default location is taken.
 - **Concurrent-drag overlap race** (AR-CANVAS-5): two participants can drop into the same gap having each passed their own client-side check; the server rejects the loser, whose object snaps back. Confirm the revert reads as fair rather than arbitrary — this is the one place UX-OBJ-12 and UX-QOS-1 genuinely pull against each other.
-- ~~Whether a remembered location (UX-AV-9) should survive a host rearranging the configuration around it.~~ **Implemented 2026-07-18 as re-validate-and-fall-through**, per AR-CTRL-4's own wording: a remembered spot that is no longer legal is not trusted, and entry falls through to the nearest legal position rather than dropping someone onto content. The concern in the original item stands and is now a live one: **it forgets silently.** Someone who returns to find themselves moved gets no explanation. Worth revisiting once there is somewhere to say so — the announcement region is the obvious candidate.
+- ~~Whether a remembered location (UX-AV-9) should survive a host rearranging the configuration around it.~~ **Implemented 2026-07-18 as re-validate-and-fall-through**, per AR-CTRL-4's own wording: a remembered spot that is no longer legal is not trusted, and entry falls through to the nearest legal position rather than dropping someone onto content. It no longer forgets silently: being re-placed is announced through the live region, so the move is accounted for without vision too (`model/placement.ts`, `wasDisplaced`).
 - Set image size caps and the storage/serving path (UX-OBJ-5, Supabase Storage).
-- ~~Decide configuration-switch semantics for objects present in one config but not another (hide vs remove from view).~~ **Resolved 2026-07-18** by dissolving the question rather than answering it: every object exists in every configuration, and a configuration records position, size, and VISIBILITY per object (UX-ROOM-3). Nothing is ever removed, so "present in one config but not another" cannot arise. Hidden objects hold no space and stay visible to their creator. _Still future work: per-configuration capacity numbers and default location._
+- ~~Decide configuration-switch semantics for objects present in one config but not another (hide vs remove from view).~~ **Resolved 2026-07-18** by dissolving the question rather than answering it: every object exists in every configuration, and a configuration records position, size, and VISIBILITY per object (UX-ROOM-3). Nothing is ever removed, so "present in one config but not another" cannot arise. Hidden objects hold no space and stay visible to their creator. Per-configuration capacity numbers and default location both landed 2026-07-18, so this item is fully closed.
 - ~~Sticker-border rendering against arbitrary path clips (AR-CANVAS-2).~~ **Resolved 2026-07-18** by striking arbitrary paths (UX-OBJ-7). Border-follows-clip is implemented and regression-tested for the shapes that remain.
 - ~~Define the emote set and per-emote animation approach (UX-AV-4..7).~~ **Resolved 2026-07-18**: the set is enumerated in UX-AV-4 with one source of truth in `model/emotes.ts`, and each animation is specified there. Persistent emotes (UX-AV-5) are the raise-hand corner stretch with glow, and the greyscale-blur away state.
 

@@ -38,7 +38,6 @@ export interface StageState {
 	video_holders: string[];
 	audio_holders: string[];
 	queue: string[];
-	mode: 'open' | 'moderated';
 }
 
 export const DEFAULT_CAPACITY: Capacity = { max_participants: 20, max_av: 4, max_audio: 8 };
@@ -169,7 +168,6 @@ function enqueue(state: StageState, id: string): StageState {
 export function takeSlot(state: StageState, id: string, media: SlotMedia): StageState {
 	if (media === 'audio' && holdsVideo(state, id)) return state;
 	if (holdersOf(state, media).includes(id)) return state;
-	if (state.mode === 'moderated') return enqueue(state, id);
 	if (freeSlots(state, media) === 0) return enqueue(state, id);
 	const taken = withHolders(state, media, [...holdersOf(state, media), id]);
 	return { ...taken, queue: taken.queue.filter((queued) => queued !== id) };
@@ -288,7 +286,6 @@ export function freshStage(capacity: Capacity = DEFAULT_CAPACITY): StageState {
 		capacity: normalizeCapacity(capacity),
 		video_holders: [],
 		audio_holders: [],
-		queue: [],
-		mode: 'open'
+		queue: []
 	};
 }
