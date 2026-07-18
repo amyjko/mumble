@@ -36,6 +36,14 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # SvelteKit generates the types for `$env/static/public` from the
+      # variables that actually exist, so without a .env every consumer of
+      # PUBLIC_SUPABASE_* is untyped and lint fails there. These are publishable
+      # values shipped to the browser, not secrets (AR-DEPLOY-6) — placeholders
+      # are enough, since nothing in the suite talks to a real Supabase.
+      - name: Provide public env for type generation
+        run: cp .env.example .env
+
       # MUST precede lint. tsconfig.json extends .svelte-kit/tsconfig.json,
       # which is GENERATED — without it every type resolves to `any` and the
       # no-unsafe-* rules fire on the entire codebase (1923 errors, reproduced
