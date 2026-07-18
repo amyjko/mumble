@@ -42,6 +42,7 @@
 			const n = object.payload.messages.length;
 			return `Chat, ${String(n)} message${n === 1 ? '' : 's'}`;
 		}
+		if (object.type === 'drawing') return 'Drawing';
 		const text = object.payload.text.trim();
 		return text === '' ? 'Empty note' : `Note: ${text.slice(0, 40)}`;
 	});
@@ -290,6 +291,7 @@
 	class="frame"
 	class:dragging
 	class:locked={!editable}
+	class:bare={object.type === 'drawing'}
 	role="group"
 	aria-label={label}
 	tabindex="0"
@@ -385,6 +387,13 @@
 	}
 	.frame.locked {
 		cursor: default;
+	}
+	.frame.bare {
+		background: transparent;
+		box-shadow: none;
+	}
+	.frame.bare:focus-within {
+		box-shadow: 0 0 0 var(--ring-width) var(--focus-ring);
 	}
 	.content {
 		width: 100%;

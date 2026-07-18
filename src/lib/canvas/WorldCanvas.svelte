@@ -4,7 +4,8 @@
 	import { SyncClient } from '$lib/store/sync-client.svelte';
 	import { Viewport } from './viewport.svelte';
 	import { shapeOfObject, shapeOfParticipant, AVATAR_SIZE } from '$lib/store/memory-store.svelte';
-	import { newNote, maxZOf } from '$lib/model/create';
+	import { newNote, newDrawing, maxZOf } from '$lib/model/create';
+	import { simplify, strokeBounds, normalizePoints, pointsToPath } from '$lib/model/drawing';
 	import type { Bounds } from './geometry';
 	import ObjectFrame from './ObjectFrame.svelte';
 	import AvatarTile from './AvatarTile.svelte';
@@ -15,9 +16,11 @@
 		sync: SyncClient;
 		viewport: Viewport;
 		identity: StoredIdentity;
+		drawMode: boolean;
+		drawColor: string;
 	}
 
-	let { store, sync, viewport, identity }: Props = $props();
+	let { store, sync, viewport, identity, drawMode, drawColor }: Props = $props();
 
 	let width = $state(1);
 	let height = $state(1);
@@ -29,6 +32,10 @@
 
 	// Per-viewer fullscreen (UX-CANVAS-4): local view state, never synced.
 	let fullscreenId = $state<string | null>(null);
+
+	// Freehand drawing capture (UX-OBJ-11): world-space points, local view state.
+	let stroke = $state<{ x: number; y: number }[] | null>(null);
+	const strokePreview = $derived(stroke === null ? '' : pointsToPath(stroke));
 	function focusOnMount(node: HTMLElement): void {
 		node.focus();
 	}
@@ -94,17 +101,41 @@
 		// canvas captures pointerdowns aimed at the camera cluster, retargeting
 		// pointerup and swallowing the buttons' clicks entirely.
 		if (event.target !== event.currentTarget) return;
-		panning = true;
-		last = { x: event.clientX, y: event.clientY };
 		if (event.currentTarget instanceof HTMLElement) {
 			event.currentTarget.setPointerCapture(event.pointerId);
 		}
+		if (drawMode) {
+			stroke = [viewport.toWorld({ x: event.clientX, y: event.clientY })];
+			return;
+		}
+		panning = true;
+		last = { x: event.clientX, y: event.clientY };
 	}
 
 	function onBackgroundMove(event: PointerEvent): void {
+		if (stroke !== null) {
+			stroke = [...stroke, viewport.toWorld({ x: event.clientX, y: event.clientY })];
+			return;
+		}
 		if (!panning) return;
 		viewport.pan(event.clientX - last.x, event.clientY - last.y);
 		last = { x: event.clientX, y: event.clientY };
+	}
+
+	function endStroke(): void {
+		if (stroke !== null) {
+			const pts = simplify(stroke);
+			if (pts.length >= 2) {
+				const box = strokeBounds(pts);
+				void sync.commit({
+					kind: 'create_object',
+					object: newDrawing(identity.id, box, drawColor, 3, normalizePoints(pts, box), maxZOf(objects))
+				});
+				sync.announce('Drawing added');
+			}
+			stroke = null;
+		}
+		panning = false;
 	}
 
 	function onWheel(event: WheelEvent): void {
@@ -181,11 +212,12 @@
 	bind:clientWidth={width}
 	bind:clientHeight={height}
 	style:background={roomBg}
+	style:cursor={drawMode ? 'crosshair' : 'default'}
 	onwheel={onWheel}
 	onpointerdown={onBackgroundDown}
 	onpointermove={onBackgroundMove}
-	onpointerup={() => (panning = false)}
-	onpointercancel={() => (panning = false)}
+	onpointerup={endStroke}
+	onpointercancel={endStroke}
 	ondblclick={onDoubleClick}
 	onkeydown={onCanvasKey}
 >
@@ -220,6 +252,18 @@
 		{#each participants as participant (participant.id)}
 			<AvatarTile {participant} {store} {sync} {viewport} obstacles={obstaclesFor(participant.id)} />
 		{/each}
+		{#if stroke !== null}
+			<svg class="stroke-preview" aria-hidden="true">
+				<path
+					d={strokePreview}
+					fill="none"
+					stroke={drawColor}
+					stroke-width="3"
+					stroke-linecap="round"
+					vector-effect="non-scaling-stroke"
+				/>
+			</svg>
+		{/if}
 	</div>
 
 	<!-- Camera cluster: auto-fit is a visible MODE, not a hidden state. -->
@@ -284,6 +328,13 @@
 	}
 	.world.animated {
 		transition: transform 240ms ease;
+	}
+	.stroke-preview {
+		position: absolute;
+		left: 0;
+		top: 0;
+		overflow: visible;
+		pointer-events: none;
 	}
 	.camera-cluster {
 		position: absolute;

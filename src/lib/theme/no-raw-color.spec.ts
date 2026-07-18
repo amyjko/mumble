@@ -12,7 +12,8 @@ const ROOT = new URL('../../..', import.meta.url).pathname;
 const SCAN_ROOT = join(ROOT, 'src');
 const EXEMPT = new Set([
 	join(SCAN_ROOT, 'app.css'), // the token source of truth
-	join(SCAN_ROOT, 'lib/database.types.ts') // generated
+	join(SCAN_ROOT, 'lib/database.types.ts'), // generated
+	join(SCAN_ROOT, 'lib/model/palette.ts') // user-selectable color DATA, not styling
 ]);
 
 const COLOR_LITERAL = /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(|oklch\(|color-mix\(/;

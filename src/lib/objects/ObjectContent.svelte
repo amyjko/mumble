@@ -4,6 +4,7 @@
 	import NoteObject from './NoteObject.svelte';
 	import TimerObject from './TimerObject.svelte';
 	import ChatObject from './ChatObject.svelte';
+	import DrawingObject from './DrawingObject.svelte';
 
 	/**
 	 * Renders an object's inner content by type (AR-CANVAS-3 dispatch). Shared
@@ -28,4 +29,6 @@
 	<TimerObject {object} {sync} {editable} />
 {:else if object.type === 'chat'}
 	<ChatObject {object} {sync} {identity} {onexit} />
+{:else if object.type === 'drawing'}
+	<DrawingObject {object} />
 {/if}

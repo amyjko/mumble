@@ -7,6 +7,7 @@
 	import { Viewport } from '$lib/canvas/viewport.svelte';
 	import { newNote, newTimer, newChat, maxZOf } from '$lib/model/create';
 	import { BACKGROUND_PRESETS } from '$lib/model/background';
+	import { DEFAULT_DRAW_COLOR } from '$lib/model/palette';
 	import WorldCanvas from '$lib/canvas/WorldCanvas.svelte';
 	import DevPanel from '$lib/dev/DevPanel.svelte';
 
@@ -19,6 +20,10 @@
 	const store = $derived(new MemoryRoomStore(data.room, identity.id));
 	const sync = $derived(new SyncClient(store));
 	const viewport = new Viewport();
+
+	// Draw mode + color are per-viewer view state (UX-OBJ-11 capture).
+	let drawMode = $state(false);
+	let drawColor = $state(DEFAULT_DRAW_COLOR);
 
 	$effect(() => {
 		const current = store;
@@ -104,11 +109,21 @@
 			</label>
 		</div>
 	</details>
+	<button
+		class="add"
+		aria-pressed={drawMode}
+		onclick={() => {
+			drawMode = !drawMode;
+		}}>✎ draw</button
+	>
+	{#if drawMode}
+		<input type="color" aria-label="Draw color" bind:value={drawColor} />
+	{/if}
 	<span class="hint">or double-click the canvas</span>
 </header>
 
 <main>
-	<WorldCanvas {store} {sync} {viewport} {identity} />
+	<WorldCanvas {store} {sync} {viewport} {identity} {drawMode} {drawColor} />
 	{#if import.meta.env.DEV}
 		<DevPanel {store} {sync} />
 	{/if}
@@ -146,6 +161,11 @@
 		color: var(--text);
 		font-size: var(--text-sm);
 		cursor: pointer;
+	}
+	.add[aria-pressed='true'] {
+		background: var(--accent);
+		color: var(--accent-contrast);
+		border-color: var(--accent);
 	}
 	.hint {
 		color: var(--text-muted);

@@ -95,11 +95,23 @@ export const chatObjectSchema = objectBase.extend({
 	payload: z.object({ messages: z.array(chatMessageSchema) })
 });
 
+/** A drawing (UX-OBJ-11): one colored stroke, points normalized 0–100. */
+const safeColor = z.string().regex(/^#[0-9a-fA-F]{3,8}$|^rgb\(/, 'Unsafe color');
+export const drawingObjectSchema = objectBase.extend({
+	type: z.literal('drawing'),
+	payload: z.object({
+		color: safeColor,
+		width: z.number().positive().max(40),
+		points: z.array(z.object({ x: z.number(), y: z.number() })).min(1).max(2000)
+	})
+});
+
 /** Grows into a wider discriminated union as object types land (AR-CANVAS-3). */
 export const canvasObjectSchema = z.discriminatedUnion('type', [
 	noteObjectSchema,
 	timerObjectSchema,
-	chatObjectSchema
+	chatObjectSchema,
+	drawingObjectSchema
 ]);
 
 export const participantSchema = z.object({

@@ -1,4 +1,5 @@
 import type { CanvasObject, Point } from './types';
+import type { Bounds } from './drawing';
 import { nowIso } from './types';
 
 /**
@@ -82,6 +83,31 @@ export function newChat(creatorId: string, center: Point, maxZ: number): CanvasO
 		border: { width: 10 },
 		default_transform: transform,
 		payload: { messages: [] },
+		created_at: now,
+		updated_at: now
+	};
+}
+
+export function newDrawing(
+	creatorId: string,
+	box: Bounds,
+	color: string,
+	width: number,
+	points: readonly Point[],
+	maxZ: number
+): CanvasObject {
+	const now = nowIso();
+	const transform = { x: box.x, y: box.y, width: box.width, height: box.height, rotation: 0, z: maxZ + 1 };
+	return {
+		id: crypto.randomUUID(),
+		type: 'drawing',
+		creator_id: creatorId,
+		permission: 'all',
+		transform,
+		clip: { shape: 'rect' },
+		border: { width: 0 },
+		default_transform: transform,
+		payload: { color, width, points: points.map((p) => ({ x: p.x, y: p.y })) },
 		created_at: now,
 		updated_at: now
 	};
