@@ -276,3 +276,12 @@ describe('emotes (UX-AV-5/7)', () => {
 		).rejects.toMatchObject({ reason: 'permission' });
 	});
 });
+
+describe('room title/description (UX-ROOM-2)', () => {
+	it('set_room_meta updates shared title and description', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		await store.commit({ kind: 'set_room_meta', title: 'Standup', description: 'daily sync' });
+		expect(store.state.title).toBe('Standup');
+		expect(store.state.description).toBe('daily sync');
+	});
+});

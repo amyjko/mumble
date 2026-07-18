@@ -133,7 +133,10 @@ export const roomStateSchema = z.object({
 	objects: z.record(z.uuid(), canvasObjectSchema),
 	participants: z.record(z.uuid(), participantSchema),
 	/** Shared canvas background (UX-CANVAS-5); '' = the default token bg. */
-	background: z.string().default('')
+	background: z.string().default(''),
+	/** Room title/description (UX-ROOM-2); '' title falls back to the name. */
+	title: z.string().max(120).default(''),
+	description: z.string().max(2000).default('')
 });
 
 /**
@@ -165,6 +168,11 @@ export const mutationSchema = z.discriminatedUnion('kind', [
 	z.object({
 		kind: z.literal('set_background'),
 		value: z.string().refine(isSafeBackground, 'Unsafe background value')
+	}),
+	z.object({
+		kind: z.literal('set_room_meta'),
+		title: z.string().max(120),
+		description: z.string().max(2000)
 	})
 ]);
 

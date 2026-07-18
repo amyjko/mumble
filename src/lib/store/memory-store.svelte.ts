@@ -39,7 +39,7 @@ export const AVATAR_BORDER = 6;
  * real arbitration arrives with the Supabase store.
  */
 export class MemoryRoomStore implements RoomStore {
-	state = $state<RoomState>({ objects: {}, participants: {}, background: '' });
+	state = $state<RoomState>({ objects: {}, participants: {}, background: '', title: '', description: '' });
 
 	/** DevPanel knobs. */
 	latencyMs = $state(0);
@@ -87,13 +87,13 @@ export class MemoryRoomStore implements RoomStore {
 	}
 
 	private hydrate(): RoomState {
-		if (typeof localStorage === 'undefined') return { objects: {}, participants: {}, background: '' };
+		if (typeof localStorage === 'undefined') return { objects: {}, participants: {}, background: '', title: '', description: '' };
 		const raw = localStorage.getItem(this.storageKey);
-		if (raw === null) return { objects: {}, participants: {}, background: '' };
+		if (raw === null) return { objects: {}, participants: {}, background: '', title: '', description: '' };
 		const parsed = roomStateSchema.safeParse(parseJson(raw));
 		if (!parsed.success) {
 			console.warn('mumble: stored room state failed validation; starting fresh');
-			return { objects: {}, participants: {}, background: '' };
+			return { objects: {}, participants: {}, background: '', title: '', description: '' };
 		}
 		return parsed.data;
 	}
@@ -255,6 +255,11 @@ export class MemoryRoomStore implements RoomStore {
 				// Room-level state. Host-gating arrives with the host role (UX-ROOM-6);
 				// for now, open like other room edits in the stub.
 				this.state.background = m.value;
+				break;
+			}
+			case 'set_room_meta': {
+				this.state.title = m.title;
+				this.state.description = m.description;
 				break;
 			}
 		}

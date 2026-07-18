@@ -8,6 +8,8 @@
 	import { newNote, newTimer, newChat, maxZOf } from '$lib/model/create';
 	import { BACKGROUND_PRESETS } from '$lib/model/background';
 	import { DEFAULT_DRAW_COLOR } from '$lib/model/palette';
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import WorldCanvas from '$lib/canvas/WorldCanvas.svelte';
 	import DevPanel from '$lib/dev/DevPanel.svelte';
 
@@ -24,6 +26,8 @@
 	// Draw mode + color are per-viewer view state (UX-OBJ-11 capture).
 	let drawMode = $state(false);
 	let drawColor = $state(DEFAULT_DRAW_COLOR);
+	let renameDraft = $state('');
+	const ROOM_NAME = /^[a-z0-9_-]{2,32}$/i;
 
 	$effect(() => {
 		const current = store;
@@ -76,6 +80,19 @@
 		void sync.commit({ kind: 'set_background', value });
 		sync.announce('Background changed');
 	}
+	function saveMeta(title: string, description: string): void {
+		void sync.commit({ kind: 'set_room_meta', title, description });
+	}
+	function renameRoom(): void {
+		const name = renameDraft.trim().toLowerCase();
+		if (!ROOM_NAME.test(name) || name === data.room) return;
+		// Carry this room's state to the new name. NOTE: the old name is not
+		// truly freed in the stub — real uniqueness/freeing is server-side
+		// (AR-BACKEND-10, UX-ROOM-10); old URLs still rehydrate here.
+		const current = localStorage.getItem(`mumble:room:${data.room}`);
+		if (current !== null) localStorage.setItem(`mumble:room:${name}`, current);
+		void goto(resolve('/hey/[room]', { room: name }));
+	}
 </script>
 
 <svelte:head>
@@ -83,7 +100,39 @@
 </svelte:head>
 
 <header class="bar">
-	<strong>/hey/{data.room}</strong>
+	<details class="room">
+		<summary><strong>{store.state.title === '' ? data.room : store.state.title}</strong></summary>
+		<div class="room-menu">
+			<label class="field">
+				Title
+				<input
+					aria-label="Room title"
+					value={store.state.title}
+					placeholder={data.room}
+					onchange={(e) => {
+						saveMeta(e.currentTarget.value, store.state.description);
+					}}
+				/>
+			</label>
+			<label class="field">
+				Description
+				<textarea
+					aria-label="Room description"
+					value={store.state.description}
+					onchange={(e) => {
+						saveMeta(store.state.title, e.currentTarget.value);
+					}}
+				></textarea>
+			</label>
+			<label class="field">
+				Rename room
+				<span class="rename-row">
+					<input bind:value={renameDraft} aria-label="New room name" placeholder="new-name" />
+					<button type="button" onclick={renameRoom}>rename</button>
+				</span>
+			</label>
+		</div>
+	</details>
 	<span class="count">{count} here</span>
 	<button class="add" onclick={addNote}>+ note</button>
 	<button class="add" onclick={addTimer}>+ timer</button>
@@ -171,6 +220,54 @@
 	}
 	.hint {
 		color: var(--text-muted);
+	}
+	.room summary {
+		cursor: pointer;
+		min-height: var(--target-min);
+		display: inline-flex;
+		align-items: center;
+	}
+	.room-menu {
+		position: absolute;
+		margin-top: var(--space-1);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		width: 260px;
+		padding: var(--space-3);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-md);
+		background: var(--surface);
+		box-shadow: var(--shadow-2);
+	}
+	.field {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		font-size: var(--text-xs);
+		color: var(--text-muted);
+	}
+	.field input,
+	.field textarea {
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		background: var(--surface-2);
+		color: var(--text);
+		padding: var(--space-1) var(--space-2);
+		font: var(--text-sm) var(--font-ui);
+	}
+	.rename-row {
+		display: flex;
+		gap: var(--space-1);
+	}
+	.rename-row button {
+		min-height: var(--target-min);
+		padding: 0 var(--space-2);
+		border: 1px solid var(--accent);
+		border-radius: var(--radius-sm);
+		background: var(--accent);
+		color: var(--accent-contrast);
+		cursor: pointer;
 	}
 	.bg summary {
 		cursor: pointer;
