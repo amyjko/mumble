@@ -8,6 +8,7 @@
 	import { shapeOfObject } from '$lib/store/memory-store.svelte';
 	import ObjectContent from '$lib/objects/ObjectContent.svelte';
 	import { displayMs, formatMs } from '$lib/model/timer';
+	import { clipPathCss, nextClip } from '$lib/model/clip';
 
 	interface Props {
 		object: CanvasObject;
@@ -28,6 +29,7 @@
 	const deletable = $derived(canDelete(object, actorId, false));
 	/** Overlay (own or a peer's in-flight drag) wins over settled state. */
 	const effective = $derived(sync.objectOverlays.get(object.id) ?? object.transform);
+	const clipPath = $derived(clipPathCss(object.clip));
 
 	/** Real accessible name (UX-A11Y-3): content, not chrome. Type-aware. */
 	const label = $derived.by(() => {
@@ -145,6 +147,11 @@
 			event.preventDefault();
 			return;
 		}
+		if ((event.key === 'c' || event.key === 'C') && editable) {
+			cycleShape();
+			event.preventDefault();
+			return;
+		}
 		if (!editable) return;
 		const step = event.shiftKey ? 1 : 16;
 		let dx = 0;
@@ -185,6 +192,12 @@
 		frameEl?.focus();
 	}
 
+	function cycleShape(): void {
+		const clip = nextClip(object.clip);
+		void sync.commit({ kind: 'set_clip', id: object.id, clip });
+		sync.announce(`Shape: ${clip.shape}`);
+	}
+
 	/** Tabbing here reveals the object if it's off-screen (UX-A11Y). */
 	function onFocus(): void {
 		viewport.ensureVisible({
@@ -219,6 +232,7 @@
 	style:transform="translate({effective.x}px, {effective.y}px) rotate({effective.rotation}deg)"
 	style:z-index={effective.z}
 	style:border-radius={outerRadius}
+	style:clip-path={clipPath ?? 'none'}
 	style:padding="{object.border.width}px"
 	style:--ring-width="{object.border.width}px"
 	onpointerdown={onPointerDown}
@@ -231,6 +245,16 @@
 	<div class="content" style:border-radius={innerRadius}>
 		<ObjectContent {object} {sync} {editable} {identity} onexit={exitToFrame} />
 	</div>
+	{#if editable}
+		<button
+			class="shape"
+			aria-label="Change shape (currently {object.clip.shape})"
+			onpointerdown={(e) => {
+				e.stopPropagation();
+			}}
+			onclick={cycleShape}>◇</button
+		>
+	{/if}
 	<button
 		class="fullscreen"
 		aria-label="Fill screen with this object"
@@ -302,11 +326,29 @@
 	.fullscreen {
 		left: calc(-1 * var(--space-3));
 	}
+	.shape {
+		position: absolute;
+		bottom: calc(-1 * var(--space-3));
+		left: calc(-1 * var(--space-3));
+		width: var(--target-min);
+		height: var(--target-min);
+		border-radius: var(--radius-full);
+		border: none;
+		background: var(--text);
+		color: var(--surface);
+		font-size: var(--text-sm);
+		line-height: 1;
+		cursor: pointer;
+		opacity: 0;
+		transition: opacity 120ms;
+	}
 	.delete {
 		right: calc(-1 * var(--space-3));
 	}
 	.frame:hover .fullscreen,
 	.frame:focus-within .fullscreen,
+	.frame:hover .shape,
+	.frame:focus-within .shape,
 	.frame:hover .delete,
 	.frame:focus-within .delete {
 		opacity: 1;

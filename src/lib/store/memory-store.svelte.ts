@@ -232,6 +232,13 @@ export class MemoryRoomStore implements RoomStore {
 				this.state.participants = omitKey(this.state.participants, m.id);
 				break;
 			}
+			case 'set_clip': {
+				const existing = this.requireObject(m.id);
+				this.requireEditable(existing);
+				existing.clip = m.clip;
+				existing.updated_at = nowIso();
+				break;
+			}
 			case 'set_background': {
 				// Room-level state. Host-gating arrives with the host role (UX-ROOM-6);
 				// for now, open like other room edits in the stub.

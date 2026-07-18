@@ -236,3 +236,22 @@ describe('canvas background (UX-CANVAS-5)', () => {
 		expect(store.state.background).toBe('');
 	});
 });
+
+describe('clip shapes (UX-OBJ-7)', () => {
+	it('set_clip changes an editable object\'s shape', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const n = note(ALICE, 0);
+		await store.commit({ kind: 'create_object', object: n });
+		await store.commit({ kind: 'set_clip', id: n.id, clip: { shape: 'ellipse' } });
+		expect(store.state.objects[n.id]?.clip.shape).toBe('ellipse');
+	});
+
+	it('set_clip on a locked object owned by another is denied', async () => {
+		const store = makeStore(`r${String(Math.random())}`, BOB);
+		const n = note(ALICE, 0, 'none');
+		await store.commit({ kind: 'create_object', object: n });
+		await expect(
+			store.commit({ kind: 'set_clip', id: n.id, clip: { shape: 'circle' } })
+		).rejects.toMatchObject({ reason: 'permission' });
+	});
+});

@@ -19,11 +19,22 @@ export const transformSchema = z.object({
 	z: z.number()
 });
 
-/** Slice 1 clips: rect, rounded, circle. Polygon/path are a named open item. */
+/**
+ * Clip shapes (UX-OBJ-7). rect/rounded/circle use border-radius; ellipse and
+ * polygon use percentage clip-path (which scales with the object). Arbitrary
+ * `path` clipping is deferred — it needs an SVG objectBoundingBox clipPath and
+ * a matching sticker-border stroke, the open item AR-CANVAS-2 already names.
+ * Polygon points are percentages (0–100) of the object's box.
+ */
 export const clipSchema = z.discriminatedUnion('shape', [
 	z.object({ shape: z.literal('rect') }),
 	z.object({ shape: z.literal('rounded'), radius: z.number().nonnegative() }),
-	z.object({ shape: z.literal('circle') })
+	z.object({ shape: z.literal('circle') }),
+	z.object({ shape: z.literal('ellipse') }),
+	z.object({
+		shape: z.literal('polygon'),
+		points: z.array(z.object({ x: z.number().min(0).max(100), y: z.number().min(0).max(100) })).min(3).max(16)
+	})
 ]);
 
 /** Sticker border (UX-OBJ-8). Its width IS the overlap tolerance (UX-OBJ-12). */
@@ -124,6 +135,7 @@ export const mutationSchema = z.discriminatedUnion('kind', [
 	}),
 	z.object({ kind: z.literal('edit_timer'), id: z.uuid(), payload: timerPayloadSchema }),
 	z.object({ kind: z.literal('post_message'), id: z.uuid(), message: chatMessageSchema }),
+	z.object({ kind: z.literal('set_clip'), id: z.uuid(), clip: clipSchema }),
 	z.object({ kind: z.literal('delete_object'), id: z.uuid() }),
 	z.object({ kind: z.literal('upsert_participant'), participant: participantSchema }),
 	z.object({
