@@ -2,6 +2,8 @@
 	import type { ChatCanvasObject, StoredIdentity } from '$lib/model/types';
 	import type { SyncClient } from '$lib/store/sync-client.svelte';
 	import { nowIso } from '$lib/model/types';
+	import Button from '$lib/ui/Button.svelte';
+	import { stopPointer } from '$lib/ui/events';
 
 	interface Props {
 		object: ChatCanvasObject;
@@ -71,12 +73,16 @@
 				e.stopPropagation();
 			}}
 		/>
-		<button
-			aria-label="Send message"
-			onpointerdown={(e) => {
-				e.stopPropagation();
-			}}
-			onclick={send}>Send</button
+		<!--
+			Disabled on an empty draft. It used to stay enabled and silently
+			early-return, which reads as a broken button rather than a guarded one.
+		-->
+		<Button
+			variant="primary"
+			label="Send message"
+			disabled={draft.trim() === ''}
+			onpointerdown={stopPointer}
+			onclick={send}>Send</Button
 		>
 	</div>
 </div>
@@ -131,15 +137,5 @@
 		background: var(--surface-2);
 		color: var(--text);
 		font: var(--text-sm) var(--font-ui);
-	}
-	.compose button {
-		min-height: var(--target-min);
-		padding: 0 var(--space-2);
-		border: 1px solid var(--accent);
-		border-radius: var(--radius-sm);
-		background: var(--accent);
-		color: var(--accent-contrast);
-		font: var(--text-sm) var(--font-ui);
-		cursor: pointer;
 	}
 </style>

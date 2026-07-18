@@ -63,7 +63,9 @@
 	{onclick}
 	{onpointerdown}
 	{title}
-	class="btn {variant} {shape}"
+	class="btn"
+	data-variant={variant}
+	data-shape={shape}
 	aria-pressed={pressed}
 	aria-label={label}
 >{@render children()}</button>
@@ -96,21 +98,28 @@
 	/* Ring comes from the global :focus-visible rule in app.css (one width, one
 	   token, follows border-radius). Nothing here may override it. */
 
-	.btn.primary,
+	/*
+	 * Variant and shape are DATA ATTRIBUTES, not classes. As classes they would
+	 * be words like `text` and `primary` in the global class namespace of every
+	 * button in the app — `.btn.text` immediately collided with the chat log's
+	 * own `.text` message span and broke a `.chat .text` selector in a test.
+	 * A shared primitive must not squat on generic names.
+	 */
+	.btn[data-variant='primary'],
 	.btn[aria-pressed='true'] {
 		background: var(--accent);
 		color: var(--accent-contrast);
 		border-color: var(--accent);
 	}
 
-	.btn.chrome {
+	.btn[data-variant='chrome'] {
 		background: var(--text);
 		color: var(--surface);
 		border-color: transparent;
 		border-radius: var(--radius-full);
 	}
 
-	.btn.icon {
+	.btn[data-shape='icon'] {
 		padding: 0;
 		width: var(--control-height);
 		height: var(--control-height);

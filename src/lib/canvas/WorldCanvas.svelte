@@ -10,6 +10,7 @@
 	import ObjectFrame from './ObjectFrame.svelte';
 	import AvatarTile from './AvatarTile.svelte';
 	import ObjectContent from '$lib/objects/ObjectContent.svelte';
+	import Button from '$lib/ui/Button.svelte';
 
 	interface Props {
 		store: RoomStore;
@@ -276,13 +277,9 @@
 	<!-- Camera cluster: auto-fit is a visible MODE, not a hidden state. -->
 	<div class="camera-cluster">
 		<span class="zoom" aria-label="Zoom level">{Math.round(viewport.camera.scale * 100)}%</span>
-		<button
-			class="fit"
-			aria-pressed={viewport.autoZoom}
-			onclick={() => (viewport.autoZoom = !viewport.autoZoom)}
-		>
+		<Button pressed={viewport.autoZoom} onclick={() => (viewport.autoZoom = !viewport.autoZoom)}>
 			⤢ auto-fit {viewport.autoZoom ? 'on' : 'off'}
-		</button>
+		</Button>
 	</div>
 
 	{#if fullscreenObject !== null}
@@ -299,7 +296,7 @@
 				if (e.key === 'Escape') fullscreenId = null;
 			}}
 		>
-			<button class="fs-close" aria-label="Exit fullscreen" onclick={() => (fullscreenId = null)}>✕ close</button>
+				<Button label="Exit fullscreen" onclick={() => (fullscreenId = null)}>✕ close</Button>
 			<div class="fs-content">
 				<ObjectContent
 					object={fullscreenObject}
@@ -372,21 +369,6 @@
 		min-width: 40px;
 		text-align: right;
 	}
-	.fit {
-		min-height: var(--target-min);
-		padding: var(--space-1) var(--space-2);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-sm);
-		background: var(--surface-2);
-		color: var(--text);
-		font-size: var(--text-sm);
-		cursor: pointer;
-	}
-	.fit[aria-pressed='true'] {
-		background: var(--accent);
-		color: var(--accent-contrast);
-		border-color: var(--accent);
-	}
 	.fullscreen-overlay {
 		position: absolute;
 		inset: 0;
@@ -394,18 +376,6 @@
 		display: flex;
 		flex-direction: column;
 		background: var(--bg-canvas);
-	}
-	.fs-close {
-		align-self: flex-end;
-		margin: var(--space-3);
-		min-height: var(--target-min);
-		padding: var(--space-1) var(--space-3);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-sm);
-		background: var(--surface);
-		color: var(--text);
-		font: var(--text-sm) var(--font-ui);
-		cursor: pointer;
 	}
 	.fs-content {
 		flex: 1;

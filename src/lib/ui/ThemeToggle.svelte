@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getTheme, applyTheme, nextTheme, THEME_LABEL, THEME_ICON } from '$lib/theme/theme';
 	import type { Theme } from '$lib/theme/theme';
+	import Button from './Button.svelte';
 
 	let theme = $state<Theme>(getTheme());
 
@@ -10,28 +11,23 @@
 	}
 </script>
 
-<button class="toggle" onclick={cycle} aria-label="Change theme, currently {THEME_LABEL[theme]}">
-	<span aria-hidden="true">{THEME_ICON[theme]}</span>
-	<span class="label">{THEME_LABEL[theme]}</span>
-</button>
+<!--
+	The fixed positioning here is temporary: ChromeLayer takes over placement of
+	all floating chrome later in this phase, at which point this wrapper goes.
+-->
+<div class="theme-slot">
+	<Button onclick={cycle} label="Change theme, currently {THEME_LABEL[theme]}">
+		<span aria-hidden="true">{THEME_ICON[theme]}</span>
+		<span class="label">{THEME_LABEL[theme]}</span>
+	</Button>
+</div>
 
 <style>
-	.toggle {
+	.theme-slot {
 		position: fixed;
 		bottom: var(--space-3);
 		left: var(--space-3);
 		z-index: var(--z-chrome);
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		min-height: var(--target-min);
-		padding: var(--space-1) var(--space-3);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
-		background: var(--surface);
-		color: var(--text);
-		font: var(--text-sm) var(--font-ui);
-		cursor: pointer;
 	}
 	.label {
 		color: var(--text-muted);

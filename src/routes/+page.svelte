@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import Button from '$lib/ui/Button.svelte';
 
 	let room = $state('');
 	const valid = $derived(/^[a-z0-9_-]{2,32}$/i.test(room));
@@ -21,7 +22,7 @@
 	<form onsubmit={go}>
 		<span class="prefix">mumble.studio/hey/</span>
 		<input bind:value={room} placeholder="room-name" aria-label="Room name" />
-		<button disabled={!valid}>go</button>
+		<Button type="submit" variant="primary" disabled={!valid}>go</Button>
 	</form>
 </main>
 
@@ -49,19 +50,5 @@
 		background: var(--surface);
 		color: var(--text);
 		font: inherit;
-	}
-	button {
-		min-height: var(--target-min);
-		padding: var(--space-2) var(--space-4);
-		border: none;
-		border-radius: var(--radius-sm);
-		background: var(--accent);
-		color: var(--accent-contrast);
-		font: inherit;
-		cursor: pointer;
-	}
-	button:disabled {
-		opacity: 0.4;
-		cursor: default;
 	}
 </style>

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { MemoryRoomStore } from '$lib/store/memory-store.svelte';
 	import type { SyncClient } from '$lib/store/sync-client.svelte';
+	import Button from '$lib/ui/Button.svelte';
 
 	/**
 	 * Stub-era controls. This component legitimately names MemoryRoomStore —
@@ -44,7 +45,7 @@
 		<input type="checkbox" bind:checked={store.rejectNext} />
 		reject next commit
 	</label>
-	<button onclick={addFake}>+ fake participant</button>
+	<Button onclick={addFake}>+ fake participant</Button>
 	{#if sync.lastRejection !== null}
 		<p class="rejection">⛔ {sync.lastRejection}</p>
 	{/if}
@@ -77,15 +78,6 @@
 		flex-direction: row;
 		align-items: center;
 		gap: 6px;
-	}
-	button {
-		min-height: var(--target-min);
-		padding: var(--space-1) var(--space-2);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-sm);
-		background: var(--surface-2);
-		color: var(--text);
-		cursor: pointer;
 	}
 	.rejection {
 		margin: 0;

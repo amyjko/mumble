@@ -2,6 +2,8 @@
 	import type { TimerCanvasObject, TimerPayload } from '$lib/model/types';
 	import type { SyncClient } from '$lib/store/sync-client.svelte';
 	import { displayMs, formatMs, isFinished, started, paused, reset } from '$lib/model/timer';
+	import Button from '$lib/ui/Button.svelte';
+	import { stopPointer } from '$lib/ui/events';
 
 	interface Props {
 		object: TimerCanvasObject;
@@ -54,54 +56,57 @@
 	<output class="readout" aria-label="{object.payload.mode} timer">{display}</output>
 	{#if editable}
 		<div class="controls">
-			<button
-				class="primary"
-				aria-pressed={object.payload.running}
-				onpointerdown={(e) => {
-					e.stopPropagation();
-				}}
-				onclick={toggle}>{object.payload.running ? 'Pause' : 'Start'}</button
+			<!--
+				Start/Pause names the ACTION, with no aria-pressed. It used to carry
+				both a changing label and a changing pressed state, which is the same
+				ambiguity the mode control had: you could not tell whether the button
+				described the current state or what clicking would do.
+			-->
+			<Button variant="primary" onpointerdown={stopPointer} onclick={toggle}>
+				{object.payload.running ? 'Pause' : 'Start'}
+			</Button>
+			<Button shape="icon" label="Reset timer" onpointerdown={stopPointer} onclick={doReset}>↺</Button>
+		</div>
+		<!--
+			Mode is a switch showing CURRENT STATE, not a command: both options are
+			always visible with stable labels, and the active one is pressed. The
+			previous single button flipped its own label AND its pressed state on
+			click, so it read as a command to some people and a state to others.
+		-->
+		<div class="mode" role="group" aria-label="Timer mode">
+			<Button
+				pressed={object.payload.mode === 'countdown'}
+				onpointerdown={stopPointer}
+				onclick={() => {
+					setMode('countdown');
+				}}>Count down</Button
 			>
-			<button
-				aria-label="Reset timer"
-				onpointerdown={(e) => {
-					e.stopPropagation();
-				}}
-				onclick={doReset}>↺</button
+			<Button
+				pressed={object.payload.mode === 'countup'}
+				onpointerdown={stopPointer}
+				onclick={() => {
+					setMode('countup');
+				}}>Count up</Button
 			>
 		</div>
-		<div class="config">
-			<button
-				aria-pressed={object.payload.mode === 'countdown'}
-				onpointerdown={(e) => {
-					e.stopPropagation();
-				}}
-				onclick={() => {
-					setMode(object.payload.mode === 'countdown' ? 'countup' : 'countdown');
-				}}
-				>{object.payload.mode === 'countdown' ? '↓ countdown' : '↑ count up'}</button
-			>
-			{#if object.payload.mode === 'countdown'}
-				<button
-					aria-label="Subtract one minute"
-					onpointerdown={(e) => {
-						e.stopPropagation();
-					}}
+		{#if object.payload.mode === 'countdown'}
+			<div class="config">
+				<Button
+					label="Subtract one minute"
+					onpointerdown={stopPointer}
 					onclick={() => {
 						adjustDuration(-60_000);
-					}}>−1m</button
+					}}>−1m</Button
 				>
-				<button
-					aria-label="Add one minute"
-					onpointerdown={(e) => {
-						e.stopPropagation();
-					}}
+				<Button
+					label="Add one minute"
+					onpointerdown={stopPointer}
 					onclick={() => {
 						adjustDuration(60_000);
-					}}>+1m</button
+					}}>+1m</Button
 				>
-			{/if}
-		</div>
+			</div>
+		{/if}
 	{/if}
 </div>
 
@@ -128,27 +133,13 @@
 	.timer.finished .readout {
 		color: var(--danger);
 	}
+	/* Layout only — every button's own appearance comes from Button.svelte. */
 	.controls,
+	.mode,
 	.config {
 		display: flex;
 		gap: var(--space-1);
 		flex-wrap: wrap;
 		justify-content: center;
-	}
-	button {
-		min-height: var(--target-min);
-		padding: 0 var(--space-2);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-sm);
-		background: var(--surface-2);
-		color: var(--text);
-		font: var(--text-xs) var(--font-ui);
-		cursor: pointer;
-	}
-	button.primary[aria-pressed='true'],
-	button[aria-pressed='true'] {
-		background: var(--accent);
-		color: var(--accent-contrast);
-		border-color: var(--accent);
 	}
 </style>

@@ -10,6 +10,9 @@
 	import { displayMs, formatMs } from '$lib/model/timer';
 	import { clipPathCss, nextClip } from '$lib/model/clip';
 	import { resizeTransform, rotationForPointer, snapRotation, type ResizeHandle } from './resize';
+	import Button from '$lib/ui/Button.svelte';
+	import { stopPointer } from '$lib/ui/events';
+	import { RAISED_Z } from './layers';
 
 	interface Props {
 		object: CanvasObject;
@@ -64,6 +67,15 @@
 
 	let frameEl = $state<HTMLElement | null>(null);
 	let dragging = $state(false);
+
+	/**
+	 * Hover/focus raises the object above everything else in the world so its
+	 * chrome is reachable (see layers.ts for why RAISED_Z beats AVATAR_Z).
+	 * This has to be STATE rather than a `.frame:hover { z-index }` rule: the
+	 * inline style:z-index below always wins over a stylesheet rule, so a CSS
+	 * version would silently do nothing.
+	 */
+	let raised = $state(false);
 	let pointerStart: Point = { x: 0, y: 0 };
 	let objectStart: Point = { x: 0, y: 0 };
 	let lastResolved: Point = { x: 0, y: 0 };
@@ -300,11 +312,19 @@
 	style:width="{effective.width}px"
 	style:height="{effective.height}px"
 	style:transform="translate({effective.x}px, {effective.y}px) rotate({effective.rotation}deg)"
-	style:z-index={effective.z}
-	style:border-radius={outerRadius}
-	style:clip-path={clipPath ?? 'none'}
-	style:padding="{object.border.width}px"
-	style:--ring-width="{object.border.width}px"
+	style:z-index={raised ? RAISED_Z : effective.z}
+	onpointerenter={() => {
+		raised = true;
+	}}
+	onpointerleave={() => {
+		raised = false;
+	}}
+	onfocusin={() => {
+		raised = true;
+	}}
+	onfocusout={() => {
+		raised = false;
+	}}
 	onpointerdown={onPointerDown}
 	onpointermove={onPointerMove}
 	onpointerup={onPointerUp}
@@ -312,9 +332,36 @@
 	onkeydown={onKeyDown}
 	onfocus={onFocus}
 >
-	<div class="content" style:border-radius={innerRadius}>
-		<ObjectContent {object} {sync} {editable} {identity} onexit={exitToFrame} />
+	<!--
+		THE CLIP LIVES HERE, NOT ON .frame. clip-path clips painting AND hit
+		testing for every descendant, so with it on the frame an ellipse or
+		polygon silhouette erased all the chrome below — handles, rotate grip,
+		fullscreen, delete, and the shape button itself, which left no pointer
+		way back out of the shape. Chrome is now a SIBLING of the clipped layer,
+		so it survives every clip.
+	-->
+	<div
+		class="clip"
+		style:border-radius={outerRadius}
+		style:clip-path={clipPath ?? 'none'}
+		style:padding="{object.border.width}px"
+	>
+		<div class="content" style:border-radius={innerRadius}>
+			<ObjectContent {object} {sync} {editable} {identity} onexit={exitToFrame} />
+		</div>
 	</div>
+	<!--
+		The ring is an inflated copy of the clipped silhouette rather than an
+		outline: outline follows border-radius but NOT clip-path, so only a
+		same-shape layer tracks an ellipse or polygon edge. Controls use a plain
+		outline (app.css) precisely because they sit outside the clip.
+	-->
+	<div
+		class="ring"
+		aria-hidden="true"
+		style:border-radius={outerRadius}
+		style:clip-path={clipPath ?? 'none'}
+	></div>
 	{#if editable}
 		{#each ['nw', 'ne', 'sw', 'se'] as const as h (h)}
 			<button
@@ -332,34 +379,41 @@
 				onHandleDown('rotate', e);
 			}}
 		></button>
-		<button
-			class="shape"
-			aria-label="Change shape (currently {object.clip.shape})"
-			onpointerdown={(e) => {
-				e.stopPropagation();
-			}}
-			onclick={cycleShape}>◇</button
-		>
+		{#if object.type !== 'drawing'}
+			<!-- Drawings have no sticker border, so a clip edge on one is invisible
+			     and the control is meaningless — hidden rather than ambiguous. -->
+			<span class="chrome shape">
+				<Button
+					variant="chrome"
+					shape="icon"
+					label="Change shape (currently {object.clip.shape})"
+					onpointerdown={stopPointer}
+					onclick={cycleShape}>◇</Button
+				>
+			</span>
+		{/if}
 	{/if}
-	<button
-		class="fullscreen"
-		aria-label="Fill screen with this object"
-		onpointerdown={(e) => {
-			e.stopPropagation();
-		}}
-		onclick={() => {
-			onFullscreen(object.id);
-		}}>⛶</button
-	>
-	{#if deletable}
-		<button
-			class="delete"
-			aria-label="Delete note"
-			onpointerdown={(e) => {
-				e.stopPropagation();
-			}}
-			onclick={onDelete}>×</button
+	<span class="chrome fullscreen">
+		<Button
+			variant="chrome"
+			shape="icon"
+			label="Fill screen with this object"
+			onpointerdown={stopPointer}
+			onclick={() => {
+				onFullscreen(object.id);
+			}}>⛶</Button
 		>
+	</span>
+	{#if deletable}
+		<span class="chrome delete">
+			<Button
+				variant="chrome"
+				shape="icon"
+				label="Delete note"
+				onpointerdown={stopPointer}
+				onclick={onDelete}>×</Button
+			>
+		</span>
 	{/if}
 </div>
 
@@ -367,20 +421,18 @@
 	.frame {
 		position: absolute;
 		box-sizing: border-box;
-		background: var(--sticker); /* the sticker (UX-OBJ-8): cutout edge following the clip */
-		box-shadow: var(--shadow-1);
 		cursor: grab;
 		touch-action: none;
 		user-select: none;
-		outline: none; /* replaced by the selection ring below */
+		outline: none; /* replaced by the .ring layer */
 	}
-	/* Selection ring (STYLE.md §7.4): always-on when focused — click OR
-	   keyboard — and persists while editing. Thickness = this object's own
-	   sticker border; box-shadow follows the clip radius with no layout shift. */
-	.frame:focus-within {
-		box-shadow:
-			0 0 0 var(--ring-width) var(--focus-ring),
-			var(--shadow-1);
+	/* The sticker itself (UX-OBJ-8) — the layer the clip applies to. */
+	.clip {
+		position: absolute;
+		inset: 0;
+		box-sizing: border-box;
+		background: var(--sticker);
+		box-shadow: var(--shadow-1);
 	}
 	.frame.dragging {
 		cursor: grabbing;
@@ -388,55 +440,55 @@
 	.frame.locked {
 		cursor: default;
 	}
-	.frame.bare {
+	.frame.bare .clip {
 		background: transparent;
 		box-shadow: none;
 	}
-	.frame.bare:focus-within {
-		box-shadow: 0 0 0 var(--ring-width) var(--focus-ring);
+	/*
+	 * Selection ring. Shown when the FRAME itself holds focus, or when focus is
+	 * inside the object's own content (a note textarea, a chat input — both
+	 * marked [data-editable]). Deliberately NOT :focus-within: with that,
+	 * focusing a chrome button lit the object ring too and two things looked
+	 * focused at once. Width is the global --ring-width, uniform with every
+	 * control ring rather than the object's border thickness.
+	 */
+	.ring {
+		position: absolute;
+		inset: calc(-1 * var(--ring-width));
+		background: var(--focus-ring);
+		opacity: 0;
+		pointer-events: none;
+		z-index: -1;
+	}
+	/* The :has(...) is :global because [data-editable] lives inside the child
+	   object components, so Svelte's scoper cannot see it from here and would
+	   prune the rule as unused. */
+	.frame:focus .ring,
+	.frame:global(:has([data-editable] :focus)) .ring {
+		opacity: 1;
 	}
 	.content {
 		width: 100%;
 		height: 100%;
 		overflow: hidden;
 	}
-	.fullscreen,
-	.delete {
+	/* Chrome badges are positioned wrappers; Button paints them. */
+	.chrome {
 		position: absolute;
-		top: calc(-1 * var(--space-3));
-		width: var(--target-min);
-		height: var(--target-min);
-		border-radius: var(--radius-full);
-		border: none;
-		background: var(--text);
-		color: var(--surface);
-		font-size: var(--text-sm);
-		line-height: 1;
-		cursor: pointer;
 		opacity: 0;
 		transition: opacity 120ms;
 	}
-	.fullscreen {
+	.chrome.fullscreen {
+		top: calc(-1 * var(--space-3));
 		left: calc(-1 * var(--space-3));
 	}
-	.shape {
-		position: absolute;
+	.chrome.delete {
+		top: calc(-1 * var(--space-3));
+		right: calc(-1 * var(--space-3));
+	}
+	.chrome.shape {
 		bottom: calc(-1 * var(--space-3));
 		left: calc(-1 * var(--space-3));
-		width: var(--target-min);
-		height: var(--target-min);
-		border-radius: var(--radius-full);
-		border: none;
-		background: var(--text);
-		color: var(--surface);
-		font-size: var(--text-sm);
-		line-height: 1;
-		cursor: pointer;
-		opacity: 0;
-		transition: opacity 120ms;
-	}
-	.delete {
-		right: calc(-1 * var(--space-3));
 	}
 	.resize {
 		position: absolute;
@@ -484,16 +536,18 @@
 		opacity: 0;
 		transition: opacity 120ms;
 	}
+	/*
+	 * Reveal keeps the BROADER :focus-within condition on purpose — tabbing to
+	 * a handle must not hide the handle you just reached. Only the selection
+	 * ring above uses the narrower rule.
+	 */
 	.frame:hover .resize,
 	.frame:focus-within .resize,
 	.frame:hover .rotate,
 	.frame:focus-within .rotate,
-	.frame:hover .fullscreen,
-	.frame:focus-within .fullscreen,
-	.frame:hover .shape,
-	.frame:focus-within .shape,
-	.frame:hover .delete,
-	.frame:focus-within .delete {
+	.frame:hover .chrome,
+	.frame:focus-within .chrome {
 		opacity: 1;
 	}
+
 </style>

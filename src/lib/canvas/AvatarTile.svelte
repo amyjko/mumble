@@ -5,6 +5,7 @@
 	import type { Viewport } from './viewport.svelte';
 	import { resolveMove } from './geometry';
 	import { AVATAR_SIZE, AVATAR_BORDER, shapeOfParticipant } from '$lib/store/memory-store.svelte';
+	import { AVATAR_Z } from './layers';
 
 	interface Props {
 		participant: Participant;
@@ -143,6 +144,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
 <div
 	class="avatar"
+	style:z-index={AVATAR_Z}
 	role="group"
 	aria-label={participant.name}
 	class:dragging
@@ -237,7 +239,6 @@
 		cursor: grab;
 		touch-action: none;
 		user-select: none;
-		z-index: 1000;
 		outline: none;
 	}
 	.avatar:focus-within {
