@@ -40,6 +40,52 @@ test('clip: cycling an object shape applies a clip-path and syncs', async ({ bro
 });
 
 /**
+ * The sticker border must FOLLOW the clip, not just be clipped by it
+ * (UX-OBJ-8). Clipping only the sticker layer left the content a rectangle, so
+ * the white border appeared at the four cardinal extremes and vanished at the
+ * diagonals, where the ellipse cut into the content instead of surrounding it.
+ * Sampling all the way around is what distinguishes the two renderings — the
+ * cardinal points looked correct even when it was broken.
+ */
+test('clip: the sticker border follows the silhouette all the way around', async ({ page }) => {
+	const room = `clipborder-${Date.now().toString(36)}`;
+	await page.goto(`/hey/${room}`);
+	await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await page.getByRole('button', { name: '+ note' }).click();
+	await page.locator('.frame').hover();
+
+	const shapeBtn = page.getByRole('button', { name: /Change shape/ });
+	await shapeBtn.click(); // rounded -> circle
+	await shapeBtn.click(); // circle  -> ellipse
+	await expect(page.getByRole('button', { name: /currently ellipse/ })).toBeVisible();
+
+	// Walk the ellipse at 16 angles, sampling just inside its edge. Every
+	// sample must land on the sticker layer; landing on .content means the
+	// content reaches the silhouette edge and no border is drawn there.
+	const hits = await page.evaluate(() => {
+		const clip = document.querySelector('.clip');
+		if (!(clip instanceof HTMLElement)) return null;
+		const box = clip.getBoundingClientRect();
+		const cx = box.left + box.width / 2;
+		const cy = box.top + box.height / 2;
+		const out: string[] = [];
+		for (let i = 0; i < 16; i++) {
+			const t = (i / 16) * Math.PI * 2;
+			const px = cx + (box.width / 2) * Math.cos(t) * 0.93;
+			const py = cy + (box.height / 2) * Math.sin(t) * 0.93;
+			const el = document.elementFromPoint(px, py);
+			out.push(el instanceof HTMLElement ? (el.className.split(' ')[0] ?? '?') : 'none');
+		}
+		return out;
+	});
+
+	expect(hits).not.toBeNull();
+	expect(hits).toHaveLength(16);
+	// Uniformly the sticker: no angle where content reaches the edge.
+	expect(hits?.every((h) => h === 'clip')).toBe(true);
+});
+
+/**
  * The trap regression. With clip-path on .frame, an ellipse or polygon
  * silhouette clipped away every control that sits outside it — the corner
  * handles, the rotate grip, AND the shape button itself — so once you reached

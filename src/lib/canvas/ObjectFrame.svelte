@@ -346,7 +346,21 @@
 		style:clip-path={clipPath ?? 'none'}
 		style:padding="{object.border.width}px"
 	>
-		<div class="content" style:border-radius={innerRadius}>
+		<!--
+			The content carries the SAME clip-path string as the sticker layer, and
+			that is what makes the border follow the silhouette (UX-OBJ-8). The
+			shapes are percentage-based, and percentages resolve against each
+			element's OWN box — .content sits inside the sticker's padding, so the
+			identical string describes a correspondingly smaller shape. The visible
+			sticker is then the ring between the two.
+
+			Without it the sticker was clipped to the ellipse while the content
+			stayed a rectangle, so the border showed only at the four cardinal
+			extremes and disappeared at the diagonals, where the ellipse cut into
+			the content instead of surrounding it. (rect/rounded/circle were always
+			fine: border-radius already applies to both layers.)
+		-->
+		<div class="content" style:border-radius={innerRadius} style:clip-path={clipPath ?? 'none'}>
 			<ObjectContent {object} {sync} {editable} {identity} onexit={exitToFrame} />
 		</div>
 	</div>
