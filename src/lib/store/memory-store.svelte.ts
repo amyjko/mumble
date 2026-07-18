@@ -425,23 +425,28 @@ export class MemoryRoomStore implements RoomStore {
 				break;
 			}
 			case 'save_config': {
-				// Capture the current LAYOUT as a named snapshot (UX-ROOM-3):
-				// position, size, and visibility for every object.
-				const layouts: Record<string, Layout> = {};
-				for (const [id, o] of Object.entries(this.state.objects)) {
-					layouts[id] = { transform: { ...o.transform }, hidden: o.hidden };
-				}
 				this.state.configurations[m.id] = {
 					id: m.id,
 					name: m.name,
-					snapshot: {
-						layouts,
-						background: this.state.background,
-						title: this.state.title,
-						description: this.state.description
-					}
+					snapshot: this.captureSnapshot()
 				};
 				this.state.active_config = m.id;
+				break;
+			}
+			case 'update_config': {
+				// UX-ROOM-4: you can only edit the configuration you are IN.
+				if (this.state.active_config === null) {
+					throw new StoreRejection('invalid', 'Switch to a configuration before updating it');
+				}
+				const config = this.state.configurations[this.state.active_config];
+				if (config === undefined) throw new StoreRejection('invalid', 'Unknown configuration');
+				config.snapshot = this.captureSnapshot();
+				break;
+			}
+			case 'rename_config': {
+				const config = this.state.configurations[m.id];
+				if (config === undefined) throw new StoreRejection('invalid', 'Unknown configuration');
+				config.name = m.name;
 				break;
 			}
 			case 'switch_config': {
@@ -485,6 +490,25 @@ export class MemoryRoomStore implements RoomStore {
 	 * created after the configuration was saved, and leaving a brand-new object
 	 * where its author just put it is the least surprising thing to do.
 	 */
+	/**
+	 * The current LAYOUT as a snapshot (UX-ROOM-3): position, size, and
+	 * visibility per object, plus the room's background and titles. Shared by
+	 * save_config and update_config so the two can never capture different
+	 * things — which is exactly the drift that makes "update" untrustworthy.
+	 */
+	private captureSnapshot(): ConfigSnapshot {
+		const layouts: Record<string, Layout> = {};
+		for (const [id, o] of Object.entries(this.state.objects)) {
+			layouts[id] = { transform: { ...o.transform }, hidden: o.hidden };
+		}
+		return {
+			layouts,
+			background: this.state.background,
+			title: this.state.title,
+			description: this.state.description
+		};
+	}
+
 	private applySnapshot(snapshot: ConfigSnapshot): void {
 		for (const [id, layout] of Object.entries(snapshot.layouts)) {
 			const object = this.state.objects[id];

@@ -773,3 +773,44 @@ describe('sticker border is settable (UX-OBJ-8) and IS the overlap tolerance (UX
 		});
 	});
 });
+
+describe('configurations can be edited (UX-ROOM-4/6)', () => {
+	it('update rewrites the ACTIVE configuration in place', async () => {
+		// Before this, "save" always minted a new id, so a configuration could
+		// never be corrected — only duplicated.
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const object = note(ALICE, 0);
+		await store.commit({ kind: 'create_object', object });
+		const id = uuid();
+		await store.commit({ kind: 'save_config', id, name: 'Start' });
+
+		// Move the object, then update the same configuration.
+		await store.commit({
+			kind: 'move_object',
+			id: object.id,
+			transform: { ...object.transform, x: 400 }
+		});
+		await store.commit({ kind: 'update_config' });
+
+		expect(Object.keys(store.state.configurations)).toHaveLength(1);
+		expect(store.state.configurations[id]?.snapshot.layouts[object.id]?.transform.x).toBe(400);
+	});
+
+	it('refuses to update when no configuration is active (UX-ROOM-4)', async () => {
+		// "Editing a configuration requires being switched to it" — there is no
+		// coherent target otherwise.
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		await expect(store.commit({ kind: 'update_config' })).rejects.toMatchObject({ reason: 'invalid' });
+	});
+
+	it('renames without disturbing the snapshot', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const object = note(ALICE, 0);
+		await store.commit({ kind: 'create_object', object });
+		const id = uuid();
+		await store.commit({ kind: 'save_config', id, name: 'Old' });
+		await store.commit({ kind: 'rename_config', id, name: 'New' });
+		expect(store.state.configurations[id]?.name).toBe('New');
+		expect(store.state.configurations[id]?.snapshot.layouts[object.id]).toBeDefined();
+	});
+});

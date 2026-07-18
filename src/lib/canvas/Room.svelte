@@ -152,6 +152,17 @@
 		sync.announce(`Saved configuration ${name}`);
 		configNameDraft = '';
 	}
+	/** UX-ROOM-4/6: update the configuration you are currently in. */
+	function updateConfig(): void {
+		void sync.commit({ kind: 'update_config' });
+		sync.announce('Configuration updated');
+	}
+	function renameConfig(id: string, name: string): void {
+		const trimmed = name.trim();
+		if (trimmed === '') return;
+		void sync.commit({ kind: 'rename_config', id, name: trimmed });
+	}
+
 	function switchConfig(id: string): void {
 		void sync.commit({ kind: 'switch_config', id });
 		sync.announce('Switched configuration');
@@ -286,6 +297,14 @@
 					>
 					<Button
 						shape="icon"
+						label="Rename configuration {config.name}"
+						onclick={() => {
+							const next = prompt('Rename configuration', config.name);
+							if (next !== null) renameConfig(config.id, next);
+						}}>✎</Button
+					>
+					<Button
+						shape="icon"
 						label="Delete configuration {config.name}"
 						onclick={() => {
 							deleteConfig(config.id);
@@ -298,6 +317,19 @@
 				no configuration saved there is nothing to restore. It used to be
 				offered anyway and silently do nothing; now it says why.
 			-->
+			<!--
+				Update the ACTIVE configuration in place. Before this, "save" always
+				minted a new id, so configurations accumulated and could never be
+				corrected — you could only ever add another near-duplicate.
+			-->
+			<Button
+				variant="primary"
+				disabled={store.state.active_config === null}
+				title={store.state.active_config === null
+					? 'Switch to a configuration to update it'
+					: undefined}
+				onclick={updateConfig}>⤓ update this configuration</Button
+			>
 			<Button
 				disabled={store.state.active_config === null}
 				title={store.state.active_config === null

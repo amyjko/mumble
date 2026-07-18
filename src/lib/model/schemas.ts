@@ -286,6 +286,15 @@ export const mutationSchema = z.discriminatedUnion('kind', [
 	}),
 	z.object({ kind: z.literal('save_config'), id: z.uuid(), name: z.string().min(1).max(60) }),
 	z.object({ kind: z.literal('switch_config'), id: z.uuid() }),
+	/**
+	 * Update the ACTIVE configuration in place (UX-ROOM-4/6). Without this,
+	 * "save" only ever minted a new id, so configurations accumulated and could
+	 * never be corrected. Targeting the active one is not a convenience: UX-ROOM-4
+	 * requires that what you are editing and what participants see are the same
+	 * thing.
+	 */
+	z.object({ kind: z.literal('update_config') }),
+	z.object({ kind: z.literal('rename_config'), id: z.uuid(), name: z.string().min(1).max(60) }),
 	z.object({ kind: z.literal('reset_config') }),
 	z.object({ kind: z.literal('delete_config'), id: z.uuid() })
 ]);
