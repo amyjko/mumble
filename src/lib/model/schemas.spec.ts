@@ -40,6 +40,20 @@ describe('canvas object discriminated union', () => {
 		expect(parsed.success).toBe(false);
 	});
 
+	it('accepts a timer with a timer payload', () => {
+		const parsed = canvasObjectSchema.safeParse({
+			...base,
+			type: 'timer',
+			payload: { mode: 'countdown', durationMs: 60000, running: false, startedAt: null, elapsedBeforeMs: 0 }
+		});
+		expect(parsed.success).toBe(true);
+	});
+
+	it('rejects a timer carrying a note payload (union discrimination)', () => {
+		const parsed = canvasObjectSchema.safeParse({ ...base, type: 'timer', payload: { text: 'hi' } });
+		expect(parsed.success).toBe(false);
+	});
+
 	it('rejects non-positive dimensions', () => {
 		const bad = { ...base, type: 'note', payload: { text: '' }, transform: { ...base.transform, width: 0 } };
 		expect(canvasObjectSchema.safeParse(bad).success).toBe(false);

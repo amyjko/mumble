@@ -1,6 +1,8 @@
 import type { z } from 'zod';
 import type {
 	noteObjectSchema,
+	timerObjectSchema,
+	timerPayloadSchema,
 	transformSchema,
 	clipSchema,
 	permissionSchema,
@@ -19,6 +21,8 @@ export type Clip = z.infer<typeof clipSchema>;
 export type Permission = z.infer<typeof permissionSchema>;
 export type CanvasObject = z.infer<typeof canvasObjectSchema>;
 export type NoteCanvasObject = z.infer<typeof noteObjectSchema>;
+export type TimerCanvasObject = z.infer<typeof timerObjectSchema>;
+export type TimerPayload = z.infer<typeof timerPayloadSchema>;
 export type Participant = z.infer<typeof participantSchema>;
 export type RoomState = z.infer<typeof roomStateSchema>;
 export type Mutation = z.infer<typeof mutationSchema>;

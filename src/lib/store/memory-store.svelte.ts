@@ -177,11 +177,19 @@ export class MemoryRoomStore implements RoomStore {
 				break;
 			}
 			case 'edit_note': {
-				// Single-member union today: `existing` is provably a note. When a
-				// second object type lands, the discriminated union re-imposes a check
-				// here at compile time — that is the norms doing the guarding, not us.
 				const existing = this.requireObject(m.id);
 				this.requireEditable(existing);
+				// The union now has >1 member, so the type guard is mandatory — the
+				// norms re-imposing the check at compile time, exactly as predicted.
+				if (existing.type !== 'note') throw new StoreRejection('invalid', 'Not a note');
+				existing.payload = m.payload;
+				existing.updated_at = nowIso();
+				break;
+			}
+			case 'edit_timer': {
+				const existing = this.requireObject(m.id);
+				this.requireEditable(existing);
+				if (existing.type !== 'timer') throw new StoreRejection('invalid', 'Not a timer');
 				existing.payload = m.payload;
 				existing.updated_at = nowIso();
 				break;

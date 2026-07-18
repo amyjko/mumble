@@ -49,8 +49,31 @@ export const noteObjectSchema = objectBase.extend({
 	payload: z.object({ text: z.string() })
 });
 
+/**
+ * Timer state (UX-OBJ-4) is anchored to shared timestamps, not per-client
+ * ticking, so every viewer computes the same displayed time: elapsed =
+ * elapsedBeforeMs + (running ? now - startedAt : 0). Clients tick locally only
+ * for the display. `startedAt` is epoch ms (a number, cross-viewer at stub
+ * fidelity; server time supersedes it when the real backend lands).
+ */
+export const timerPayloadSchema = z.object({
+	mode: z.enum(['countdown', 'countup']),
+	durationMs: z.number().nonnegative(),
+	running: z.boolean(),
+	startedAt: z.number().nullable(),
+	elapsedBeforeMs: z.number().nonnegative()
+});
+
+export const timerObjectSchema = objectBase.extend({
+	type: z.literal('timer'),
+	payload: timerPayloadSchema
+});
+
 /** Grows into a wider discriminated union as object types land (AR-CANVAS-3). */
-export const canvasObjectSchema = z.discriminatedUnion('type', [noteObjectSchema]);
+export const canvasObjectSchema = z.discriminatedUnion('type', [
+	noteObjectSchema,
+	timerObjectSchema
+]);
 
 export const participantSchema = z.object({
 	id: z.uuid(),
@@ -81,6 +104,7 @@ export const mutationSchema = z.discriminatedUnion('kind', [
 		id: z.uuid(),
 		payload: z.object({ text: z.string() })
 	}),
+	z.object({ kind: z.literal('edit_timer'), id: z.uuid(), payload: timerPayloadSchema }),
 	z.object({ kind: z.literal('delete_object'), id: z.uuid() }),
 	z.object({ kind: z.literal('upsert_participant'), participant: participantSchema }),
 	z.object({

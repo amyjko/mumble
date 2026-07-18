@@ -128,3 +128,50 @@ describe('cross-tab sync (real BroadcastChannel — Node has it)', () => {
 		expect(Object.keys(store.state.objects).length).toBe(before);
 	});
 });
+
+describe('timer object (UX-OBJ-4) + union type guards', () => {
+	const timer = (creator: string, x: number) => {
+		const transform = { x, y: 0, width: 180, height: 120, rotation: 0, z: 1 };
+		return {
+			id: uuid(),
+			type: 'timer' as const,
+			creator_id: creator,
+			permission: 'all' as const,
+			transform,
+			clip: { shape: 'rounded' as const, radius: 8 },
+			border: { width: 10 },
+			default_transform: transform,
+			payload: { mode: 'countdown' as const, durationMs: 60000, running: false, startedAt: null, elapsedBeforeMs: 0 },
+			created_at: '2026-07-17T00:00:00.000Z',
+			updated_at: '2026-07-17T00:00:00.000Z'
+		};
+	};
+
+	it('creates a timer and edits its payload', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const t = timer(ALICE, 0);
+		await store.commit({ kind: 'create_object', object: t });
+		await store.commit({
+			kind: 'edit_timer',
+			id: t.id,
+			payload: { mode: 'countdown', durationMs: 60000, running: true, startedAt: 1000, elapsedBeforeMs: 0 }
+		});
+		const got = store.state.objects[t.id];
+		expect(got?.type).toBe('timer');
+		if (got?.type === 'timer') expect(got.payload.running).toBe(true);
+	});
+
+	it('rejects edit_timer on a note and edit_note on a timer (guard)', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const n = note(ALICE, 0);
+		const t = timer(ALICE, 400);
+		await store.commit({ kind: 'create_object', object: n });
+		await store.commit({ kind: 'create_object', object: t });
+		await expect(
+			store.commit({ kind: 'edit_timer', id: n.id, payload: { mode: 'countup', durationMs: 0, running: false, startedAt: null, elapsedBeforeMs: 0 } })
+		).rejects.toMatchObject({ reason: 'invalid' });
+		await expect(
+			store.commit({ kind: 'edit_note', id: t.id, payload: { text: 'x' } })
+		).rejects.toMatchObject({ reason: 'invalid' });
+	});
+});

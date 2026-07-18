@@ -7,6 +7,8 @@
 	import { canDelete, canEdit } from '$lib/model/permissions';
 	import { shapeOfObject } from '$lib/store/memory-store.svelte';
 	import NoteObject from '$lib/objects/NoteObject.svelte';
+	import TimerObject from '$lib/objects/TimerObject.svelte';
+	import { displayMs, formatMs } from '$lib/model/timer';
 
 	interface Props {
 		object: CanvasObject;
@@ -25,8 +27,12 @@
 	/** Overlay (own or a peer's in-flight drag) wins over settled state. */
 	const effective = $derived(sync.objectOverlays.get(object.id) ?? object.transform);
 
-	/** Real accessible name (UX-A11Y-3): content, not chrome. */
+	/** Real accessible name (UX-A11Y-3): content, not chrome. Type-aware. */
 	const label = $derived.by(() => {
+		if (object.type === 'timer') {
+			const kind = object.payload.mode === 'countdown' ? 'Countdown' : 'Count-up';
+			return `${kind} timer, ${formatMs(displayMs(object.payload, Date.now()))}`;
+		}
 		const text = object.payload.text.trim();
 		return text === '' ? 'Empty note' : `Note: ${text.slice(0, 40)}`;
 	});
@@ -115,8 +121,10 @@
 	function onKeyDown(event: KeyboardEvent): void {
 		if (event.target !== event.currentTarget) return;
 		if (event.key === 'Enter') {
-			const textarea = frameEl?.querySelector('textarea');
-			if (textarea instanceof HTMLTextAreaElement) textarea.focus();
+			// Jump into the object's first control — the note textarea, or the
+			// timer's primary button — so editing is reachable without a pointer.
+			const control = frameEl?.querySelector('textarea, button');
+			if (control instanceof HTMLElement) control.focus();
 			event.preventDefault();
 			return;
 		}
@@ -210,8 +218,12 @@
 	onfocus={onFocus}
 >
 	<div class="content" style:border-radius={innerRadius}>
-		<!-- Dispatch grows with the object union (AR-CANVAS-3); one member today. -->
-		<NoteObject {object} {sync} {editable} onexit={exitToFrame} />
+		<!-- Dispatch on the discriminated union (AR-CANVAS-3). -->
+		{#if object.type === 'note'}
+			<NoteObject {object} {sync} {editable} onexit={exitToFrame} />
+		{:else if object.type === 'timer'}
+			<TimerObject {object} {sync} {editable} />
+		{/if}
 	</div>
 	{#if deletable}
 		<button

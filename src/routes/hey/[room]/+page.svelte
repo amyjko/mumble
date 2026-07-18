@@ -5,7 +5,7 @@
 	import { MemoryRoomStore } from '$lib/store/memory-store.svelte';
 	import { SyncClient } from '$lib/store/sync-client.svelte';
 	import { Viewport } from '$lib/canvas/viewport.svelte';
-	import { newNote, maxZOf } from '$lib/model/create';
+	import { newNote, newTimer, maxZOf } from '$lib/model/create';
 	import WorldCanvas from '$lib/canvas/WorldCanvas.svelte';
 	import DevPanel from '$lib/dev/DevPanel.svelte';
 
@@ -45,15 +45,19 @@
 
 	const count = $derived(Object.keys(store.state.participants).length);
 
-	/** Pointer-free creation (UX-A11Y-2): a note at the viewport center. */
+	/** Pointer-free creation (UX-A11Y-2) at the viewport center. */
+	function centerWorld(): { x: number; y: number } {
+		return viewport.toWorld({ x: viewport.size.width / 2, y: viewport.size.height / 2 });
+	}
 	function addNote(): void {
-		const center = viewport.toWorld({
-			x: viewport.size.width / 2,
-			y: viewport.size.height / 2
-		});
 		const objects = untrack(() => Object.values(store.state.objects));
-		void sync.commit({ kind: 'create_object', object: newNote(identity.id, center, maxZOf(objects)) });
+		void sync.commit({ kind: 'create_object', object: newNote(identity.id, centerWorld(), maxZOf(objects)) });
 		sync.announce('Note added');
+	}
+	function addTimer(): void {
+		const objects = untrack(() => Object.values(store.state.objects));
+		void sync.commit({ kind: 'create_object', object: newTimer(identity.id, centerWorld(), maxZOf(objects)) });
+		sync.announce('Timer added');
 	}
 </script>
 
@@ -65,6 +69,7 @@
 	<strong>/hey/{data.room}</strong>
 	<span class="count">{count} here</span>
 	<button class="add" onclick={addNote}>+ note</button>
+	<button class="add" onclick={addTimer}>+ timer</button>
 	<span class="hint">or double-click the canvas</span>
 </header>
 
