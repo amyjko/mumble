@@ -6,8 +6,7 @@
 	import {
 		shapeOfObject,
 		shapeOfParticipant,
-		participatesInCollision,
-		AVATAR_SIZE
+		participatesInCollision
 	} from '$lib/store/memory-store.svelte';
 	import { newNote, newDrawing, maxZOf } from '$lib/model/create';
 	import { simplify, strokeBounds, normalizePoints, pointsToPath } from '$lib/model/drawing';
@@ -105,11 +104,15 @@
 				width: o.transform.width,
 				height: o.transform.height
 			})),
+			// The participant's OWN size, not the default constant: avatars are
+			// resizable (UX-AV-1), so framing by AVATAR_SIZE crops anyone scaled
+			// up. The collision path was corrected when resize landed and this
+			// one was missed — the same bug in two places, fixed once each.
 			...participants.map((p) => ({
 				x: p.location.x,
 				y: p.location.y,
-				width: AVATAR_SIZE,
-				height: AVATAR_SIZE
+				width: p.size.width,
+				height: p.size.height
 			}))
 		];
 		viewport.fit(bounds);

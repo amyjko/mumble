@@ -52,12 +52,10 @@ const objectBase = z.object({
 	transform: transformSchema,
 	clip: clipSchema,
 	border: borderSchema,
-	default_transform: transformSchema,
 	/**
 	 * Visibility (UX-ROOM-3). Lives on the OBJECT, not only in a configuration
-	 * snapshot, exactly as live `transform` coexists with saved
-	 * `default_transform`: toggling visibility while no configuration is active
-	 * would otherwise have nowhere to write. A hidden object still exists for
+	 * snapshot: toggling visibility while no configuration is active would
+	 * otherwise have nowhere to write. A hidden object still exists for
 	 * everyone; only its creator (and, when the role lands, a host) can see it.
 	 * Defaults keep objects stored before this valid.
 	 */

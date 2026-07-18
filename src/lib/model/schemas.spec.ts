@@ -25,7 +25,6 @@ describe('canvas object discriminated union', () => {
 		transform: { x: 0, y: 0, width: 100, height: 100, rotation: 0, z: 1 },
 		clip: { shape: 'rect' },
 		border: { width: 10 },
-		default_transform: { x: 0, y: 0, width: 100, height: 100, rotation: 0, z: 1 },
 		created_at: '2026-07-17T00:00:00.000Z',
 		updated_at: '2026-07-17T00:00:00.000Z'
 	};

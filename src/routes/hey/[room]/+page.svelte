@@ -70,6 +70,8 @@
 	});
 
 	const count = $derived(Object.keys(store.state.participants).length);
+	/** Stub-only: chat history evicted to bound localStorage (CHAT_LOG_LIMIT). */
+	const dropped = $derived(store instanceof MemoryRoomStore ? store.droppedChatMessages : 0);
 
 	/** Pointer-free creation (UX-A11Y-2) at the viewport center. */
 	function centerWorld(): { x: number; y: number } {
@@ -189,7 +191,18 @@
 					>
 				</div>
 			{/each}
-			<Button onclick={resetConfig}>↺ reset layout</Button>
+			<!--
+				Reset restores the ACTIVE configuration's layout (UX-ROOM-5), so with
+				no configuration saved there is nothing to restore. It used to be
+				offered anyway and silently do nothing; now it says why.
+			-->
+			<Button
+				disabled={store.state.active_config === null}
+				title={store.state.active_config === null
+					? 'Save a configuration first — reset restores its layout'
+					: undefined}
+				onclick={resetConfig}>↺ reset layout</Button
+			>
 			<div class="row">
 				<Field label="Configuration name" bind:value={configNameDraft} placeholder="e.g. Standup" />
 				<Button onclick={saveConfig}>save</Button>
@@ -219,6 +232,13 @@
 	>
 	{#if drawMode}
 		<SwatchPicker label="Draw color" bind:value={drawColor} swatches={DRAW_COLORS} />
+	{/if}
+	{#if dropped > 0}
+		<!-- The stub evicts old chat messages to bound localStorage (UX-OBJ-3
+		     deviation). Saying so beats losing history silently. -->
+		<span class="warn" role="status"
+			>{dropped} old chat {dropped === 1 ? 'message' : 'messages'} dropped (stub storage limit)</span
+		>
 	{/if}
 	<span class="hint">double-click the canvas to add a note</span>
 </header>
@@ -266,6 +286,9 @@
 	.count,
 	.hint {
 		color: var(--text-muted);
+	}
+	.warn {
+		color: var(--danger);
 	}
 	/* Popover body layout only; Field and Button paint themselves. */
 	.menu {

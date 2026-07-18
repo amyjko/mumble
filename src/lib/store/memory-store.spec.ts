@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AVATAR_SIZE, MemoryRoomStore } from './memory-store.svelte';
+import { AVATAR_SIZE, CHAT_LOG_LIMIT, MemoryRoomStore } from './memory-store.svelte';
 import { StoreRejection } from '$lib/model/types';
 import type { CanvasObject, Participant } from '$lib/model/types';
 import { docFromEncoded, encodeDoc, encodedFromText, noteText, textType } from '$lib/model/ydoc';
@@ -23,7 +23,6 @@ const note = (creator: string, x: number, permission: 'host' | 'all' | 'none' = 
 		transform,
 		clip: { shape: 'rect' },
 		border: { width: 10 },
-		default_transform: transform,
 		hidden: false,
 		payload: { text: '', doc: '' },
 		created_at: '2026-07-17T00:00:00.000Z',
@@ -44,6 +43,24 @@ const person = (id: string): Participant => ({
 	raised_hand: false,
 	away: false
 });
+
+/** Chat fixture usable from any describe (the other one is block-scoped). */
+const chatObject = (creator: string): CanvasObject => {
+	const transform = { x: 0, y: 0, width: 280, height: 220, rotation: 0, z: 1 };
+	return {
+		id: uuid(),
+		type: 'chat',
+		creator_id: creator,
+		permission: 'all',
+		transform,
+		clip: { shape: 'rounded', radius: 8 },
+		border: { width: 10 },
+		hidden: false,
+		payload: { messages: [] },
+		created_at: '2026-07-18T00:00:00.000Z',
+		updated_at: '2026-07-18T00:00:00.000Z'
+	};
+};
 
 const stores: MemoryRoomStore[] = [];
 const makeStore = (room: string, actor: string): MemoryRoomStore => {
@@ -156,7 +173,6 @@ describe('timer object (UX-OBJ-4) + union type guards', () => {
 			transform,
 			clip: { shape: 'rounded' as const, radius: 8 },
 			border: { width: 10 },
-			default_transform: transform,
 			hidden: false,
 			payload: { mode: 'countdown' as const, durationMs: 60000, running: false, startedAt: null, elapsedBeforeMs: 0 },
 			created_at: '2026-07-17T00:00:00.000Z',
@@ -199,8 +215,7 @@ describe('chat object (UX-OBJ-3) — retained log, open posting', () => {
 		return {
 			id: uuid(), type: 'chat' as const, creator_id: creator, permission,
 			transform, clip: { shape: 'rounded' as const, radius: 8 }, border: { width: 10 },
-			default_transform: transform, payload: { messages: [] },
-			hidden: false,
+			hidden: false, payload: { messages: [] },
 			created_at: '2026-07-17T00:00:00.000Z', updated_at: '2026-07-17T00:00:00.000Z'
 		};
 	};
@@ -428,7 +443,6 @@ describe('drawings are exempt from collision (UX-OBJ-12)', () => {
 			transform,
 			clip: { shape: 'rect' },
 			border: { width: 0 },
-			default_transform: transform,
 			hidden: false,
 			payload: { color: '#e11d48', width: 3, points: [{ x: 0, y: 0 }, { x: 100, y: 100 }] },
 			created_at: '2026-07-18T00:00:00.000Z',
@@ -617,5 +631,34 @@ describe('note editing is a CRDT (AR-SYNC-4)', () => {
 		await expect(
 			store.commit({ kind: 'edit_note', id: locked.id, update: encodedFromText('nope') })
 		).rejects.toMatchObject({ reason: 'permission' });
+	});
+});
+
+describe('chat retention is bounded ONLY in the stub (UX-OBJ-3 deviation)', () => {
+	it('counts what it evicts instead of dropping it silently', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const c = chatObject(ALICE);
+		await store.commit({ kind: 'create_object', object: c });
+		for (let i = 0; i < CHAT_LOG_LIMIT + 3; i++) {
+			await store.commit({
+				kind: 'post_message',
+				id: c.id,
+				message: {
+					id: uuid(),
+					author_id: ALICE,
+					author_name: 'a',
+					text: `m${String(i)}`,
+					at: '2026-07-18T00:00:00.000Z'
+				}
+			});
+		}
+		const got = store.state.objects[c.id];
+		expect(got?.type).toBe('chat');
+		if (got?.type !== 'chat') return;
+		expect(got.payload.messages).toHaveLength(CHAT_LOG_LIMIT);
+		// The oldest are gone — and the store SAYS so, which is the whole point:
+		// UX-OBJ-3 promises retention, so a silent cap is a lie by omission.
+		expect(store.droppedChatMessages).toBe(3);
+		expect(got.payload.messages[0]?.text).toBe('m3');
 	});
 });

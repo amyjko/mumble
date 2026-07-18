@@ -26,6 +26,12 @@ function freshState(): RoomState {
 	return { objects: {}, participants: {}, background: '', title: '', description: '', configurations: {}, active_config: null };
 }
 
+/**
+ * Stub-only cap on a chat object's retained log (see post_message). Exported so
+ * the UI can say so rather than dropping messages silently.
+ */
+export const CHAT_LOG_LIMIT = 500;
+
 export const AVATAR_SIZE = 96;
 export const AVATAR_BORDER = 6;
 
@@ -47,6 +53,12 @@ export const AVATAR_BORDER = 6;
  */
 export class MemoryRoomStore implements RoomStore {
 	state = $state<RoomState>(freshState());
+
+	/**
+	 * How many chat messages this stub has evicted (see CHAT_LOG_LIMIT). Surfaced
+	 * so truncation is visible; always 0 with a real backend.
+	 */
+	droppedChatMessages = $state(0);
 
 	/** DevPanel knobs. */
 	latencyMs = $state(0);
@@ -248,8 +260,16 @@ export class MemoryRoomStore implements RoomStore {
 				// spirit as self-initiated emotes (UX-AV-7).
 				const existing = this.requireObject(m.id);
 				if (existing.type !== 'chat') throw new StoreRejection('invalid', 'Not a chat');
-				// Bound the retained log so localStorage can't grow without limit.
-				existing.payload.messages = [...existing.payload.messages, m.message].slice(-500);
+				// STUB-ONLY RETENTION BOUND. UX-OBJ-3 says messages are retained,
+				// full stop. This caps the log because the whole room lives in
+				// localStorage, which is finite — a constraint of the stub, NOT of
+				// the requirement. The real backend must not inherit this: it has
+				// no such limit, and silently dropping a user's history there
+				// would be a genuine bug rather than a storage concession.
+				// Recorded as a known deviation in DESIGN.md.
+				const withNew = [...existing.payload.messages, m.message];
+				existing.payload.messages = withNew.slice(-CHAT_LOG_LIMIT);
+				this.droppedChatMessages += withNew.length - existing.payload.messages.length;
 				existing.updated_at = nowIso();
 				break;
 			}

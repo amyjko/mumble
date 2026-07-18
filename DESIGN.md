@@ -51,7 +51,7 @@ Every element in a room is an object with the same interactions, permissions, an
 
 - [ ] **UX-OBJ-1** (MVP) — All object types support the same manipulations: move, resize, rotate, shape-clip, delete — one interaction model for a sticky note and a video tile alike.
 - [ ] **UX-OBJ-2** (MVP) — Notes are shared markdown, collaboratively edited live by multiple participants in real time.
-- [ ] **UX-OBJ-3** (MVP) — Chat objects hold a message log; messages are room state and retained. A room may have more than one.
+- [ ] **UX-OBJ-3** (MVP) — Chat objects hold a message log; messages are room state and retained. A room may have more than one. _Stub deviation (2026-07-18): the in-memory store caps a log at 500 messages because the whole room lives in localStorage, which is finite. The cap is a property of the STUB, not of this requirement — the real backend must not inherit it. Truncation is counted and surfaced rather than silent._
 - [ ] **UX-OBJ-4** (MVP) — Timers (countdown/count-up) show the same running state and target time to all viewers.
 - [ ] **UX-OBJ-5** (MVP) — Images are uploadable with a size cap (dimensions and bytes) and stored by reference.
 - [ ] **UX-OBJ-6** (MVP) — Screen shares are objects like A/V tiles, sourced from a screen-capture track; each share is its own object and consumes a video slot from `max_av` (UX-STAGE-1), its source a screen-capture track rather than a camera.

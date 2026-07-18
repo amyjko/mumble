@@ -37,7 +37,6 @@ describe('drawing helpers (UX-OBJ-11)', () => {
 				transform: { x: 0, y: 0, width: 10, height: 10, rotation: 0, z: 1 },
 				clip: { shape: 'rect' },
 				border: { width: 0 },
-				default_transform: { x: 0, y: 0, width: 10, height: 10, rotation: 0, z: 1 },
 				type: 'drawing',
 				payload: base,
 				created_at: '2026-07-18T00:00:00.000Z',

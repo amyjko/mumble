@@ -59,6 +59,22 @@
 		return text === '' ? 'Empty note' : `Note: ${text.slice(0, 40)}`;
 	});
 
+	/**
+	 * What to call this object in delete affordances. The accessible name above
+	 * is carefully type-aware; the delete button and its announcement were not,
+	 * so a screen-reader user deleting a timer heard "Delete note" and then
+	 * "Note deleted" (UX-A11Y-3).
+	 */
+	const noun = $derived(
+		object.type === 'timer'
+			? 'timer'
+			: object.type === 'chat'
+				? 'chat'
+				: object.type === 'drawing'
+					? 'drawing'
+					: 'note'
+	);
+
 	const outerRadius = $derived(
 		object.clip.shape === 'circle'
 			? '50%'
@@ -221,7 +237,7 @@
 		}
 		if ((event.key === 'Delete' || event.key === 'Backspace') && deletable) {
 			void sync.commit({ kind: 'delete_object', id: object.id });
-			sync.announce('Note deleted');
+			sync.announce(`Deleted ${noun}`);
 			event.preventDefault();
 			return;
 		}
@@ -291,7 +307,7 @@
 
 	function onDelete(): void {
 		void sync.commit({ kind: 'delete_object', id: object.id });
-		sync.announce('Note deleted');
+		sync.announce(`Deleted ${noun}`);
 	}
 
 	/** Escape inside the note returns focus to the frame (no trap — 2.1.2). */
@@ -455,7 +471,7 @@
 			<Button
 				variant="chrome"
 				shape="icon"
-				label="Delete note"
+				label="Delete {noun}"
 				onpointerdown={stopPointer}
 				onclick={onDelete}>×</Button
 			>
