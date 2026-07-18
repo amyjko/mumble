@@ -26,3 +26,18 @@ test('drawing: a stroke drawn in A becomes a drawing and syncs to B', async ({ b
 
 	await context.close();
 });
+
+/*
+ * NOT tested here: that drawings are exempt from collision (UX-OBJ-12).
+ *
+ * An end-to-end version fights the camera rather than the rule — auto-fit
+ * refits the moment the stroke is created, so screen coordinates shift out
+ * from under any assertion about where the ink landed, and the self avatar
+ * legitimately displaces a note placed at the same spot. Both make a green or
+ * red result say more about the camera than about collision.
+ *
+ * The rule is asserted precisely where it is enforced, in the store:
+ * memory-store.spec.ts "drawings are exempt from collision" covers a stroke
+ * staying where drawn, a drawing moving onto content, and a drawing not
+ * obstructing anything else.
+ */

@@ -3,7 +3,7 @@
 	import type { RoomStore } from '$lib/store/room-store';
 	import type { SyncClient } from '$lib/store/sync-client.svelte';
 	import type { Viewport } from './viewport.svelte';
-	import { resolveMove } from './geometry';
+	import { resolveDrag } from './geometry';
 	import { AVATAR_BORDER, shapeOfParticipant } from '$lib/store/memory-store.svelte';
 	import { AVATAR_Z } from './layers';
 	import { EMOTE_EMOJI, HAND_EMOJI, AWAY_EMOJI } from '$lib/model/emotes';
@@ -57,7 +57,7 @@
 			y: tileStart.y + (world.y - pointerStart.y)
 		};
 		const moving: SolverShape = { ...shapeOfParticipant(participant), x: lastResolved.x, y: lastResolved.y };
-		lastResolved = resolveMove(moving, desired, obstacles());
+		lastResolved = resolveDrag(moving, desired, obstacles());
 		sync.participantOverlays.set(participant.id, lastResolved);
 		const now = performance.now();
 		if (now - lastEphemeralAt > 50) {
@@ -205,7 +205,7 @@
 		event.preventDefault();
 		const from = keyboardPosition ?? { ...effective };
 		const moving: SolverShape = { ...shapeOfParticipant(participant), x: from.x, y: from.y };
-		keyboardPosition = resolveMove(moving, { x: from.x + dx, y: from.y + dy }, obstacles());
+		keyboardPosition = resolveDrag(moving, { x: from.x + dx, y: from.y + dy }, obstacles());
 		sync.participantOverlays.set(participant.id, keyboardPosition);
 		if (keyboardCommitTimer !== null) clearTimeout(keyboardCommitTimer);
 		keyboardCommitTimer = setTimeout(() => {

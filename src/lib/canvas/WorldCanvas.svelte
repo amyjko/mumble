@@ -3,7 +3,12 @@
 	import type { RoomStore } from '$lib/store/room-store';
 	import { SyncClient } from '$lib/store/sync-client.svelte';
 	import { Viewport } from './viewport.svelte';
-	import { shapeOfObject, shapeOfParticipant, AVATAR_SIZE } from '$lib/store/memory-store.svelte';
+	import {
+		shapeOfObject,
+		shapeOfParticipant,
+		participatesInCollision,
+		AVATAR_SIZE
+	} from '$lib/store/memory-store.svelte';
 	import { newNote, newDrawing, maxZOf } from '$lib/model/create';
 	import { simplify, strokeBounds, normalizePoints, pointsToPath } from '$lib/model/drawing';
 	import type { Bounds } from './geometry';
@@ -64,7 +69,7 @@
 	/** Solver obstacles for a moving id: everything else, settled positions. */
 	function obstaclesFor(excludeId: string): () => SolverShape[] {
 		return () => [
-			...objects.filter((o) => o.id !== excludeId).map(shapeOfObject),
+			...objects.filter((o) => o.id !== excludeId && participatesInCollision(o)).map(shapeOfObject),
 			...participants.filter((p) => p.id !== excludeId).map(shapeOfParticipant)
 		];
 	}

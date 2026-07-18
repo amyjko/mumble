@@ -72,7 +72,26 @@ export interface SolverShape {
 	y: number;
 	width: number;
 	height: number;
+	/**
+	 * Degrees, matching the rendered transform. Collision used to ignore
+	 * rotation entirely, so a rotated object collided as its unrotated bounding
+	 * box — visibly wrong the moment anything was turned.
+	 */
+	rotation: number;
+	/**
+	 * Circles are kept as a special case rather than tessellated: they are
+	 * exact, cheaper, and rotation-invariant.
+	 */
 	circle: boolean;
+	/**
+	 * Outline as PERCENTAGES (0–100) of the shape's box, for anything that is
+	 * not a circle. Undefined means a plain rectangle. Ellipses arrive
+	 * pre-tessellated. Percentages are what make the collider match the
+	 * renderer: the drawn content layer is this same percentage shape applied
+	 * to the border-inset box, so the collider reproduces the visible
+	 * silhouette instead of approximating it.
+	 */
+	points?: readonly { x: number; y: number }[] | undefined;
 	/** Sticker border width — the permitted overlap (UX-OBJ-12). */
 	border: number;
 }

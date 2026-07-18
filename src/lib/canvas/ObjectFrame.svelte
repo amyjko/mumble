@@ -3,9 +3,9 @@
 	import type { RoomStore } from '$lib/store/room-store';
 	import type { SyncClient } from '$lib/store/sync-client.svelte';
 	import type { Viewport } from './viewport.svelte';
-	import { resolveMove } from './geometry';
+	import { resolveDrag } from './geometry';
 	import { canDelete, canEdit } from '$lib/model/permissions';
-	import { shapeOfObject } from '$lib/store/memory-store.svelte';
+	import { shapeOfObject, participatesInCollision } from '$lib/store/memory-store.svelte';
 	import ObjectContent from '$lib/objects/ObjectContent.svelte';
 	import { displayMs, formatMs } from '$lib/model/timer';
 	import { clipPathCss, nextClip } from '$lib/model/clip';
@@ -96,8 +96,11 @@
 
 	/** Move to a solver-constrained position: shared by pointer AND keyboard. */
 	function moveTo(desired: Point, from: Point): Point {
+		// An exempt object (a drawing) is not blocked BY anything either — being
+		// invisible to others but still stopped by them would be an incoherent
+		// half-rule.
 		const moving: SolverShape = { ...shapeOfObject(object), x: from.x, y: from.y };
-		const resolved = resolveMove(moving, desired, obstacles());
+		const resolved = participatesInCollision(object) ? resolveDrag(moving, desired, obstacles()) : desired;
 		const next: Transform = { ...object.transform, x: resolved.x, y: resolved.y };
 		sync.objectOverlays.set(object.id, next);
 		const now = performance.now();

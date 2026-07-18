@@ -82,49 +82,195 @@ interface ContentCircle {
 	r: number;
 }
 
-interface ContentRect {
-	kind: 'rect';
-	x: number;
-	y: number;
-	w: number;
-	h: number;
+/** A convex polygon in world coordinates, already rotated. */
+interface ContentPoly {
+	kind: 'poly';
+	vertices: Point[];
 }
 
-type Content = ContentCircle | ContentRect;
+type Content = ContentCircle | ContentPoly;
 
+/** Ellipse tessellation detail — enough that the seam is invisible at any zoom. */
+const ELLIPSE_SEGMENTS = 16;
+
+function rotatePoint(x: number, y: number, cx: number, cy: number, radians: number): Point {
+	if (radians === 0) return { x, y };
+	const cos = Math.cos(radians);
+	const sin = Math.sin(radians);
+	const dx = x - cx;
+	const dy = y - cy;
+	return { x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos };
+}
+
+/**
+ * The shape's COLLIDABLE content: its silhouette inset by the sticker border
+ * (the border width is the permitted overlap, UX-OBJ-12) and rotated.
+ *
+ * Percentage outlines are mapped onto the inset box, which is exactly how the
+ * renderer draws the content layer — so the collider and the pixels agree by
+ * construction rather than by coincidence.
+ */
 function contentOf(s: SolverShape, x: number, y: number): Content {
+	const cx = x + s.width / 2;
+	const cy = y + s.height / 2;
 	if (s.circle) {
+		// Rotation-invariant, so it needs no rotation term at all.
 		const r = Math.max(0, Math.min(s.width, s.height) / 2 - s.border);
-		return { kind: 'circle', cx: x + s.width / 2, cy: y + s.height / 2, r };
+		return { kind: 'circle', cx, cy, r };
 	}
+
 	const inset = Math.min(s.border, s.width / 2, s.height / 2);
+	const left = x + inset;
+	const top = y + inset;
+	const w = s.width - inset * 2;
+	const h = s.height - inset * 2;
+	const radians = (s.rotation * Math.PI) / 180;
+
+	const local: { x: number; y: number }[] =
+		s.points === undefined
+			? [
+					{ x: 0, y: 0 },
+					{ x: 100, y: 0 },
+					{ x: 100, y: 100 },
+					{ x: 0, y: 100 }
+				]
+			: [...s.points];
+
 	return {
-		kind: 'rect',
-		x: x + inset,
-		y: y + inset,
-		w: s.width - inset * 2,
-		h: s.height - inset * 2
+		kind: 'poly',
+		vertices: local.map((p) =>
+			rotatePoint(left + (p.x / 100) * w, top + (p.y / 100) * h, cx, cy, radians)
+		)
 	};
 }
 
-function intersects(a: Content, b: Content): boolean {
-	if (a.kind === 'rect' && b.kind === 'rect') {
-		return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+/** An ellipse inscribed in the box, as percentage points. */
+export function ellipsePoints(segments = ELLIPSE_SEGMENTS): { x: number; y: number }[] {
+	const out: { x: number; y: number }[] = [];
+	for (let i = 0; i < segments; i++) {
+		const t = (i / segments) * Math.PI * 2;
+		out.push({ x: 50 + 50 * Math.cos(t), y: 50 + 50 * Math.sin(t) });
 	}
+	return out;
+}
+
+/** Project a polygon onto an axis, returning [min, max]. */
+function projectPoly(vertices: readonly Point[], axis: Point): [number, number] {
+	let min = Infinity;
+	let max = -Infinity;
+	for (const v of vertices) {
+		const d = v.x * axis.x + v.y * axis.y;
+		if (d < min) min = d;
+		if (d > max) max = d;
+	}
+	return [min, max];
+}
+
+/** Candidate separating axes: the outward normal of every edge. */
+function edgeAxes(vertices: readonly Point[]): Point[] {
+	const axes: Point[] = [];
+	for (let i = 0; i < vertices.length; i++) {
+		const a = vertices[i];
+		const b = vertices[(i + 1) % vertices.length];
+		if (a === undefined || b === undefined) continue;
+		const normal = normalize(-(b.y - a.y), b.x - a.x);
+		if (normal !== null) axes.push(normal);
+	}
+	return axes;
+}
+
+function nearestVertex(vertices: readonly Point[], px: number, py: number): Point | null {
+	let best: Point | null = null;
+	let bestDistance = Infinity;
+	for (const v of vertices) {
+		const d = (v.x - px) ** 2 + (v.y - py) ** 2;
+		if (d < bestDistance) {
+			bestDistance = d;
+			best = v;
+		}
+	}
+	return best;
+}
+
+/**
+ * Separating Axis Theorem overlap, returning the minimum translation vector
+ * (the axis and depth of least penetration) or null when disjoint.
+ *
+ * The MTV falls out of the same loop that decides overlap, which is why
+ * `normalBetween` below is now a thin wrapper rather than a pile of per-pair
+ * special cases — the old rect/rect branch could only ever emit an
+ * axis-aligned normal, which is wrong the moment anything is rotated.
+ */
+function separation(a: Content, b: Content): { axis: Point; depth: number } | null {
 	if (a.kind === 'circle' && b.kind === 'circle') {
 		const dx = a.cx - b.cx;
 		const dy = a.cy - b.cy;
-		const rr = a.r + b.r;
-		return dx * dx + dy * dy < rr * rr;
+		const distance = Math.hypot(dx, dy);
+		const overlap = a.r + b.r - distance;
+		if (overlap <= 0) return null;
+		return { axis: normalize(dx, dy) ?? { x: 0, y: -1 }, depth: overlap };
 	}
-	const circle = a.kind === 'circle' ? a : b;
-	const rect = a.kind === 'rect' ? a : b;
-	if (rect.kind !== 'rect' || circle.kind !== 'circle') return false;
-	const nx = Math.max(rect.x, Math.min(circle.cx, rect.x + rect.w));
-	const ny = Math.max(rect.y, Math.min(circle.cy, rect.y + rect.h));
-	const dx = circle.cx - nx;
-	const dy = circle.cy - ny;
-	return dx * dx + dy * dy < circle.r * circle.r;
+
+	const poly = a.kind === 'poly' ? a : b.kind === 'poly' ? b : null;
+	const circle = a.kind === 'circle' ? a : b.kind === 'circle' ? b : null;
+
+	if (poly !== null && circle !== null) {
+		// Polygon edge normals, plus the axis toward the closest vertex — the
+		// case that catches a circle nestled against a corner.
+		const axes = edgeAxes(poly.vertices);
+		const near = nearestVertex(poly.vertices, circle.cx, circle.cy);
+		if (near !== null) {
+			const toward = normalize(circle.cx - near.x, circle.cy - near.y);
+			if (toward !== null) axes.push(toward);
+		}
+		let best: { axis: Point; depth: number } | null = null;
+		for (const axis of axes) {
+			const [minP, maxP] = projectPoly(poly.vertices, axis);
+			const centre = circle.cx * axis.x + circle.cy * axis.y;
+			const overlap = Math.min(maxP - (centre - circle.r), centre + circle.r - minP);
+			if (overlap <= 0) return null;
+			if (best === null || overlap < best.depth) best = { axis, depth: overlap };
+		}
+		if (best === null) return null;
+		// Orient the axis so it pushes `a` away from `b`.
+		const sign = a.kind === 'circle' ? 1 : -1;
+		const centreDelta =
+			(circle.cx - polyCentroid(poly).x) * best.axis.x +
+			(circle.cy - polyCentroid(poly).y) * best.axis.y;
+		const orient = centreDelta * sign >= 0 ? 1 : -1;
+		return { axis: { x: best.axis.x * orient, y: best.axis.y * orient }, depth: best.depth };
+	}
+
+	if (a.kind !== 'poly' || b.kind !== 'poly') return null;
+	const axes = [...edgeAxes(a.vertices), ...edgeAxes(b.vertices)];
+	let best: { axis: Point; depth: number } | null = null;
+	for (const axis of axes) {
+		const [minA, maxA] = projectPoly(a.vertices, axis);
+		const [minB, maxB] = projectPoly(b.vertices, axis);
+		const overlap = Math.min(maxA - minB, maxB - minA);
+		if (overlap <= 0) return null;
+		if (best === null || overlap < best.depth) best = { axis, depth: overlap };
+	}
+	if (best === null) return null;
+	const ca = polyCentroid(a);
+	const cb = polyCentroid(b);
+	const orient = (ca.x - cb.x) * best.axis.x + (ca.y - cb.y) * best.axis.y >= 0 ? 1 : -1;
+	return { axis: { x: best.axis.x * orient, y: best.axis.y * orient }, depth: best.depth };
+}
+
+function polyCentroid(poly: ContentPoly): Point {
+	let x = 0;
+	let y = 0;
+	for (const v of poly.vertices) {
+		x += v.x;
+		y += v.y;
+	}
+	const n = poly.vertices.length || 1;
+	return { x: x / n, y: y / n };
+}
+
+function intersects(a: Content, b: Content): boolean {
+	return separation(a, b) !== null;
 }
 
 function collidesAt(moving: SolverShape, x: number, y: number, others: readonly SolverShape[]): boolean {
@@ -207,34 +353,15 @@ function contactNormal(
 	return null;
 }
 
-/** Push-out normal from `target` toward `content`, per shape pair. */
+/**
+ * Push-out normal from `target` toward `content` — now just the direction of
+ * the SAT minimum translation vector, for every shape pair at once. The old
+ * version enumerated pairs by hand and its rect/rect branch could only ever
+ * return an axis-aligned normal, so a rotated object slid along the wrong
+ * direction.
+ */
 function normalBetween(content: Content, target: Content): Point | null {
-	if (content.kind === 'circle' && target.kind === 'circle') {
-		return normalize(content.cx - target.cx, content.cy - target.cy);
-	}
-	if (content.kind === 'circle' && target.kind === 'rect') {
-		const nx = Math.max(target.x, Math.min(content.cx, target.x + target.w));
-		const ny = Math.max(target.y, Math.min(content.cy, target.y + target.h));
-		return normalize(content.cx - nx, content.cy - ny) ?? { x: 0, y: -1 };
-	}
-	if (content.kind === 'rect' && target.kind === 'circle') {
-		const nx = Math.max(content.x, Math.min(target.cx, content.x + content.w));
-		const ny = Math.max(content.y, Math.min(target.cy, content.y + content.h));
-		return normalize(nx - target.cx, ny - target.cy) ?? { x: 0, y: -1 };
-	}
-	if (content.kind === 'rect' && target.kind === 'rect') {
-		// Axis of minimum overlap, signed by relative centers.
-		const overlapX =
-			Math.min(content.x + content.w, target.x + target.w) - Math.max(content.x, target.x);
-		const overlapY =
-			Math.min(content.y + content.h, target.y + target.h) - Math.max(content.y, target.y);
-		const cxDelta = content.x + content.w / 2 - (target.x + target.w / 2);
-		const cyDelta = content.y + content.h / 2 - (target.y + target.h / 2);
-		return overlapX < overlapY
-			? { x: Math.sign(cxDelta) || 1, y: 0 }
-			: { x: 0, y: Math.sign(cyDelta) || 1 };
-	}
-	return null;
+	return separation(content, target)?.axis ?? null;
 }
 
 function normalize(x: number, y: number): Point | null {
@@ -277,6 +404,32 @@ export function resolveMove(
 /** Commit-side check (AR-CANVAS-5 server pass): is this placement legal at all? */
 export function placementLegal(shape: SolverShape, others: readonly SolverShape[]): boolean {
 	return !collidesAt(shape, shape.x, shape.y, others);
+}
+
+/**
+ * Drag resolution WITH teleport-through (UX-OBJ-12).
+ *
+ * If the desired position is itself legal, go there — even when the straight
+ * path to it is blocked. Sliding alone turned the canvas into a minefield: to
+ * put a note on the far side of a cluster you had to steer a continuous path
+ * through the gaps, and a fully enclosed pocket had no path at all.
+ *
+ * This is NOT flickery despite running every frame, because the outcome is a
+ * pure function of where the cursor is: legal cursor position means the object
+ * is under the cursor, and only when the cursor lands somewhere illegal does
+ * the slide solver take over. Nothing depends on the path taken to get there.
+ *
+ * `resolveMove` is kept as the constrained-path primitive underneath, so the
+ * "every intermediate position is legal" invariant still has a home and its
+ * tests still mean something.
+ */
+export function resolveDrag(
+	moving: SolverShape,
+	desired: Point,
+	others: readonly SolverShape[]
+): Point {
+	if (placementLegal({ ...moving, x: desired.x, y: desired.y }, others)) return desired;
+	return resolveMove(moving, desired, others);
 }
 
 /**

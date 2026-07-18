@@ -15,8 +15,8 @@ import type {
 } from '$lib/model/types';
 import { untrack } from 'svelte';
 import { canEdit } from '$lib/model/permissions';
-import { nearestLegal, placementLegal } from '$lib/canvas/geometry';
-import type { SolverShape } from '$lib/model/types';
+import { ellipsePoints, nearestLegal, placementLegal } from '$lib/canvas/geometry';
+import type { Clip, SolverShape } from '$lib/model/types';
 import type { RoomStore } from './room-store';
 
 function freshState(): RoomState {
@@ -122,6 +122,7 @@ export class MemoryRoomStore implements RoomStore {
 		const out: SolverShape[] = [];
 		for (const object of Object.values(this.state.objects)) {
 			if (object.id === excludeId) continue;
+			if (!participatesInCollision(object)) continue;
 			out.push(shapeOfObject(object));
 		}
 		for (const participant of Object.values(this.state.participants)) {
@@ -161,7 +162,12 @@ export class MemoryRoomStore implements RoomStore {
 	private apply(m: Mutation): void {
 		switch (m.kind) {
 			case 'create_object': {
-				const spot = nearestLegal(shapeOfObject(m.object), this.shapes(m.object.id));
+				// Exempt objects land exactly where they were made. Relocating a
+				// just-finished stroke off the ink the user drew was the most
+				// visible symptom of drawings taking part in collision.
+				const spot = participatesInCollision(m.object)
+					? nearestLegal(shapeOfObject(m.object), this.shapes(m.object.id))
+					: { x: m.object.transform.x, y: m.object.transform.y };
 				const object: CanvasObject = {
 					...m.object,
 					transform: { ...m.object.transform, x: spot.x, y: spot.y }
@@ -173,7 +179,7 @@ export class MemoryRoomStore implements RoomStore {
 				const existing = this.requireObject(m.id);
 				this.requireEditable(existing);
 				const moved = { ...shapeOfObject(existing), x: m.transform.x, y: m.transform.y, width: m.transform.width, height: m.transform.height };
-				if (!placementLegal(moved, this.shapes(m.id))) {
+				if (participatesInCollision(existing) && !placementLegal(moved, this.shapes(m.id))) {
 					throw new StoreRejection('overlap', 'That placement overlaps content');
 				}
 				existing.transform = m.transform;
@@ -388,6 +394,24 @@ export class MemoryRoomStore implements RoomStore {
 	}
 }
 
+/**
+ * Whether an object takes part in collision at all (UX-OBJ-12's exemptions).
+ *
+ * Drawings do not. Ink is annotation: it belongs ON TOP of the things it
+ * annotates, and a stroke's axis-aligned bounding box is mostly empty anyway —
+ * a diagonal squiggle reserved a huge rectangle. Worse, drawings carry
+ * border.width 0, so they got no sticker inset and reserved their FULL box,
+ * making them stricter obstacles than notes.
+ *
+ * One predicate, called from every site, because the rule has to hold on both
+ * sides of the seam: exempting only the client would let a drawing be dragged
+ * freely and then snap back on commit, and exempting only the store would
+ * leave the drag feeling blocked.
+ */
+export function participatesInCollision(object: CanvasObject): boolean {
+	return object.type !== 'drawing';
+}
+
 export function shapeOfObject(object: CanvasObject): SolverShape {
 	return {
 		id: object.id,
@@ -395,9 +419,27 @@ export function shapeOfObject(object: CanvasObject): SolverShape {
 		y: object.transform.y,
 		width: object.transform.width,
 		height: object.transform.height,
+		rotation: object.transform.rotation,
 		circle: object.clip.shape === 'circle',
+		points: outlinePoints(object.clip),
 		border: object.border.width
 	};
+}
+
+/**
+ * The clip's outline as percentage points, or undefined for shapes the solver
+ * handles directly (a plain rect, or a circle via its exact fast path).
+ * Ellipses are tessellated here so the solver never has to know about clips.
+ */
+export function outlinePoints(clip: Clip): readonly { x: number; y: number }[] | undefined {
+	switch (clip.shape) {
+		case 'ellipse':
+			return ellipsePoints();
+		case 'polygon':
+			return clip.points;
+		default:
+			return undefined;
+	}
 }
 
 export function shapeOfParticipant(participant: Participant): SolverShape {
@@ -410,7 +452,9 @@ export function shapeOfParticipant(participant: Participant): SolverShape {
 		y: participant.location.y,
 		width: participant.size.width,
 		height: participant.size.height,
+		rotation: participant.rotation,
 		circle: participant.clip.shape === 'circle',
+		points: outlinePoints(participant.clip),
 		border: AVATAR_BORDER
 	};
 }

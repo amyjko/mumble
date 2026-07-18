@@ -412,3 +412,58 @@ describe('avatars are canvas objects too (UX-AV-1)', () => {
 		).rejects.toMatchObject({ reason: 'overlap' });
 	});
 });
+
+describe('drawings are exempt from collision (UX-OBJ-12)', () => {
+	const drawing = (creator: string, x: number): CanvasObject => {
+		const transform = { x, y: 0, width: 100, height: 100, rotation: 0, z: 1 };
+		return {
+			id: uuid(),
+			type: 'drawing',
+			creator_id: creator,
+			permission: 'all',
+			transform,
+			clip: { shape: 'rect' },
+			border: { width: 0 },
+			default_transform: transform,
+			payload: { color: '#e11d48', width: 3, points: [{ x: 0, y: 0 }, { x: 100, y: 100 }] },
+			created_at: '2026-07-18T00:00:00.000Z',
+			updated_at: '2026-07-18T00:00:00.000Z'
+		};
+	};
+
+	it('a new stroke stays exactly where it was drawn', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const blocker = note(ALICE, 0);
+		await store.commit({ kind: 'create_object', object: blocker });
+		// Drawn right on top of the note: no relocation.
+		const ink = drawing(ALICE, 0);
+		await store.commit({ kind: 'create_object', object: ink });
+		expect(store.state.objects[ink.id]?.transform.x).toBe(0);
+		expect(store.state.objects[ink.id]?.transform.y).toBe(0);
+	});
+
+	it('a drawing may be moved onto content without rejection', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const blocker = note(ALICE, 0);
+		await store.commit({ kind: 'create_object', object: blocker });
+		const ink = drawing(ALICE, 400);
+		await store.commit({ kind: 'create_object', object: ink });
+		await store.commit({
+			kind: 'move_object',
+			id: ink.id,
+			transform: { ...ink.transform, x: 10, y: 10 }
+		});
+		expect(store.state.objects[ink.id]?.transform.x).toBe(10);
+	});
+
+	it('and does not obstruct anything else', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const ink = drawing(ALICE, 0);
+		await store.commit({ kind: 'create_object', object: ink });
+		// A note placed over the ink is NOT relocated: the ink is invisible to
+		// the solver, so nearestLegal has nothing to avoid.
+		const over = note(ALICE, 0);
+		await store.commit({ kind: 'create_object', object: over });
+		expect(store.state.objects[over.id]?.transform.x).toBe(0);
+	});
+});
