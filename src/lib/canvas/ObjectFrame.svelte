@@ -335,6 +335,21 @@
 		sync.announce(PERMISSION_LABEL[next]);
 	}
 
+	/**
+	 * Cycle the sticker border (UX-OBJ-8). Not decorative: the width IS the
+	 * overlap tolerance (UX-OBJ-12), so a thinner border means the object's
+	 * content grows and the store re-checks the placement — narrowing can be
+	 * refused if it would push content into a neighbour.
+	 */
+	const BORDER_STEPS = [0, 6, 10, 18, 28];
+	function cycleBorder(): void {
+		const current = object.border.width;
+		const at = BORDER_STEPS.findIndex((w) => w >= current);
+		const next = BORDER_STEPS[(at + 1) % BORDER_STEPS.length] ?? BORDER_STEPS[0] ?? 0;
+		void sync.commit({ kind: 'set_border', id: object.id, width: next });
+		sync.announce(`Border ${String(next)} pixels`);
+	}
+
 	function toggleHidden(): void {
 		void sync.commit({ kind: 'set_hidden', id: object.id, hidden: !object.hidden });
 		sync.announce(object.hidden ? 'Object shown' : 'Object hidden from others');
@@ -468,6 +483,17 @@
 				onclick={toggleHidden}>{object.hidden ? '◌' : '●'}</Button
 			>
 		</span>
+		{#if object.type !== 'drawing'}
+			<span class="chrome border">
+				<Button
+					variant="chrome"
+					shape="icon"
+					label="Change sticker border (currently {object.border.width} pixels)"
+					onpointerdown={stopPointer}
+					onclick={cycleBorder}>▣</Button
+				>
+			</span>
+		{/if}
 		{#if object.type !== 'drawing'}
 			<!-- Drawings have no sticker border, so a clip edge on one is invisible
 			     and the control is meaningless — hidden rather than ambiguous. -->
@@ -616,6 +642,13 @@
 		margin-top: var(--space-1);
 		left: 50%;
 		translate: calc(-50% - var(--control-height) - var(--space-1)) 0;
+	}
+	/* Beside the shape control, both outside the frame's crowded corners. */
+	.chrome.border {
+		top: 100%;
+		margin-top: var(--space-1);
+		left: 50%;
+		translate: calc(-50% + var(--control-height) + var(--space-1)) 0;
 	}
 	.chrome.shape {
 		bottom: calc(-1 * var(--space-3));

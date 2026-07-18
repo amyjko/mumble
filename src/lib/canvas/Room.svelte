@@ -102,17 +102,17 @@
 	}
 	function addNote(): void {
 		const objects = untrack(() => Object.values(store.state.objects));
-		void sync.commit({ kind: 'create_object', object: newNote(identity.id, centerWorld(), maxZOf(objects)) });
+		void sync.commit({ kind: 'create_object', object: newNote(identity.id, centerWorld(), maxZOf(objects), store.state.border_default) });
 		sync.announce('Note added');
 	}
 	function addTimer(): void {
 		const objects = untrack(() => Object.values(store.state.objects));
-		void sync.commit({ kind: 'create_object', object: newTimer(identity.id, centerWorld(), maxZOf(objects)) });
+		void sync.commit({ kind: 'create_object', object: newTimer(identity.id, centerWorld(), maxZOf(objects), store.state.border_default) });
 		sync.announce('Timer added');
 	}
 	function addChat(): void {
 		const objects = untrack(() => Object.values(store.state.objects));
-		void sync.commit({ kind: 'create_object', object: newChat(identity.id, centerWorld(), maxZOf(objects)) });
+		void sync.commit({ kind: 'create_object', object: newChat(identity.id, centerWorld(), maxZOf(objects), store.state.border_default) });
 		sync.announce('Chat added');
 	}
 	/**

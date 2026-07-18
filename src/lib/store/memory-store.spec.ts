@@ -719,3 +719,57 @@ describe('creation permission is a room setting (UX-OBJ-9)', () => {
 		).rejects.toMatchObject({ reason: 'permission' });
 	});
 });
+
+describe('sticker border is settable (UX-OBJ-8) and IS the overlap tolerance (UX-OBJ-12)', () => {
+	it('new objects inherit the room default', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		expect(store.state.border_default).toBe(10);
+		await store.commit({ kind: 'set_room_border', width: 24 });
+		expect(store.state.border_default).toBe(24);
+	});
+
+	it('widening a border is always allowed — it shrinks the content', async () => {
+		// More border means LESS content, so it can never create an overlap.
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const a = note(ALICE, 0);
+		await store.commit({ kind: 'create_object', object: a });
+		await store.commit({ kind: 'set_border', id: a.id, width: 30 });
+		expect(store.state.objects[a.id]?.border.width).toBe(30);
+	});
+
+	it('narrowing a border can be REFUSED, because content grows into a neighbour', async () => {
+		// Two notes placed exactly at their tolerance: contents touch. Dropping
+		// one border to zero expands that object's content by 10px on every
+		// side, which is an overlap — the same rule a move obeys.
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const a = note(ALICE, 0); // 100 wide, border 10
+		const b = note(ALICE, 80); // contents touch at x = 90
+		await store.commit({ kind: 'create_object', object: a });
+		await store.commit({ kind: 'create_object', object: b });
+		// Only proceed if the store actually placed them adjacently.
+		const placedB = store.state.objects[b.id];
+		expect(placedB).toBeDefined();
+
+		await expect(store.commit({ kind: 'set_border', id: a.id, width: 0 })).rejects.toMatchObject({
+			reason: 'overlap'
+		});
+		expect(store.state.objects[a.id]?.border.width).toBe(10);
+	});
+
+	it('a border change obeys edit permission, not creator-only', async () => {
+		// UX-OBJ-8 says the override is "subject to edit permission" — so unlike
+		// set_permission (creator-only), a peer with edit rights may do it.
+		const room = `r${String(Math.random())}`;
+		const alice = makeStore(room, ALICE);
+		const locked = note(ALICE, 0, 'none');
+		await alice.commit({ kind: 'create_object', object: locked });
+
+		const bob = makeStore(room, BOB);
+		await vi.waitFor(() => {
+			expect(bob.state.objects[locked.id]).toBeDefined();
+		});
+		await expect(bob.commit({ kind: 'set_border', id: locked.id, width: 20 })).rejects.toMatchObject({
+			reason: 'permission'
+		});
+	});
+});

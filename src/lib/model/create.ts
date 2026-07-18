@@ -1,12 +1,13 @@
 import type { CanvasObject, Point } from './types';
 import type { Bounds } from './drawing';
 import { nowIso } from './types';
+import { DEFAULT_BORDER_WIDTH } from './schemas';
 
 /**
  * The one place notes are born — used by the canvas double-click AND the
  * header's "+ note" button (UX-A11Y-2: creation must not require a pointer).
  */
-export function newNote(creatorId: string, center: Point, maxZ: number): CanvasObject {
+export function newNote(creatorId: string, center: Point, maxZ: number, border = DEFAULT_BORDER_WIDTH): CanvasObject {
 	const now = nowIso();
 	const transform = {
 		x: center.x - 100,
@@ -23,7 +24,7 @@ export function newNote(creatorId: string, center: Point, maxZ: number): CanvasO
 		permission: 'all',
 		transform,
 		clip: { shape: 'rounded', radius: 8 },
-		border: { width: 10 },
+		border: { width: border },
 		hidden: false,
 		payload: { text: '', doc: '' },
 		created_at: now,
@@ -32,7 +33,7 @@ export function newNote(creatorId: string, center: Point, maxZ: number): CanvasO
 }
 
 /** A paused 5-minute countdown by default — a sensible starting shape. */
-export function newTimer(creatorId: string, center: Point, maxZ: number): CanvasObject {
+export function newTimer(creatorId: string, center: Point, maxZ: number, border = DEFAULT_BORDER_WIDTH): CanvasObject {
 	const now = nowIso();
 	const transform = {
 		x: center.x - 90,
@@ -49,7 +50,7 @@ export function newTimer(creatorId: string, center: Point, maxZ: number): Canvas
 		permission: 'all',
 		transform,
 		clip: { shape: 'rounded', radius: 8 },
-		border: { width: 10 },
+		border: { width: border },
 		hidden: false,
 		payload: {
 			mode: 'countdown',
@@ -63,7 +64,7 @@ export function newTimer(creatorId: string, center: Point, maxZ: number): Canvas
 	};
 }
 
-export function newChat(creatorId: string, center: Point, maxZ: number): CanvasObject {
+export function newChat(creatorId: string, center: Point, maxZ: number, border = DEFAULT_BORDER_WIDTH): CanvasObject {
 	const now = nowIso();
 	const transform = {
 		x: center.x - 140,
@@ -80,7 +81,7 @@ export function newChat(creatorId: string, center: Point, maxZ: number): CanvasO
 		permission: 'all',
 		transform,
 		clip: { shape: 'rounded', radius: 8 },
-		border: { width: 10 },
+		border: { width: border },
 		hidden: false,
 		payload: { messages: [] },
 		created_at: now,

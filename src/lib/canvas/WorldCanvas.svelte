@@ -194,7 +194,7 @@
 	}
 
 	function createNoteAt(world: { x: number; y: number }): void {
-		const note = newNote(identity.id, world, maxZOf(objects));
+		const note = newNote(identity.id, world, maxZOf(objects), store.state.border_default);
 		void sync.commit({ kind: 'create_object', object: note });
 		sync.announce('Note added');
 	}

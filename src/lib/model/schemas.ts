@@ -38,10 +38,17 @@ export const clipSchema = z.discriminatedUnion('shape', [
 	})
 ]);
 
-/** Sticker border (UX-OBJ-8). Its width IS the overlap tolerance (UX-OBJ-12). */
+/**
+ * Sticker border (UX-OBJ-8). Its width IS the overlap tolerance (UX-OBJ-12),
+ * which is why the ceiling is modest: a very wide border would let objects
+ * overlap so far that "content never covers content" stops meaning anything.
+ */
 export const borderSchema = z.object({
-	width: z.number().nonnegative()
+	width: z.number().nonnegative().max(40)
 });
+
+/** The room/theme default UX-OBJ-8 calls for; per-object overrides sit on top. */
+export const DEFAULT_BORDER_WIDTH = 10;
 
 export const permissionSchema = z.enum(['host', 'all', 'none']);
 
@@ -206,6 +213,8 @@ export const roomStateSchema = z.object({
 	 * host branch is.
 	 */
 	create_permission: z.enum(['all', 'host']).default('all'),
+	/** UX-OBJ-8's room default. New objects inherit it; each may override. */
+	border_default: z.number().nonnegative().max(40).default(DEFAULT_BORDER_WIDTH),
 	configurations: z.record(z.uuid(), configurationSchema).default({}),
 	active_config: z.uuid().nullable().default(null)
 });
@@ -233,6 +242,10 @@ export const mutationSchema = z.discriminatedUnion('kind', [
 	// had never run in the product. Creator-only: deciding who may edit your
 	// object is itself a creator's decision.
 	z.object({ kind: z.literal('set_permission'), id: z.uuid(), permission: permissionSchema }),
+	// UX-OBJ-8's per-object override, "subject to edit permission" — so this
+	// goes through requireEditable rather than being creator-only.
+	z.object({ kind: z.literal('set_border'), id: z.uuid(), width: z.number().nonnegative().max(40) }),
+	z.object({ kind: z.literal('set_room_border'), width: z.number().nonnegative().max(40) }),
 	// The room-level half of UX-OBJ-9.
 	z.object({ kind: z.literal('set_room_create_permission'), value: z.enum(['all', 'host']) }),
 	z.object({ kind: z.literal('delete_object'), id: z.uuid() }),

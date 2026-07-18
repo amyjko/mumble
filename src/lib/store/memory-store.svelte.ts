@@ -1,4 +1,5 @@
 import {
+	DEFAULT_BORDER_WIDTH,
 	envelopeSchema,
 	mutationSchema,
 	parseJson,
@@ -23,7 +24,7 @@ import type { Clip, SolverShape } from '$lib/model/types';
 import type { RoomStore } from './room-store';
 
 function freshState(): RoomState {
-	return { objects: {}, participants: {}, background: '', title: '', description: '', create_permission: 'all', configurations: {}, active_config: null };
+	return { objects: {}, participants: {}, background: '', title: '', description: '', create_permission: 'all', border_default: DEFAULT_BORDER_WIDTH, configurations: {}, active_config: null };
 }
 
 /**
@@ -275,6 +276,27 @@ export class MemoryRoomStore implements RoomStore {
 				existing.payload.messages = withNew.slice(-CHAT_LOG_LIMIT);
 				this.droppedChatMessages += withNew.length - existing.payload.messages.length;
 				existing.updated_at = nowIso();
+				break;
+			}
+			case 'set_border': {
+				const existing = this.requireObject(m.id);
+				// "subject to edit permission" (UX-OBJ-8), so this is the editable
+				// gate rather than the creator-only one that guards permission.
+				this.requireEditable(existing);
+				// Narrowing a border widens the object's CONTENT, because the
+				// border width is the overlap tolerance (UX-OBJ-12) — so the new
+				// size has to be revalidated exactly like a move.
+				const widened = { ...shapeOfObject(existing), border: m.width };
+				if (participatesInCollision(existing) && !placementLegal(widened, this.shapes(m.id))) {
+					throw new StoreRejection('overlap', 'A thinner border would overlap neighbouring content');
+				}
+				existing.border = { width: m.width };
+				existing.updated_at = nowIso();
+				break;
+			}
+			case 'set_room_border': {
+				this.requireHostForRoom();
+				this.state.border_default = m.width;
 				break;
 			}
 			case 'set_permission': {
