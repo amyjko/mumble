@@ -71,6 +71,8 @@ Four things that no amount of doc-reading would have told us:
 
 **1. pnpm 10 cannot bootstrap pnpm 11.** The `packageManager` field *is* read — pnpm 10.14 dutifully tried to fetch 11.13.1 — and then failed: `Failed to switch pnpm to v11.13.1… spawnSync …/bin/pnpm ENOENT`. It downloads `@pnpm/macos-arm64@11.13.1` but pnpm 11's package layout has no `bin/pnpm` where v10 looks. **So the `packageManager` field does not get you from 10 to 11**; install pnpm 11 directly first (`npm i -g pnpm@11` under the right Node). The field works fine *after* that, for staying pinned.
 
+  **Day-to-day consequence (hit again 2026-07-18):** a shell that hasn't run `nvm use` finds the standalone pnpm 10 at `~/Library/pnpm/pnpm` and reproduces this failure on *every* command, including `pnpm dev`. The half-extracted `~/Library/pnpm/.tools/@pnpm+macos-arm64/11.13.1/` it leaves behind is not repairable — clearing it just re-creates the same broken state, since v10 re-runs the same unsupported bootstrap. **`nvm use` first, always**; the Node 24 toolchain carries a working pnpm 11.13.1. Fixing the standalone pnpm is optional and does not remove the need for `nvm use` (the project requires Node 24).
+
 **2. `allowBuilds`, not `onlyBuiltDependencies`.** pnpm 11 renamed it, and the new form is a **map**, not a list. v10's spelling silently does nothing. pnpm helpfully auto-writes a stub for you to fill in.
 
 **3. `strictDepBuilds` blocks workerd — which silently breaks the host.** Out of the box: `Ignored build scripts: esbuild, sharp, workerd`. **workerd is the Workers runtime**, so `pnpm preview` / `wrangler dev` cannot run at all until it's approved. The security default is right; it just isn't optional here.

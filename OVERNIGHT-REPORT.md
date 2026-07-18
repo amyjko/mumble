@@ -87,8 +87,24 @@ the gate on finishing configs properly and it needs your product judgment on
 hide-vs-remove and on the content/layout split. Everything else on the branch is
 complete and independently reviewable, commit by commit.
 
-To review: `git checkout overnight/frontend-backlog`, then `nvm use && pnpm
-install && pnpm supabase:start` is not needed (the whole branch runs on the
-in-memory stub) — just `pnpm dev` and open two windows on `/hey/lci`.
+To review:
+
+```sh
+git checkout overnight/frontend-backlog
+nvm use          # REQUIRED — not optional; see below
+pnpm dev         # then open two windows on http://localhost:5173/hey/lci
+```
+
+No Supabase needed: the whole branch runs on the in-memory stub.
+
+**`nvm use` is required, not a nicety.** Without it you get the shell's default
+Node 22 and the standalone pnpm at `~/Library/pnpm/pnpm`, which is **pnpm 10** —
+and pnpm 10 cannot bootstrap the pnpm 11 named in `packageManager`. It fails
+mid-self-install and leaves a half-extracted 11.13.1 in `~/Library/pnpm/.tools/`
+(the `pnpm CLI is missing … ENOENT` error). Deleting that cache doesn't help;
+it re-creates the same broken state. `nvm use` sidesteps it entirely — the Node
+24 toolchain carries its own working pnpm 11.13.1. If you want the default
+shell fixed too, upgrade the standalone: `curl -fsSL https://get.pnpm.io/install.sh
+| env PNPM_VERSION=11.13.1 sh -`. You'd still need `nvm use` for Node 24.
 
 STATUS: COMPLETE
