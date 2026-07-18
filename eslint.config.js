@@ -23,8 +23,13 @@ export default defineConfig(
 			globals: { ...globals.browser, ...globals.node },
 			parserOptions: {
 				projectService: {
-					// Config files no tsconfig claims; type-aware linting still applies.
-					allowDefaultProject: ['eslint.config.js', 'playwright.config.ts']
+					// Files no tsconfig claims — config and build scripts. Type-aware
+					// linting still applies to them; they just have no project.
+					allowDefaultProject: [
+						'eslint.config.js',
+						'playwright.config.ts',
+						'scripts/*.mjs'
+					]
 				},
 				tsconfigRootDir: import.meta.dirname
 			}

@@ -1,0 +1,126 @@
+# CI is the deploy gate (AR-DEPLOY-2). With no staging environment
+# (AR-TEST-10), a red suite blocking main is the only thing between a bad
+# commit and users — which is also why the AR-DEPLOY-3 budget check lives here
+# rather than in a dashboard nobody reads.
+#
+# Until this existed, UX-A11Y-1's "axe scans in CI (both themes)" and its
+# computed-contrast and compiler-warning clauses were conventions run by hand.
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# A newer push to the same branch makes the older run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm before Node, so setup-node's pnpm cache has something to key on.
+      # pnpm/action-setup rather than Corepack: Corepack was unbundled from
+      # Node 25, and STACK.md §3 records that pnpm 10 cannot bootstrap pnpm 11
+      # via the packageManager field.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Ordered cheapest-first (TESTING.md §12) so the fastest signal fails
+      # first: seconds of linting before minutes of browsers.
+      - name: Lint (the TypeScript norms gate)
+        run: pnpm lint
+
+      - name: Typecheck (TypeScript 7)
+        run: pnpm run check:ts
+
+      # a11y warnings are FAILURES here (--fail-on-warnings), which is one of
+      # UX-A11Y-1's three mechanical clauses.
+      - name: Svelte check
+        run: pnpm run check:svelte
+
+      # Node + browser projects. Includes the computed token-contrast spec and
+      # the no-raw-color / no-raw-emoji enforcement.
+      - name: Unit and component tests
+        run: pnpm exec vitest --run
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      # Runs against the built worker under wrangler dev (AR-TEST-9 /
+      # AR-DEPLOY-4): the only place the production runtime is exercised.
+      # Includes the axe scans in both themes.
+      - name: End-to-end tests
+        run: pnpm exec playwright test
+
+      - name: Bundle budget (AR-DEPLOY-3)
+        run: pnpm run check:bundle
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+      # NOT RUN YET, deliberately: AR-TEST-5/6/7 (pgTAP RLS matrix, the
+      # vendored claims helper, and the real-JWT is_anonymous suite) need
+      # `supabase start` and a schema. supabase/migrations/ does not exist, so
+      # these would assert nothing. Add here — before the deploy gate — when
+      # the first migration lands:
+      #
+      #   - run: supabase start        # pin the CLI version; the 2.108.0
+      #   - run: supabase test db      # offline floor regresses silently
+
+  # Deploy is scaffolded but inert: it no-ops until the Cloudflare secrets
+  # exist, so CI gates today without blocking on account setup. Add
+  # CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID as repository secrets to
+  # turn it on — no code change required. (AR-DEPLOY-2: push to main deploys;
+  # PRs get previews.)
+  deploy:
+    needs: verify
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Check for deploy credentials
+        id: creds
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: echo "ready=${{ env.TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Skip (no credentials configured)
+        if: steps.creds.outputs.ready != 'true'
+        run: |
+          echo "::notice::Deploy skipped — CLOUDFLARE_API_TOKEN is not set."
+          echo "Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID as repository"
+          echo "secrets to enable deploy-on-green (AR-DEPLOY-2)."
+
+      - name: Deploy to Cloudflare Workers
+        if: steps.creds.outputs.ready == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          pnpm run build
+          pnpm exec wrangler deploy

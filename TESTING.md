@@ -462,4 +462,15 @@ Each of these produces a test that lies, or a guide that misleads:
 
 Ordered cheapest-first so the fastest signal fails first. Pin the CLI version in CI rather than taking latest: the 2.108.0 floor is the kind of thing that regresses silently on a runner image update.
 
+**Implemented 2026-07-18** as [.github/workflows/ci.yml](.github/workflows/ci.yml).
+Two deliberate differences from the sketch above: the Supabase steps are
+commented out with a pointer to AR-TEST-5/6/7, because `supabase/migrations/`
+does not exist yet and `supabase test db` would assert nothing; and the deploy
+job is scaffolded but inert until `CLOUDFLARE_API_TOKEN` is set as a repository
+secret, so CI gates today without blocking on account setup. The bundle check
+is `pnpm run check:bundle` ([scripts/check-bundle.mjs](scripts/check-bundle.mjs)),
+which parses `wrangler deploy --dry-run` and fails over a 600 KiB budget —
+comfortably under the 3 MB cap, because a check that fails on every ordinary
+change gets disabled, and a disabled check protects nothing.
+
 **CI is the deploy gate** (AR-DEPLOY-2). With no staging, a red suite blocking `main` is the only thing between a bad commit and users — which is also why the AR-DEPLOY-3 budget checks belong here rather than in a dashboard nobody reads: a bundle that quietly grows past 3 MB stops being deployable at all.
