@@ -23,6 +23,9 @@ test('title syncs to peers; rename navigates and carries state', async ({ browse
 	// Rename → new URL, and the note came along.
 	const newName = `${room}-2`;
 	await a.getByRole('textbox', { name: 'New room name' }).fill(newName);
+	// Renaming now warns first (UX-ROOM-10: existing links break). Playwright
+	// auto-dismisses dialogs, so the rename would silently not happen.
+	a.once('dialog', (dialog) => void dialog.accept());
 	await a.getByRole('button', { name: 'rename' }).click();
 	await expect(a).toHaveURL(new RegExp(`/hey/${newName}$`));
 	await expect(a.locator('.frame')).toHaveCount(1); // state carried
