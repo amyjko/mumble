@@ -25,6 +25,7 @@ export function newNote(creatorId: string, center: Point, maxZ: number): CanvasO
 		clip: { shape: 'rounded', radius: 8 },
 		border: { width: 10 },
 		default_transform: transform,
+		hidden: false,
 		payload: { text: '' },
 		created_at: now,
 		updated_at: now
@@ -51,6 +52,7 @@ export function newTimer(creatorId: string, center: Point, maxZ: number): Canvas
 		clip: { shape: 'rounded', radius: 8 },
 		border: { width: 10 },
 		default_transform: transform,
+		hidden: false,
 		payload: {
 			mode: 'countdown',
 			durationMs: 5 * 60 * 1000,
@@ -82,6 +84,7 @@ export function newChat(creatorId: string, center: Point, maxZ: number): CanvasO
 		clip: { shape: 'rounded', radius: 8 },
 		border: { width: 10 },
 		default_transform: transform,
+		hidden: false,
 		payload: { messages: [] },
 		created_at: now,
 		updated_at: now
@@ -107,6 +110,7 @@ export function newDrawing(
 		clip: { shape: 'rect' },
 		border: { width: 0 },
 		default_transform: transform,
+		hidden: false,
 		payload: { color, width, points: points.map((p) => ({ x: p.x, y: p.y })) },
 		created_at: now,
 		updated_at: now

@@ -11,6 +11,9 @@ import type {
 	permissionSchema,
 	canvasObjectSchema,
 	participantSchema,
+	layoutSchema,
+	configSnapshotSchema,
+	configurationSchema,
 	roomStateSchema,
 	mutationSchema,
 	ephemeralSchema,
@@ -30,6 +33,10 @@ export type ChatCanvasObject = z.infer<typeof chatObjectSchema>;
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 export type DrawingCanvasObject = z.infer<typeof drawingObjectSchema>;
 export type Participant = z.infer<typeof participantSchema>;
+/** A configuration's per-object layout: position, size, and visibility. */
+export type Layout = z.infer<typeof layoutSchema>;
+export type ConfigSnapshot = z.infer<typeof configSnapshotSchema>;
+export type Configuration = z.infer<typeof configurationSchema>;
 export type RoomState = z.infer<typeof roomStateSchema>;
 export type Mutation = z.infer<typeof mutationSchema>;
 export type EphemeralMessage = z.infer<typeof ephemeralSchema>;

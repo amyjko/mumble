@@ -53,6 +53,15 @@ const objectBase = z.object({
 	clip: clipSchema,
 	border: borderSchema,
 	default_transform: transformSchema,
+	/**
+	 * Visibility (UX-ROOM-3). Lives on the OBJECT, not only in a configuration
+	 * snapshot, exactly as live `transform` coexists with saved
+	 * `default_transform`: toggling visibility while no configuration is active
+	 * would otherwise have nowhere to write. A hidden object still exists for
+	 * everyone; only its creator (and, when the role lands, a host) can see it.
+	 * Defaults keep objects stored before this valid.
+	 */
+	hidden: z.boolean().default(false),
 	created_at: z.iso.datetime(),
 	updated_at: z.iso.datetime()
 });
@@ -140,19 +149,26 @@ export const participantSchema = z.object({
 });
 
 /**
- * Configurations (UX-ROOM-3..6). A configuration is a NAMED SNAPSHOT of layout:
- * per-object transforms plus background/title/description. Switching re-applies
- * a snapshot to the live objects; reset (UX-ROOM-5) re-applies the active
- * snapshot (layout only — content persists). This additive snapshot model keeps
- * object CONTENT at the room level and LAYOUT in the snapshot, without
- * restructuring the object schema.
+ * Configurations (UX-ROOM-3..6). A configuration is a NAMED SNAPSHOT of
+ * LAYOUT, where layout means position, size, AND visibility — plus the room's
+ * background/title/description.
  *
- * DEFERRED (explicit DESIGN.md open item): what happens to objects present in
- * one config but not another — hide vs remove. Here, objects absent from a
- * snapshot are left in place on switch; the real semantics await a decision.
+ * This resolves the old "hide vs remove" open item by dissolving it: every
+ * object exists in every configuration, and configurations differ only in
+ * where objects sit, how big they are, and whether they are shown. Nothing is
+ * ever removed, so there is no question of what happens to an object present
+ * in one configuration and absent from another.
+ *
+ * Content stays at the room level: switching never touches note text or chat
+ * logs (UX-ROOM-5).
  */
+export const layoutSchema = z.object({
+	transform: transformSchema,
+	hidden: z.boolean().default(false)
+});
+
 export const configSnapshotSchema = z.object({
-	transforms: z.record(z.uuid(), transformSchema),
+	layouts: z.record(z.uuid(), layoutSchema),
 	background: z.string(),
 	title: z.string(),
 	description: z.string()
@@ -191,6 +207,8 @@ export const mutationSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('edit_timer'), id: z.uuid(), payload: timerPayloadSchema }),
 	z.object({ kind: z.literal('post_message'), id: z.uuid(), message: chatMessageSchema }),
 	z.object({ kind: z.literal('set_clip'), id: z.uuid(), clip: clipSchema }),
+	// Visibility is layout, so it is a per-configuration property (UX-ROOM-3).
+	z.object({ kind: z.literal('set_hidden'), id: z.uuid(), hidden: z.boolean() }),
 	z.object({ kind: z.literal('delete_object'), id: z.uuid() }),
 	z.object({ kind: z.literal('upsert_participant'), participant: participantSchema }),
 	z.object({

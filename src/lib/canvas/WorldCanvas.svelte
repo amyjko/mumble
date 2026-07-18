@@ -16,7 +16,7 @@
 	import AvatarTile from './AvatarTile.svelte';
 	import ObjectContent from '$lib/objects/ObjectContent.svelte';
 	import Button from '$lib/ui/Button.svelte';
-	import { canEdit } from '$lib/model/permissions';
+	import { canEdit, canSee } from '$lib/model/permissions';
 
 	interface Props {
 		store: RoomStore;
@@ -43,7 +43,13 @@
 	// Freehand drawing capture (UX-OBJ-11): world-space points, local view state.
 	let stroke = $state<{ x: number; y: number }[] | null>(null);
 	const strokePreview = $derived(stroke === null ? '' : pointsToPath(stroke));
-	const fullscreenObject = $derived(fullscreenId === null ? null : (store.state.objects[fullscreenId] ?? null));
+	const fullscreenObject = $derived.by(() => {
+		if (fullscreenId === null) return null;
+		const object = store.state.objects[fullscreenId] ?? null;
+		// Hiding an object while it is maximised must close the overlay, not
+		// leave it on screen for people who can no longer see the object.
+		return object !== null && canSee(object, identity.id, false) ? object : null;
+	});
 
 	let fullscreenDialog = $state<HTMLDialogElement | null>(null);
 
@@ -66,10 +72,24 @@
 	const objects = $derived(Object.values(store.state.objects));
 	const participants = $derived(Object.values(store.state.participants));
 
+	/**
+	 * Visibility forks the object list THREE ways, and conflating any two of
+	 * them is how you get an invisible wall:
+	 *
+	 *  - `rendered`  — what I can see. A hidden object still renders for its
+	 *                  creator, ghosted, so hiding is undoable.
+	 *  - `occupying` — what takes up space. Hidden objects do NOT: an obstacle
+	 *                  nobody can see is worse than an overlap.
+	 *  - `framing`   — what auto-zoom fits to. Hidden objects would otherwise
+	 *                  drag the camera toward something most people cannot see.
+	 */
+	const rendered = $derived(objects.filter((o) => canSee(o, identity.id, false)));
+	const occupying = $derived(objects.filter((o) => !o.hidden && participatesInCollision(o)));
+
 	/** Solver obstacles for a moving id: everything else, settled positions. */
 	function obstaclesFor(excludeId: string): () => SolverShape[] {
 		return () => [
-			...objects.filter((o) => o.id !== excludeId && participatesInCollision(o)).map(shapeOfObject),
+			...occupying.filter((o) => o.id !== excludeId).map(shapeOfObject),
 			...participants.filter((p) => p.id !== excludeId).map(shapeOfParticipant)
 		];
 	}
@@ -77,8 +97,9 @@
 	/** Auto-zoom (UX-CANVAS-3): recompute while engaged, on content/size change. */
 	$effect(() => {
 		if (!viewport.autoZoom) return;
+		const framing = objects.filter((o) => !o.hidden);
 		const bounds: Bounds[] = [
-			...objects.map((o) => ({
+			...framing.map((o) => ({
 				x: o.transform.x,
 				y: o.transform.y,
 				width: o.transform.width,
@@ -259,7 +280,7 @@
 		class:animated={viewport.animating}
 		style:transform="translate({viewport.camera.x}px, {viewport.camera.y}px) scale({viewport.camera.scale})"
 	>
-		{#each objects as object (object.id)}
+		{#each rendered as object (object.id)}
 			<ObjectFrame
 				{object}
 				{store}

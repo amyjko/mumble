@@ -23,6 +23,7 @@ const note = (creator: string, x: number, permission: 'host' | 'all' | 'none' = 
 		clip: { shape: 'rect' },
 		border: { width: 10 },
 		default_transform: transform,
+		hidden: false,
 		payload: { text: '' },
 		created_at: '2026-07-17T00:00:00.000Z',
 		updated_at: '2026-07-17T00:00:00.000Z'
@@ -155,6 +156,7 @@ describe('timer object (UX-OBJ-4) + union type guards', () => {
 			clip: { shape: 'rounded' as const, radius: 8 },
 			border: { width: 10 },
 			default_transform: transform,
+			hidden: false,
 			payload: { mode: 'countdown' as const, durationMs: 60000, running: false, startedAt: null, elapsedBeforeMs: 0 },
 			created_at: '2026-07-17T00:00:00.000Z',
 			updated_at: '2026-07-17T00:00:00.000Z'
@@ -197,6 +199,7 @@ describe('chat object (UX-OBJ-3) — retained log, open posting', () => {
 			id: uuid(), type: 'chat' as const, creator_id: creator, permission,
 			transform, clip: { shape: 'rounded' as const, radius: 8 }, border: { width: 10 },
 			default_transform: transform, payload: { messages: [] },
+			hidden: false,
 			created_at: '2026-07-17T00:00:00.000Z', updated_at: '2026-07-17T00:00:00.000Z'
 		};
 	};
@@ -425,6 +428,7 @@ describe('drawings are exempt from collision (UX-OBJ-12)', () => {
 			clip: { shape: 'rect' },
 			border: { width: 0 },
 			default_transform: transform,
+			hidden: false,
 			payload: { color: '#e11d48', width: 3, points: [{ x: 0, y: 0 }, { x: 100, y: 100 }] },
 			created_at: '2026-07-18T00:00:00.000Z',
 			updated_at: '2026-07-18T00:00:00.000Z'
@@ -465,5 +469,94 @@ describe('drawings are exempt from collision (UX-OBJ-12)', () => {
 		const over = note(ALICE, 0);
 		await store.commit({ kind: 'create_object', object: over });
 		expect(store.state.objects[over.id]?.transform.x).toBe(0);
+	});
+});
+
+describe('object visibility (UX-ROOM-3)', () => {
+	it('hiding keeps the object; it is not a delete', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const object = note(ALICE, 0);
+		await store.commit({ kind: 'create_object', object });
+		await store.commit({ kind: 'set_hidden', id: object.id, hidden: true });
+		expect(store.state.objects[object.id]).toBeDefined();
+		expect(store.state.objects[object.id]?.hidden).toBe(true);
+	});
+
+	it('a hidden object stops occupying space', async () => {
+		// An obstacle nobody can see is worse than an overlap: the space a
+		// hidden object held must be reusable.
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const first = note(ALICE, 0);
+		await store.commit({ kind: 'create_object', object: first });
+		await store.commit({ kind: 'set_hidden', id: first.id, hidden: true });
+
+		// A second note placed exactly on top is NOT relocated.
+		const second = note(ALICE, 0);
+		await store.commit({ kind: 'create_object', object: second });
+		expect(store.state.objects[second.id]?.transform.x).toBe(0);
+	});
+
+	it('unhiding relocates to a legal spot rather than overlapping', async () => {
+		// The mirror of the rule above: while hidden the object was excluded
+		// from occupancy, so its old spot may have been taken in the meantime.
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const first = note(ALICE, 0);
+		await store.commit({ kind: 'create_object', object: first });
+		await store.commit({ kind: 'set_hidden', id: first.id, hidden: true });
+		const second = note(ALICE, 0);
+		await store.commit({ kind: 'create_object', object: second });
+
+		await store.commit({ kind: 'set_hidden', id: first.id, hidden: false });
+		const revealed = store.state.objects[first.id];
+		const other = store.state.objects[second.id];
+		expect(revealed).toBeDefined();
+		expect(other).toBeDefined();
+		if (revealed === undefined || other === undefined) return;
+		expect(revealed.hidden).toBe(false);
+		// It moved out of the way instead of landing on top of the newcomer.
+		const overlapping = revealed.transform.x === other.transform.x && revealed.transform.y === other.transform.y;
+		expect(overlapping).toBe(false);
+	});
+});
+
+describe('configurations carry visibility (UX-ROOM-3/5)', () => {
+	it('a layout is position, size, AND visibility', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const object = note(ALICE, 0);
+		await store.commit({ kind: 'create_object', object });
+
+		// Save a configuration with the object visible.
+		await store.commit({ kind: 'save_config', id: uuid(), name: 'Visible' });
+
+		// Hide it and save a second configuration.
+		await store.commit({ kind: 'set_hidden', id: object.id, hidden: true });
+		const hiddenConfig = uuid();
+		await store.commit({ kind: 'save_config', id: hiddenConfig, name: 'Hidden' });
+
+		// Switching back and forth restores visibility along with layout.
+		const first = Object.values(store.state.configurations).find((c) => c.name === 'Visible');
+		expect(first).toBeDefined();
+		if (first === undefined) return;
+		await store.commit({ kind: 'switch_config', id: first.id });
+		expect(store.state.objects[object.id]?.hidden).toBe(false);
+
+		await store.commit({ kind: 'switch_config', id: hiddenConfig });
+		expect(store.state.objects[object.id]?.hidden).toBe(true);
+	});
+
+	it('switching never touches CONTENT (UX-ROOM-5)', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const object = note(ALICE, 0);
+		await store.commit({ kind: 'create_object', object });
+		const configId = uuid();
+		await store.commit({ kind: 'save_config', id: configId, name: 'Start' });
+
+		await store.commit({ kind: 'edit_note', id: object.id, payload: { text: 'written later' } });
+		await store.commit({ kind: 'switch_config', id: configId });
+
+		const settled = store.state.objects[object.id];
+		expect(settled?.type).toBe('note');
+		if (settled?.type !== 'note') return;
+		expect(settled.payload.text).toBe('written later');
 	});
 });

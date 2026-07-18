@@ -29,6 +29,7 @@ function note(x: number, y: number): CanvasObject {
 		clip: { shape: 'rounded', radius: 8 },
 		border: { width: 10 },
 		default_transform: transform,
+		hidden: false,
 		payload: { text: '' },
 		created_at: '2026-07-17T00:00:00.000Z',
 		updated_at: '2026-07-17T00:00:00.000Z'

@@ -7,6 +7,8 @@ import {
 import { StoreRejection, nowIso, omitKey } from '$lib/model/types';
 import type {
 	CanvasObject,
+	ConfigSnapshot,
+	Layout,
 	EphemeralMessage,
 	Mutation,
 	Participant,
@@ -123,6 +125,10 @@ export class MemoryRoomStore implements RoomStore {
 		for (const object of Object.values(this.state.objects)) {
 			if (object.id === excludeId) continue;
 			if (!participatesInCollision(object)) continue;
+			// A hidden object holds no space (UX-ROOM-3): an obstacle nobody can
+			// see is worse than an overlap. This has to match the client's
+			// `occupying` list exactly — one rule, two enforcement points.
+			if (object.hidden) continue;
 			out.push(shapeOfObject(object));
 		}
 		for (const participant of Object.values(this.state.participants)) {
@@ -216,6 +222,23 @@ export class MemoryRoomStore implements RoomStore {
 				existing.updated_at = nowIso();
 				break;
 			}
+			case 'set_hidden': {
+				const existing = this.requireObject(m.id);
+				this.requireEditable(existing);
+				// Unhiding must land somewhere legal: while hidden the object is
+				// excluded from occupancy, so the space it used to hold may have
+				// been taken. Same primitive arrivals use (AR-CTRL-4).
+				if (!m.hidden) {
+					const spot = nearestLegal(
+						{ ...shapeOfObject(existing), x: existing.transform.x, y: existing.transform.y },
+						this.shapes(m.id)
+					);
+					existing.transform = { ...existing.transform, x: spot.x, y: spot.y };
+				}
+				existing.hidden = m.hidden;
+				existing.updated_at = nowIso();
+				break;
+			}
 			case 'delete_object': {
 				const existing = this.requireObject(m.id);
 				this.requireEditable(existing);
@@ -300,14 +323,17 @@ export class MemoryRoomStore implements RoomStore {
 				break;
 			}
 			case 'save_config': {
-				// Capture the current layout as a named snapshot (UX-ROOM-3).
-				const transforms: Record<string, Transform> = {};
-				for (const [id, o] of Object.entries(this.state.objects)) transforms[id] = { ...o.transform };
+				// Capture the current LAYOUT as a named snapshot (UX-ROOM-3):
+				// position, size, and visibility for every object.
+				const layouts: Record<string, Layout> = {};
+				for (const [id, o] of Object.entries(this.state.objects)) {
+					layouts[id] = { transform: { ...o.transform }, hidden: o.hidden };
+				}
 				this.state.configurations[m.id] = {
 					id: m.id,
 					name: m.name,
 					snapshot: {
-						transforms,
+						layouts,
 						background: this.state.background,
 						title: this.state.title,
 						description: this.state.description
@@ -343,10 +369,26 @@ export class MemoryRoomStore implements RoomStore {
 	 * the background/title/description. DEFERRED (DESIGN.md open item): objects
 	 * absent from the snapshot are left in place — hide-vs-remove is unresolved.
 	 */
-	private applySnapshot(snapshot: { transforms: Record<string, Transform>; background: string; title: string; description: string }): void {
-		for (const [id, t] of Object.entries(snapshot.transforms)) {
+	/**
+	 * Re-apply a configuration's layout: position, size, and visibility, plus
+	 * the room's own background and titles. Content is never touched
+	 * (UX-ROOM-5) — note text and chat logs survive every switch.
+	 *
+	 * Typed from the schema rather than restated inline, so the shape cannot
+	 * drift from what is actually persisted.
+	 *
+	 * Objects with no entry in the snapshot keep their current layout. That is
+	 * no longer the old unresolved "hide vs remove" question: save_config
+	 * captures EVERY object, so a missing entry only happens for an object
+	 * created after the configuration was saved, and leaving a brand-new object
+	 * where its author just put it is the least surprising thing to do.
+	 */
+	private applySnapshot(snapshot: ConfigSnapshot): void {
+		for (const [id, layout] of Object.entries(snapshot.layouts)) {
 			const object = this.state.objects[id];
-			if (object !== undefined) object.transform = { ...t };
+			if (object === undefined) continue;
+			object.transform = { ...layout.transform };
+			object.hidden = layout.hidden;
 		}
 		this.state.background = snapshot.background;
 		this.state.title = snapshot.title;

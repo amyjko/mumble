@@ -299,6 +299,16 @@
 		frameEl?.focus();
 	}
 
+	/**
+	 * Hiding is a LAYOUT property (UX-ROOM-3), captured per configuration
+	 * alongside position and size — not a delete. The object keeps existing;
+	 * its creator still sees it, ghosted, which is what makes this reversible.
+	 */
+	function toggleHidden(): void {
+		void sync.commit({ kind: 'set_hidden', id: object.id, hidden: !object.hidden });
+		sync.announce(object.hidden ? 'Object shown' : 'Object hidden from others');
+	}
+
 	function cycleShape(): void {
 		const clip = nextClip(object.clip);
 		void sync.commit({ kind: 'set_clip', id: object.id, clip });
@@ -330,6 +340,7 @@
 	class:dragging
 	class:locked={!editable}
 	class:bare={object.type === 'drawing'}
+	class:ghost={object.hidden}
 	role="group"
 	aria-label={label}
 	tabindex="0"
@@ -404,6 +415,16 @@
 	></div>
 	{#if editable}
 		<TransformHandles {onHandleDown} subject="object" />
+		<span class="chrome visibility">
+			<Button
+				variant="chrome"
+				shape="icon"
+				pressed={object.hidden}
+				label={object.hidden ? 'Show object (hidden from others)' : 'Hide object from others'}
+				onpointerdown={stopPointer}
+				onclick={toggleHidden}>{object.hidden ? '◌' : '●'}</Button
+			>
+		</span>
 		{#if object.type !== 'drawing'}
 			<!-- Drawings have no sticker border, so a clip edge on one is invisible
 			     and the control is meaningless — hidden rather than ambiguous. -->
@@ -510,6 +531,34 @@
 	.chrome.delete {
 		top: calc(-1 * var(--space-3));
 		right: calc(-1 * var(--space-3));
+	}
+	/*
+	 * Fully BELOW the object, not overlapping it. The corner badges overhang
+	 * into corners an ellipse never reaches, but bottom-centre sits right on
+	 * the silhouette of a round object — placed like the others it covered the
+	 * sticker edge and the content beneath it.
+	 */
+	.chrome.visibility {
+		top: 100%;
+		margin-top: var(--space-1);
+		left: 50%;
+		translate: -50% 0;
+	}
+	/*
+	 * A hidden object is still fully interactive for its creator — this is a
+	 * reversible layout state, not a disabled one — so the ghosting is purely
+	 * visual and never blocks pointer events.
+	 */
+	.frame.ghost .clip {
+		opacity: 0.4;
+	}
+	.frame.ghost .clip::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		border: 2px dashed var(--border-strong);
+		border-radius: inherit;
+		pointer-events: none;
 	}
 	.chrome.shape {
 		bottom: calc(-1 * var(--space-3));

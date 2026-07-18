@@ -82,7 +82,7 @@ test('clip: the sticker border follows the silhouette all the way around', async
 	expect(hits).not.toBeNull();
 	expect(hits).toHaveLength(16);
 	// Uniformly the sticker: no angle where content reaches the edge.
-	expect(hits?.every((h) => h === 'clip')).toBe(true);
+	expect(hits).toEqual(Array.from({ length: 16 }, () => 'clip'));
 });
 
 /**
