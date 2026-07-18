@@ -2,6 +2,8 @@
 	import type { MemoryRoomStore } from '$lib/store/memory-store.svelte';
 	import type { SyncClient } from '$lib/store/sync-client.svelte';
 	import Button from '$lib/ui/Button.svelte';
+	import { FAKE_EMOJI, FAKE_EMOJI_FALLBACK } from '$lib/model/identity';
+	import { AVATAR_SIZE } from '$lib/store/memory-store.svelte';
 
 	/**
 	 * Stub-era controls. This component legitimately names MemoryRoomStore —
@@ -15,7 +17,6 @@
 
 	let { store, sync }: Props = $props();
 
-	const FAKE_EMOJI = ['🐨', '🦉', '🐰', '🦁', '🐷'];
 	let fakeCount = 0;
 
 	function addFake(): void {
@@ -25,8 +26,11 @@
 			participant: {
 				id: crypto.randomUUID(),
 				name: `fake-${String(fakeCount)}`,
-				emoji: FAKE_EMOJI[fakeCount % FAKE_EMOJI.length] ?? '🐨',
+				emoji: FAKE_EMOJI[fakeCount % FAKE_EMOJI.length] ?? FAKE_EMOJI_FALLBACK,
 				location: { x: 40 * fakeCount, y: 40 * fakeCount },
+				size: { width: AVATAR_SIZE, height: AVATAR_SIZE },
+				rotation: 0,
+				clip: { shape: 'circle' },
 				fake: true,
 				raised_hand: false,
 				away: false

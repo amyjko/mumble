@@ -79,14 +79,14 @@
 				onpointerdown={stopPointer}
 				onclick={() => {
 					setMode('countdown');
-				}}>Count down</Button
+				}}>↓ count</Button
 			>
 			<Button
 				pressed={object.payload.mode === 'countup'}
 				onpointerdown={stopPointer}
 				onclick={() => {
 					setMode('countup');
-				}}>Count up</Button
+				}}>↑ count</Button
 			>
 		</div>
 		{#if object.payload.mode === 'countdown'}

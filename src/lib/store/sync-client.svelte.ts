@@ -4,6 +4,13 @@ import { StoreRejection } from '$lib/model/types';
 import type { RoomStore } from './room-store';
 import type { EmoteName } from '$lib/model/emotes';
 
+/** One in-flight reaction. `key` is unique per reaction, not per participant. */
+export interface Reaction {
+	key: number;
+	participantId: string;
+	emote: EmoteName;
+}
+
 /**
  * The optimistic layer (AR-SYNC-2), store-agnostic: overlays apply instantly
  * (UX-QOS-1), commits confirm or visibly revert (UX-PERM-4). Overlays also
@@ -17,10 +24,16 @@ export class SyncClient {
 	readonly participantOverlays = new SvelteMap<string, Point>();
 	/** Last rejection, for surfacing in UI; cleared on the next success. */
 	lastRejection = $state<string | null>(null);
-	/** Transient reactions (UX-AV-4), keyed by participant id, with a nonce so a
-	 * repeat of the same emote re-triggers the animation. Never persisted. */
-	readonly emotes = new SvelteMap<string, { emote: EmoteName; nonce: number }>();
-	private emoteNonce = 0;
+	/**
+	 * Transient reactions in flight (UX-AV-4). A LIST, not one-per-participant:
+	 * reactions are a burst medium — clicking three times should show three
+	 * emoji, and two people reacting at once should show both. Keeping a single
+	 * current emote per participant silently swallowed every reaction but the
+	 * last. Each entry expires on its own timer. Never persisted.
+	 */
+	reactions = $state<Reaction[]>([]);
+	private reactionKey = 0;
+	private static readonly REACTION_MS = 1600;
 	/** Screen-reader announcement text (aria-live region — UX-A11Y-3). */
 	announcement = $state('');
 	private announceNonce = 0;
@@ -49,8 +62,7 @@ export class SyncClient {
 					this.participantOverlays.delete(message.id);
 					break;
 				case 'emote':
-					this.emoteNonce += 1;
-					this.emotes.set(message.id, { emote: message.emote, nonce: this.emoteNonce });
+					this.addReaction(message.id, message.emote);
 					break;
 			}
 		});
@@ -83,9 +95,27 @@ export class SyncClient {
 
 	/** Fire a transient reaction on your own avatar and broadcast it (UX-AV-4/7). */
 	react(participantId: string, emote: EmoteName): void {
-		this.emoteNonce += 1;
-		this.emotes.set(participantId, { emote, nonce: this.emoteNonce });
+		this.addReaction(participantId, emote);
 		this.store.sendEphemeral({ kind: 'emote', id: participantId, emote });
+	}
+
+	/**
+	 * Add one reaction and schedule its own removal. The key is unique per
+	 * reaction so repeats of the same emote are distinct DOM nodes and each
+	 * animates from its own start, rather than restarting a shared one.
+	 */
+	private addReaction(participantId: string, emote: EmoteName): void {
+		this.reactionKey += 1;
+		const key = this.reactionKey;
+		this.reactions = [...this.reactions, { key, participantId, emote }];
+		setTimeout(() => {
+			this.reactions = this.reactions.filter((r) => r.key !== key);
+		}, SyncClient.REACTION_MS);
+	}
+
+	/** The reactions currently floating above one participant. */
+	reactionsFor(participantId: string): Reaction[] {
+		return this.reactions.filter((r) => r.participantId === participantId);
 	}
 
 }

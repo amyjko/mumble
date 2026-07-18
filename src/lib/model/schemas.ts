@@ -23,9 +23,9 @@ export const transformSchema = z.object({
 /**
  * Clip shapes (UX-OBJ-7). rect/rounded/circle use border-radius; ellipse and
  * polygon use percentage clip-path (which scales with the object). Arbitrary
- * `path` clipping is deferred — it needs an SVG objectBoundingBox clipPath and
- * a matching sticker-border stroke, the open item AR-CANVAS-2 already names.
- * Polygon points are percentages (0–100) of the object's box.
+ * `path` clipping was STRUCK from the requirements (2026-07-18): the border
+ * width is the overlap tolerance, so it would need an arbitrary-path collider,
+ * not just a renderer. Polygon points are percentages (0–100) of the box.
  */
 export const clipSchema = z.discriminatedUnion('shape', [
 	z.object({ shape: z.literal('rect') }),
@@ -122,6 +122,15 @@ export const participantSchema = z.object({
 	emoji: z.string().min(1),
 	/** Shared placement (UX-AV-2): everyone sees participants in the same spots. */
 	location: z.object({ x: z.number(), y: z.number() }),
+	/**
+	 * Avatars are canvas objects too (UX-AV-1), so they carry the same size,
+	 * rotation, and clip as any other object rather than being locked to a
+	 * fixed circle. Defaults keep participants stored before this valid, and
+	 * reproduce the previous fixed-circle appearance exactly.
+	 */
+	size: z.object({ width: z.number().positive(), height: z.number().positive() }).default({ width: 96, height: 96 }),
+	rotation: z.number().default(0),
+	clip: clipSchema.default({ shape: 'circle' }),
 	/** Dev-panel fakes are marked so they can be styled/cleared distinctly. */
 	fake: z.boolean(),
 	/** Persistent emotes (UX-AV-5): raise-hand and stepped-away. Persist even
@@ -190,6 +199,15 @@ export const mutationSchema = z.discriminatedUnion('kind', [
 		location: z.object({ x: z.number(), y: z.number() })
 	}),
 	z.object({ kind: z.literal('remove_participant'), id: z.uuid() }),
+	// Avatars resize/rotate/reshape like any other object (UX-AV-1).
+	z.object({
+		kind: z.literal('size_participant'),
+		id: z.uuid(),
+		location: z.object({ x: z.number(), y: z.number() }),
+		size: z.object({ width: z.number().positive(), height: z.number().positive() }),
+		rotation: z.number()
+	}),
+	z.object({ kind: z.literal('set_participant_clip'), id: z.uuid(), clip: clipSchema }),
 	z.object({ kind: z.literal('set_hand'), id: z.uuid(), raised: z.boolean() }),
 	z.object({ kind: z.literal('set_away'), id: z.uuid(), away: z.boolean() }),
 	z.object({

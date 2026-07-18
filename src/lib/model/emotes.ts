@@ -30,3 +30,12 @@ export const EMOTE_LABEL: Record<EmoteName, string> = {
 	heart: 'Heart',
 	laugh: 'Laugh'
 };
+
+/**
+ * Glyphs for the PERSISTENT states (UX-AV-5). They live here beside the
+ * transient ones rather than as literals in markup for the same reason colors
+ * live in palette.ts: emoji must render through --font-emoji, and keeping every
+ * glyph in data is what lets no-raw-emoji.spec.ts enforce that mechanically.
+ */
+export const HAND_EMOJI = '✋';
+export const AWAY_EMOJI = '💤';

@@ -12,7 +12,7 @@ test('raise hand persists and syncs; a peer cannot toggle it', async ({ browser 
 	// A raises hand from the dedicated emote bar. It used to hang off your own
 	// avatar and appear only on hover, which was hard to find and unreachable
 	// on touch; there is now exactly one always-visible launcher.
-	await a.getByRole('button', { name: '✋ hand' }).click();
+	await a.getByRole('button', { name: 'Raise hand' }).click();
 	await expect(a.locator('.avatar.raised')).toHaveCount(1);
 
 	// B sees A's raised hand (persistent, synced). Self-only is now structural:

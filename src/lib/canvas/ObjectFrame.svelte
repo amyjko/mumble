@@ -21,6 +21,7 @@
 	import Button from '$lib/ui/Button.svelte';
 	import { stopPointer } from '$lib/ui/events';
 	import { RAISED_Z } from './layers';
+	import TransformHandles from './TransformHandles.svelte';
 
 	interface Props {
 		object: CanvasObject;
@@ -399,22 +400,7 @@
 		style:clip-path={clipPath ?? 'none'}
 	></div>
 	{#if editable}
-		{#each ['nw', 'ne', 'sw', 'se'] as const as h (h)}
-			<button
-				class="resize {h}"
-				aria-label="Resize from {h}"
-				onpointerdown={(e) => {
-					onHandleDown(h, e);
-				}}
-			></button>
-		{/each}
-		<button
-			class="rotate"
-			aria-label="Rotate"
-			onpointerdown={(e) => {
-				onHandleDown('rotate', e);
-			}}
-		></button>
+		<TransformHandles {onHandleDown} subject="object" />
 		{#if object.type !== 'drawing'}
 			<!-- Drawings have no sticker border, so a clip edge on one is invisible
 			     and the control is meaningless — hidden rather than ambiguous. -->
@@ -526,61 +512,15 @@
 		bottom: calc(-1 * var(--space-3));
 		left: calc(-1 * var(--space-3));
 	}
-	.resize {
-		position: absolute;
-		width: var(--space-3);
-		height: var(--space-3);
-		padding: 0;
-		border: 1px solid var(--accent);
-		border-radius: 2px;
-		background: var(--surface);
-		opacity: 0;
-		transition: opacity 120ms;
-	}
-	.resize.nw {
-		top: calc(-1 * var(--space-1));
-		left: calc(-1 * var(--space-1));
-		cursor: nwse-resize;
-	}
-	.resize.ne {
-		top: calc(-1 * var(--space-1));
-		right: calc(-1 * var(--space-1));
-		cursor: nesw-resize;
-	}
-	.resize.sw {
-		bottom: calc(-1 * var(--space-1));
-		left: calc(-1 * var(--space-1));
-		cursor: nesw-resize;
-	}
-	.resize.se {
-		bottom: calc(-1 * var(--space-1));
-		right: calc(-1 * var(--space-1));
-		cursor: nwse-resize;
-	}
-	.rotate {
-		position: absolute;
-		top: calc(-1 * var(--space-6));
-		left: 50%;
-		transform: translateX(-50%);
-		width: var(--space-3);
-		height: var(--space-3);
-		padding: 0;
-		border: 1px solid var(--accent);
-		border-radius: var(--radius-full);
-		background: var(--surface);
-		cursor: grab;
-		opacity: 0;
-		transition: opacity 120ms;
-	}
 	/*
 	 * Reveal keeps the BROADER :focus-within condition on purpose — tabbing to
 	 * a handle must not hide the handle you just reached. Only the selection
 	 * ring above uses the narrower rule.
 	 */
-	.frame:hover .resize,
-	.frame:focus-within .resize,
-	.frame:hover .rotate,
-	.frame:focus-within .rotate,
+	.frame:hover :global(.resize),
+	.frame:focus-within :global(.resize),
+	.frame:hover :global(.rotate),
+	.frame:focus-within :global(.rotate),
 	.frame:hover .chrome,
 	.frame:focus-within .chrome {
 		opacity: 1;

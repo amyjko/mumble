@@ -236,12 +236,39 @@ export class MemoryRoomStore implements RoomStore {
 				this.state.participants = omitKey(this.state.participants, m.id);
 				break;
 			}
+			case 'size_participant': {
+				// Resize/rotate an avatar (UX-AV-1). Revalidated against the same
+				// solver as a move: growing an avatar into a neighbor is exactly as
+				// illegal as dragging it there, and only the store sees both.
+				const existing = this.state.participants[m.id];
+				if (existing === undefined) throw new StoreRejection('invalid', 'Unknown participant');
+				this.requireSelf(m.id, 'You can only resize your own avatar');
+				const sized = {
+					...shapeOfParticipant(existing),
+					x: m.location.x,
+					y: m.location.y,
+					width: m.size.width,
+					height: m.size.height
+				};
+				if (!placementLegal(sized, this.shapes(m.id))) {
+					throw new StoreRejection('overlap', 'That placement overlaps content');
+				}
+				existing.location = m.location;
+				existing.size = m.size;
+				existing.rotation = m.rotation;
+				break;
+			}
+			case 'set_participant_clip': {
+				const existing = this.state.participants[m.id];
+				if (existing === undefined) throw new StoreRejection('invalid', 'Unknown participant');
+				this.requireSelf(m.id, 'You can only reshape your own avatar');
+				existing.clip = m.clip;
+				break;
+			}
 			case 'set_hand':
 			case 'set_away': {
 				// UX-AV-7: emotes are self-initiated — you may only change your own.
-				if (m.id !== this.actorId) {
-					throw new StoreRejection('permission', 'You can only emote yourself');
-				}
+				this.requireSelf(m.id, 'You can only emote yourself');
 				const participant = this.state.participants[m.id];
 				if (participant === undefined) throw new StoreRejection('invalid', 'Unknown participant');
 				if (m.kind === 'set_hand') participant.raised_hand = m.raised;
@@ -326,6 +353,15 @@ export class MemoryRoomStore implements RoomStore {
 		return object;
 	}
 
+	/**
+	 * Self-only gate. Your avatar and your expression are yours: emotes
+	 * (UX-AV-7) and now avatar size/shape (UX-AV-1) are all things only you may
+	 * change about your own representation, independent of object permissions.
+	 */
+	private requireSelf(id: string, message: string): void {
+		if (id !== this.actorId) throw new StoreRejection('permission', message);
+	}
+
 	private requireEditable(object: CanvasObject): void {
 		// Host role arrives with admission; until then nobody is a host.
 		if (!canEdit(object, this.actorId, false)) {
@@ -365,13 +401,16 @@ export function shapeOfObject(object: CanvasObject): SolverShape {
 }
 
 export function shapeOfParticipant(participant: Participant): SolverShape {
+	// Reads the participant's own size and clip now that avatars are resizable
+	// and reshapeable (UX-AV-1) — using the AVATAR_SIZE constant here would
+	// have let a resized avatar collide as though it were still the default.
 	return {
 		id: participant.id,
 		x: participant.location.x,
 		y: participant.location.y,
-		width: AVATAR_SIZE,
-		height: AVATAR_SIZE,
-		circle: true,
+		width: participant.size.width,
+		height: participant.size.height,
+		circle: participant.clip.shape === 'circle',
 		border: AVATAR_BORDER
 	};
 }

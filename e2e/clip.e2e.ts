@@ -19,11 +19,11 @@ test('clip: cycling an object shape applies a clip-path and syncs', async ({ bro
 	const frameA = a.locator('.frame');
 	await frameA.hover();
 
-	const shapeBtn = a.getByRole('button', { name: /Change shape/ });
+	const shapeBtn = a.getByRole('button', { name: /^Change shape/ });
 	// rounded -> circle -> ellipse (a clip-path shape)
 	await shapeBtn.click();
 	await shapeBtn.click();
-	await expect(a.getByRole('button', { name: /currently ellipse/ })).toBeVisible();
+	await expect(a.getByRole('button', { name: /^Change shape \(currently ellipse/ })).toBeVisible();
 	await expect
 		.poll(async () => frameA.locator('.clip').evaluate((el) => getComputedStyle(el).clipPath))
 		.toContain('ellipse');
@@ -54,10 +54,10 @@ test('clip: the sticker border follows the silhouette all the way around', async
 	await page.getByRole('button', { name: '+ note' }).click();
 	await page.locator('.frame').hover();
 
-	const shapeBtn = page.getByRole('button', { name: /Change shape/ });
+	const shapeBtn = page.getByRole('button', { name: /^Change shape/ });
 	await shapeBtn.click(); // rounded -> circle
 	await shapeBtn.click(); // circle  -> ellipse
-	await expect(page.getByRole('button', { name: /currently ellipse/ })).toBeVisible();
+	await expect(page.getByRole('button', { name: /^Change shape \(currently ellipse/ })).toBeVisible();
 
 	// Walk the ellipse at 16 angles, sampling just inside its edge. Every
 	// sample must land on the sticker layer; landing on .content means the
@@ -104,19 +104,19 @@ test('clip: controls stay reachable in every shape (no trapped object)', async (
 	// Walk the whole cycle by POINTER, asserting each step actually landed.
 	// If the control were clipped away, the click would time out here.
 	for (const shape of ['circle', 'ellipse', 'polygon', 'rect']) {
-		await page.getByRole('button', { name: /Change shape/ }).click();
-		await expect(page.getByRole('button', { name: new RegExp(`currently ${shape}`) })).toBeVisible();
+		await page.getByRole('button', { name: /^Change shape/ }).click();
+		await expect(page.getByRole('button', { name: new RegExp(`^Change shape \\(currently ${shape}`) })).toBeVisible();
 	}
 
 	// The corner handles and rotate grip must also survive the clip: they sit
 	// outside the silhouette on every non-rect shape.
-	await page.getByRole('button', { name: /Change shape/ }).click(); // -> rounded
-	await page.getByRole('button', { name: /Change shape/ }).click(); // -> circle
-	await page.getByRole('button', { name: /Change shape/ }).click(); // -> ellipse
-	await expect(page.getByRole('button', { name: /currently ellipse/ })).toBeVisible();
+	await page.getByRole('button', { name: /^Change shape/ }).click(); // -> rounded
+	await page.getByRole('button', { name: /^Change shape/ }).click(); // -> circle
+	await page.getByRole('button', { name: /^Change shape/ }).click(); // -> ellipse
+	await expect(page.getByRole('button', { name: /^Change shape \(currently ellipse/ })).toBeVisible();
 	await frame.hover();
-	await expect(page.getByRole('button', { name: 'Resize from nw' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Rotate' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Resize object from nw' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Rotate object' })).toBeVisible();
 	// Clickable, not merely painted — hit-testing is what clip-path took away.
-	await page.getByRole('button', { name: 'Resize from se' }).click({ trial: true });
+	await page.getByRole('button', { name: 'Resize object from se' }).click({ trial: true });
 });

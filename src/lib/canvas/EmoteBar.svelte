@@ -2,7 +2,8 @@
 	import type { RoomStore } from '$lib/store/room-store';
 	import type { SyncClient } from '$lib/store/sync-client.svelte';
 	import type { StoredIdentity } from '$lib/model/types';
-	import { EMOTE_NAMES, EMOTE_EMOJI, EMOTE_LABEL } from '$lib/model/emotes';
+	import { EMOTE_NAMES, EMOTE_EMOJI, EMOTE_LABEL, HAND_EMOJI, AWAY_EMOJI } from '$lib/model/emotes';
+	import Emoji from '$lib/ui/Emoji.svelte';
 	import Button from '$lib/ui/Button.svelte';
 
 	/**
@@ -38,22 +39,24 @@
 			title={EMOTE_LABEL[name]}
 			onclick={() => {
 				sync.react(identity.id, name);
-			}}>{EMOTE_EMOJI[name]}</Button
+			}}><Emoji glyph={EMOTE_EMOJI[name]} size="20px" /></Button
 		>
 	{/each}
 	<span class="divider" aria-hidden="true"></span>
 	<!-- Persistent states (UX-AV-5) read as toggles, unlike the transient ones. -->
 	<Button
+		label="Raise hand"
 		pressed={self?.raised_hand ?? false}
 		onclick={() => {
 			void sync.commit({ kind: 'set_hand', id: identity.id, raised: !(self?.raised_hand ?? false) });
-		}}>✋ hand</Button
+		}}><Emoji glyph={HAND_EMOJI} /> hand</Button
 	>
 	<Button
+		label="Step away"
 		pressed={self?.away ?? false}
 		onclick={() => {
 			void sync.commit({ kind: 'set_away', id: identity.id, away: !(self?.away ?? false) });
-		}}>💤 away</Button
+		}}><Emoji glyph={AWAY_EMOJI} /> away</Button
 	>
 </div>
 

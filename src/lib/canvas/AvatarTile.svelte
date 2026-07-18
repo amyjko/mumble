@@ -1,12 +1,22 @@
 <script lang="ts">
-	import type { Participant, Point, SolverShape } from '$lib/model/types';
+	import type { Participant, Point, SolverShape, Transform } from '$lib/model/types';
 	import type { RoomStore } from '$lib/store/room-store';
 	import type { SyncClient } from '$lib/store/sync-client.svelte';
 	import type { Viewport } from './viewport.svelte';
 	import { resolveMove } from './geometry';
-	import { AVATAR_SIZE, AVATAR_BORDER, shapeOfParticipant } from '$lib/store/memory-store.svelte';
+	import { AVATAR_BORDER, shapeOfParticipant } from '$lib/store/memory-store.svelte';
 	import { AVATAR_Z } from './layers';
-	import { EMOTE_EMOJI, type EmoteName } from '$lib/model/emotes';
+	import { EMOTE_EMOJI, HAND_EMOJI, AWAY_EMOJI } from '$lib/model/emotes';
+	import Emoji from '$lib/ui/Emoji.svelte';
+	import Button from '$lib/ui/Button.svelte';
+	import TransformHandles from './TransformHandles.svelte';
+	import { clipPathCss, nextClip } from '$lib/model/clip';
+	import { resizeTransform, rotationForPointer, snapRotation, type ResizeHandle } from './resize';
+	import { hint, SNAP_HINT } from './hint.svelte';
+	import { stopPointer } from '$lib/ui/events';
+
+	/** Avatars stay recognisably people: smaller than this and the face is gone. */
+	const MIN_AVATAR = 56;
 
 	interface Props {
 		participant: Participant;
@@ -65,21 +75,107 @@
 		);
 	}
 
-	// Transient reactions (UX-AV-4): the current emote for this participant,
-	// cleared after the animation. The nonce re-triggers repeats.
-	let activeEmote = $state<EmoteName | null>(null);
-	let emoteTimer: ReturnType<typeof setTimeout> | null = null;
-	$effect(() => {
-		const e = sync.emotes.get(participant.id);
-		if (e === undefined) return;
-		void e.nonce; // depend on the nonce so repeats re-fire
-		activeEmote = e.emote;
-		if (emoteTimer !== null) clearTimeout(emoteTimer);
-		emoteTimer = setTimeout(() => {
-			activeEmote = null;
-		}, 1600);
+	/**
+	 * Every reaction currently floating above this participant (UX-AV-4). The
+	 * client keeps a list, so a burst of clicks shows a burst of emoji instead
+	 * of only the most recent one; each expires on its own timer.
+	 */
+	const reactions = $derived(sync.reactionsFor(participant.id));
+
+	/** Whole-body animations still key off the most recent reaction. */
+	const latest = $derived(reactions.at(-1)?.emote ?? null);
+
+	/**
+	 * Fan the floats out horizontally so simultaneous reactions are all
+	 * legible instead of stacking into one illegible pile. Deterministic from
+	 * the reaction key, since Math.random is unavailable in this codebase's
+	 * test environment and a stable offset is easier to reason about anyway.
+	 */
+	function driftFor(key: number): number {
+		const spread = [0, -22, 22, -12, 12, -30, 30];
+		return spread[key % spread.length] ?? 0;
+	}
+
+
+	/**
+	 * Resize / rotate / reshape, exactly as objects have (UX-AV-1) — an avatar
+	 * is a canvas object, so there was no principled reason it alone was pinned
+	 * to a fixed circle. Self-only: the store rejects changing someone else's
+	 * avatar, the same rule that governs emotes (UX-AV-7).
+	 */
+	const clipPath = $derived(clipPathCss(participant.clip));
+	const outerRadius = $derived(participant.clip.shape === 'circle' ? '50%' : participant.clip.shape === 'rounded' ? `${String(participant.clip.radius)}px` : '0');
+
+	let handleKind = $state<ResizeHandle | 'rotate' | null>(null);
+	let handleStart: Transform = { x: 0, y: 0, width: 0, height: 0, rotation: 0, z: 0 };
+	let handlePointer: Point = { x: 0, y: 0 };
+	let handleLast: Transform = handleStart;
+
+	function onHandleMove(event: PointerEvent): void {
+		if (handleKind === null) return;
+		const world = viewport.toWorld({ x: event.clientX, y: event.clientY });
+		if (handleKind === 'rotate') {
+			const center = { x: handleStart.x + handleStart.width / 2, y: handleStart.y + handleStart.height / 2 };
+			handleLast = { ...handleStart, rotation: snapRotation(rotationForPointer(center, world), event.shiftKey) };
+		} else {
+			handleLast = resizeTransform(
+				handleStart,
+				handleKind,
+				world.x - handlePointer.x,
+				world.y - handlePointer.y,
+				event.shiftKey,
+				{ width: MIN_AVATAR, height: MIN_AVATAR }
+			);
+		}
+		liveTransform = handleLast;
+	}
+
+	function onHandleUp(): void {
+		window.removeEventListener('pointermove', onHandleMove);
+		hint.clear();
+		if (handleKind === null) return;
+		handleKind = null;
+		void sync.commit({
+			kind: 'size_participant',
+			id: participant.id,
+			location: { x: handleLast.x, y: handleLast.y },
+			size: { width: handleLast.width, height: handleLast.height },
+			rotation: handleLast.rotation
+		});
+		liveTransform = null;
+	}
+
+	function onHandleDown(kind: ResizeHandle | 'rotate', event: PointerEvent): void {
+		event.stopPropagation();
+		handleKind = kind;
+		handleStart = {
+			x: effective.x,
+			y: effective.y,
+			width: participant.size.width,
+			height: participant.size.height,
+			rotation: participant.rotation,
+			z: 0
+		};
+		handleLast = handleStart;
+		handlePointer = viewport.toWorld({ x: event.clientX, y: event.clientY });
+		hint.show(SNAP_HINT);
+		window.addEventListener('pointermove', onHandleMove);
+		window.addEventListener('pointerup', onHandleUp, { once: true });
+	}
+
+	/** In-flight resize preview; falls back to committed state between gestures. */
+	let liveTransform = $state<Transform | null>(null);
+	const shown = $derived({
+		x: liveTransform?.x ?? effective.x,
+		y: liveTransform?.y ?? effective.y,
+		width: liveTransform?.width ?? participant.size.width,
+		height: liveTransform?.height ?? participant.size.height,
+		rotation: liveTransform?.rotation ?? participant.rotation
 	});
 
+	function cycleAvatarShape(): void {
+		void sync.commit({ kind: 'set_participant_clip', id: participant.id, clip: nextClip(participant.clip) });
+	}
 
 	/** Keyboard movement (UX-A11Y-2): same solver, debounced commit. */
 	let keyboardPosition: Point | null = null;
@@ -139,33 +235,58 @@
 	class:away={participant.away}
 	class:self={isSelf}
 	class:raised={participant.raised_hand}
-	class:bounce={activeEmote === 'bounce'}
-	class:spin={activeEmote === 'spin'}
+	class:bounce={latest === 'bounce'}
+	class:spin={latest === 'spin'}
 	style:--ring-width="{AVATAR_BORDER}px"
-	style:width="{AVATAR_SIZE}px"
-	style:height="{AVATAR_SIZE}px"
-	style:transform="translate({effective.x}px, {effective.y}px)"
+	style:width="{shown.width}px"
+	style:height="{shown.height}px"
+	style:transform="translate({shown.x}px, {shown.y}px) rotate({shown.rotation}deg)"
 	onpointerdown={onPointerDown}
 	onpointermove={onPointerMove}
 	onpointerup={onPointerUp}
 	onpointercancel={onPointerUp}
 	onkeydown={onKeyDown}
 	onfocus={() => {
-		viewport.ensureVisible({ x: effective.x, y: effective.y, width: AVATAR_SIZE, height: AVATAR_SIZE });
+		viewport.ensureVisible({ x: shown.x, y: shown.y, width: shown.width, height: shown.height });
 	}}
 	tabindex="0"
 >
-	<span class="face" aria-hidden="true">{participant.emoji}</span>
+	<!-- Clip on an inner layer, never on the tile: clip-path clips hit-testing
+	     for descendants, which would swallow the handles (the trap that
+	     ObjectFrame already hit). -->
+	<div class="skin" style:border-radius={outerRadius} style:clip-path={clipPath ?? 'none'}></div>
+	<span class="face"><Emoji glyph={participant.emoji} size="40px" /></span>
+	<!-- The name floats BELOW the avatar rather than inside it: within a round
+	     tile it had to be clamped to 84px and was clipped by the circle. -->
 	<span class="name">{participant.name}</span>
+
+	<!-- Persistent states (UX-AV-5) are room-visible signals, so they are big
+	     and centered above the head rather than small corner marks. -->
 	{#if participant.raised_hand}
-		<span class="hand" aria-label="hand raised">✋</span>
+		<span class="badge hand"><Emoji glyph={HAND_EMOJI} label="hand raised" /></span>
 	{/if}
-	{#if activeEmote !== null}
-		{#key sync.emotes.get(participant.id)?.nonce}
-			<span class="float" aria-hidden="true">{EMOTE_EMOJI[activeEmote]}</span>
-		{/key}
+	{#if participant.away}
+		<span class="badge away-badge"><Emoji glyph={AWAY_EMOJI} label="stepped away" /></span>
 	{/if}
 
+	{#if isSelf}
+		<TransformHandles {onHandleDown} subject="avatar" />
+		<span class="shape-control">
+			<Button
+				variant="chrome"
+				shape="icon"
+				label="Change avatar shape (currently {participant.clip.shape})"
+				onpointerdown={stopPointer}
+				onclick={cycleAvatarShape}>◇</Button
+			>
+		</span>
+	{/if}
+
+	{#each reactions as reaction (reaction.key)}
+		<span class="float" style:--drift="{driftFor(reaction.key)}px">
+			<Emoji glyph={EMOTE_EMOJI[reaction.emote]} size="32px" />
+		</span>
+	{/each}
 </div>
 
 <style>
@@ -177,14 +298,34 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		gap: 2px;
-		border-radius: 50%;
-		background: var(--sticker); /* sticker border, same idiom as objects (UX-AV-1) */
-		box-shadow: var(--shadow-1);
+		gap: var(--space-0);
+
 		cursor: grab;
 		touch-action: none;
 		user-select: none;
 		outline: none;
+	}
+	.skin {
+		position: absolute;
+		inset: 0;
+		background: var(--sticker); /* sticker border, same idiom as objects (UX-AV-1) */
+		box-shadow: var(--shadow-1);
+		pointer-events: none;
+	}
+	.shape-control {
+		position: absolute;
+		bottom: calc(-1 * var(--space-3));
+		left: calc(-1 * var(--space-3));
+		opacity: 0;
+		transition: opacity 120ms;
+	}
+	.avatar:hover :global(.resize),
+	.avatar:focus-within :global(.resize),
+	.avatar:hover :global(.rotate),
+	.avatar:focus-within :global(.rotate),
+	.avatar:hover .shape-control,
+	.avatar:focus-within .shape-control {
+		opacity: 1;
 	}
 	.avatar:focus-within {
 		box-shadow:
@@ -197,7 +338,7 @@
 	.avatar.fake {
 		filter: saturate(0.4);
 	}
-	.avatar.away {
+	.avatar.away .face {
 		filter: grayscale(1) opacity(0.6);
 	}
 	.avatar.raised {
@@ -230,36 +371,39 @@
 			rotate: 360deg;
 		}
 	}
-	.hand {
+	.face {
+		display: inline-flex;
+	}
+	.badge {
 		position: absolute;
-		top: calc(-1 * var(--space-3));
-		right: calc(-1 * var(--space-1));
-		font-size: 20px;
+		bottom: 100%;
+		left: 50%;
+		translate: -50% 0;
+		margin-bottom: calc(-1 * var(--space-1));
+		font-size: 34px;
+		line-height: 1;
+		pointer-events: none;
 	}
 	.float {
 		position: absolute;
-		top: -8px;
-		font-size: 28px;
+		bottom: 60%;
+		left: 50%;
 		pointer-events: none;
 		animation: emote-float 1.6s ease-out forwards;
 	}
 	@keyframes emote-float {
 		0% {
-			transform: translateY(0) scale(0.6);
+			transform: translate(-50%, 0) scale(0.6);
 			opacity: 0;
 		}
 		20% {
 			opacity: 1;
-			transform: translateY(-10px) scale(1.1);
+			transform: translate(calc(-50% + var(--drift) * 0.4), -10px) scale(1.1);
 		}
 		100% {
-			transform: translateY(-70px) scale(1);
+			transform: translate(calc(-50% + var(--drift)), -70px) scale(1);
 			opacity: 0;
 		}
-	}
-	.face {
-		font-family: var(--font-emoji);
-		font-size: 40px;
 	}
 	/* Which avatar is yours used to be implied by the emote launcher hanging
 	   off it. The launcher now lives in the bottom bar, so mark it explicitly
@@ -273,11 +417,22 @@
 		font-weight: 400;
 	}
 	.name {
-		font: var(--text-xs) var(--font-ui);
-		color: var(--sticker-text);
-		max-width: 84px;
-		overflow: hidden;
-		text-overflow: ellipsis;
+		/* Outside the tile, so the round clip can't cut it and it needs no
+		   width clamp. Minimum readable size, same UI font as everything else —
+		   it used the `font:` shorthand before, which reset line-height. */
+		position: absolute;
+		top: 100%;
+		margin-top: var(--space-1);
+		font-family: var(--font-ui);
+		font-size: var(--text-xs);
+		line-height: 1.2;
+		color: var(--text);
 		white-space: nowrap;
+		pointer-events: none;
+		text-shadow:
+			0 1px 2px var(--surface),
+			0 -1px 2px var(--surface),
+			1px 0 2px var(--surface),
+			-1px 0 2px var(--surface);
 	}
 </style>

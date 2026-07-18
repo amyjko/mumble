@@ -5,6 +5,14 @@ const KEY = 'mumble:identity';
 const EMOJI = ['🦊', '🐙', '🦎', '🐸', '🦜', '🐢', '🦔', '🐳', '🦩', '🐝'];
 
 /**
+ * Faces for dev-panel fake participants. Glyph data belongs in a module, not
+ * in component markup — that is what lets no-raw-emoji.spec.ts guarantee every
+ * emoji renders through <Emoji> and therefore through --font-emoji.
+ */
+export const FAKE_EMOJI = ['🐨', '🦉', '🐰', '🦁', '🐷'];
+export const FAKE_EMOJI_FALLBACK = '🐨';
+
+/**
  * Per-browser identity (the stub's echo of UX-ID-5: stable in this browser,
  * lost with its storage — the same boundary AR-AUTH-6 documents). Replaced by
  * Supabase anonymous auth when the real store lands; the id remains a UUID so

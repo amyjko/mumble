@@ -2,7 +2,7 @@
 	import { untrack } from 'svelte';
 	import type { PageProps } from './$types';
 	import { getOrCreateIdentity } from '$lib/model/identity';
-	import { MemoryRoomStore } from '$lib/store/memory-store.svelte';
+	import { MemoryRoomStore, AVATAR_SIZE } from '$lib/store/memory-store.svelte';
 	import { SyncClient } from '$lib/store/sync-client.svelte';
 	import { Viewport } from '$lib/canvas/viewport.svelte';
 	import { newNote, newTimer, newChat, maxZOf } from '$lib/model/create';
@@ -55,6 +55,10 @@
 				name: identity.name,
 				emoji: identity.emoji,
 				location: existing?.location ?? { x: 0, y: 0 },
+				// Carry the avatar's own size/shape across rejoins (UX-AV-1/9).
+				size: existing?.size ?? { width: AVATAR_SIZE, height: AVATAR_SIZE },
+				rotation: existing?.rotation ?? 0,
+				clip: existing?.clip ?? { shape: 'circle' },
 				fake: false,
 				raised_hand: existing?.raised_hand ?? false,
 				away: existing?.away ?? false

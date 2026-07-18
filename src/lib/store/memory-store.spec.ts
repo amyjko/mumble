@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRoomStore } from './memory-store.svelte';
+import { AVATAR_SIZE, MemoryRoomStore } from './memory-store.svelte';
 import { StoreRejection } from '$lib/model/types';
-import type { CanvasObject } from '$lib/model/types';
+import type { CanvasObject, Participant } from '$lib/model/types';
 
 const ALICE = '11111111-1111-4111-8111-111111111111';
 const BOB = '22222222-2222-4222-8222-222222222222';
@@ -28,6 +28,20 @@ const note = (creator: string, x: number, permission: 'host' | 'all' | 'none' = 
 		updated_at: '2026-07-17T00:00:00.000Z'
 	};
 };
+
+/** Participant fixture. Mirrors the schema defaults for size/rotation/clip. */
+const person = (id: string): Participant => ({
+	id,
+	name: 'a',
+	emoji: 'x',
+	location: { x: 0, y: 0 },
+	size: { width: AVATAR_SIZE, height: AVATAR_SIZE },
+	rotation: 0,
+	clip: { shape: 'circle' },
+	fake: false,
+	raised_hand: false,
+	away: false
+});
 
 const stores: MemoryRoomStore[] = [];
 const makeStore = (room: string, actor: string): MemoryRoomStore => {
@@ -260,7 +274,7 @@ describe('emotes (UX-AV-5/7)', () => {
 	it('set_hand / set_away change your OWN participant', async () => {
 		const room = `r${String(Math.random())}`;
 		const store = makeStore(room, ALICE);
-		await store.commit({ kind: 'upsert_participant', participant: { id: ALICE, name: 'a', emoji: 'x', location: { x: 0, y: 0 }, fake: false, raised_hand: false, away: false } });
+		await store.commit({ kind: 'upsert_participant', participant: person(ALICE) });
 		await store.commit({ kind: 'set_hand', id: ALICE, raised: true });
 		await store.commit({ kind: 'set_away', id: ALICE, away: true });
 		expect(store.state.participants[ALICE]?.raised_hand).toBe(true);
@@ -270,7 +284,7 @@ describe('emotes (UX-AV-5/7)', () => {
 	it('you cannot emote someone else (UX-AV-7 self-only)', async () => {
 		const room = `r${String(Math.random())}`;
 		const store = makeStore(room, BOB);
-		await store.commit({ kind: 'upsert_participant', participant: { id: ALICE, name: 'a', emoji: 'x', location: { x: 0, y: 0 }, fake: false, raised_hand: false, away: false } });
+		await store.commit({ kind: 'upsert_participant', participant: person(ALICE) });
 		await expect(
 			store.commit({ kind: 'set_hand', id: ALICE, raised: true })
 		).rejects.toMatchObject({ reason: 'permission' });
@@ -329,5 +343,72 @@ describe('configurations (UX-ROOM-3..6) — snapshot model', () => {
 		await store.commit({ kind: 'delete_config', id: cfg });
 		expect(store.state.configurations[cfg]).toBeUndefined();
 		expect(store.state.active_config).toBeNull();
+	});
+});
+
+describe('avatars are canvas objects too (UX-AV-1)', () => {
+	it('resizes and rotates your own avatar', async () => {
+		const room = `r${String(Math.random())}`;
+		const store = makeStore(room, ALICE);
+		await store.commit({ kind: 'upsert_participant', participant: person(ALICE) });
+		await store.commit({
+			kind: 'size_participant',
+			id: ALICE,
+			location: { x: 0, y: 0 },
+			size: { width: 160, height: 120 },
+			rotation: 30
+		});
+		expect(store.state.participants[ALICE]?.size).toEqual({ width: 160, height: 120 });
+		expect(store.state.participants[ALICE]?.rotation).toBe(30);
+	});
+
+	it('reshapes your own avatar', async () => {
+		const room = `r${String(Math.random())}`;
+		const store = makeStore(room, ALICE);
+		await store.commit({ kind: 'upsert_participant', participant: person(ALICE) });
+		await store.commit({ kind: 'set_participant_clip', id: ALICE, clip: { shape: 'ellipse' } });
+		expect(store.state.participants[ALICE]?.clip).toEqual({ shape: 'ellipse' });
+	});
+
+	it("refuses to resize or reshape SOMEONE ELSE's avatar", async () => {
+		// Same self-only rule as emotes (UX-AV-7): your representation is yours.
+		const room = `r${String(Math.random())}`;
+		const store = makeStore(room, BOB);
+		await store.commit({ kind: 'upsert_participant', participant: person(ALICE) });
+		await expect(
+			store.commit({
+				kind: 'size_participant',
+				id: ALICE,
+				location: { x: 0, y: 0 },
+				size: { width: 200, height: 200 },
+				rotation: 0
+			})
+		).rejects.toMatchObject({ reason: 'permission' });
+		await expect(
+			store.commit({ kind: 'set_participant_clip', id: ALICE, clip: { shape: 'rect' } })
+		).rejects.toMatchObject({ reason: 'permission' });
+	});
+
+	it('a resized avatar collides at its NEW size, not the default', async () => {
+		// shapeOfParticipant used to hard-code AVATAR_SIZE, which would have let
+		// a grown avatar overlap content it visually covers.
+		const room = `r${String(Math.random())}`;
+		const store = makeStore(room, ALICE);
+		await store.commit({ kind: 'upsert_participant', participant: person(ALICE) });
+		// A note just clear of a default 96px avatar at the origin.
+		const neighbor = note(ALICE, 220);
+		await store.commit({ kind: 'create_object', object: neighbor });
+		const settled = store.state.objects[neighbor.id];
+		expect(settled).toBeDefined();
+		// Growing the avatar across that gap must be rejected as an overlap.
+		await expect(
+			store.commit({
+				kind: 'size_participant',
+				id: ALICE,
+				location: { x: 0, y: 0 },
+				size: { width: 400, height: 400 },
+				rotation: 0
+			})
+		).rejects.toMatchObject({ reason: 'overlap' });
 	});
 });
