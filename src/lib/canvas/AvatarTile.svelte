@@ -6,6 +6,7 @@
 	import { resolveMove } from './geometry';
 	import { AVATAR_SIZE, AVATAR_BORDER, shapeOfParticipant } from '$lib/store/memory-store.svelte';
 	import { AVATAR_Z } from './layers';
+	import { EMOTE_EMOJI, type EmoteName } from '$lib/model/emotes';
 
 	interface Props {
 		participant: Participant;
@@ -66,10 +67,7 @@
 
 	// Transient reactions (UX-AV-4): the current emote for this participant,
 	// cleared after the animation. The nonce re-triggers repeats.
-	const EMOTE_EMOJI: Record<string, string> = {
-		tada: '🎉', bounce: '⬆️', bored: '😴', spin: '🪙', heart: '❤️', laugh: '😂'
-	};
-	let activeEmote = $state<string | null>(null);
+	let activeEmote = $state<EmoteName | null>(null);
 	let emoteTimer: ReturnType<typeof setTimeout> | null = null;
 	$effect(() => {
 		const e = sync.emotes.get(participant.id);
@@ -82,17 +80,6 @@
 		}, 1600);
 	});
 
-	let menuOpen = $state(false);
-	function react(emote: 'tada' | 'bounce' | 'bored' | 'spin' | 'heart' | 'laugh'): void {
-		sync.react(participant.id, emote);
-		menuOpen = false;
-	}
-	function toggleHand(): void {
-		void sync.commit({ kind: 'set_hand', id: participant.id, raised: !participant.raised_hand });
-	}
-	function toggleAway(): void {
-		void sync.commit({ kind: 'set_away', id: participant.id, away: !participant.away });
-	}
 
 	/** Keyboard movement (UX-A11Y-2): same solver, debounced commit. */
 	let keyboardPosition: Point | null = null;
@@ -146,10 +133,11 @@
 	class="avatar"
 	style:z-index={AVATAR_Z}
 	role="group"
-	aria-label={participant.name}
+	aria-label={isSelf ? `${participant.name} (you)` : participant.name}
 	class:dragging
 	class:fake={participant.fake}
 	class:away={participant.away}
+	class:self={isSelf}
 	class:raised={participant.raised_hand}
 	class:bounce={activeEmote === 'bounce'}
 	class:spin={activeEmote === 'spin'}
@@ -174,53 +162,10 @@
 	{/if}
 	{#if activeEmote !== null}
 		{#key sync.emotes.get(participant.id)?.nonce}
-			<span class="float" aria-hidden="true">{EMOTE_EMOJI[activeEmote] ?? '👍'}</span>
+			<span class="float" aria-hidden="true">{EMOTE_EMOJI[activeEmote]}</span>
 		{/key}
 	{/if}
-	{#if isSelf}
-		<div class="emote-menu">
-			<button
-				class="emote-trigger"
-				aria-expanded={menuOpen}
-				aria-label="Emote"
-				onpointerdown={(e) => {
-					e.stopPropagation();
-				}}
-				onclick={() => {
-					menuOpen = !menuOpen;
-				}}>☺</button
-			>
-			{#if menuOpen}
-				<div class="emote-pop">
-					{#each ['tada', 'heart', 'laugh', 'bounce', 'bored', 'spin'] as const as e (e)}
-						<button
-							aria-label="React {e}"
-							onpointerdown={(ev) => {
-								ev.stopPropagation();
-							}}
-							onclick={() => {
-								react(e);
-							}}>{EMOTE_EMOJI[e]}</button
-						>
-					{/each}
-					<button
-						aria-pressed={participant.raised_hand}
-						onpointerdown={(ev) => {
-							ev.stopPropagation();
-						}}
-						onclick={toggleHand}>✋ hand</button
-					>
-					<button
-						aria-pressed={participant.away}
-						onpointerdown={(ev) => {
-							ev.stopPropagation();
-						}}
-						onclick={toggleAway}>💤 away</button
-					>
-				</div>
-			{/if}
-		</div>
-	{/if}
+
 </div>
 
 <style>
@@ -312,60 +257,20 @@
 			opacity: 0;
 		}
 	}
-	.emote-menu {
-		position: absolute;
-		bottom: calc(-1 * var(--space-2));
-		right: calc(-1 * var(--space-2));
-	}
-	.emote-trigger {
-		width: var(--target-min);
-		height: var(--target-min);
-		border-radius: var(--radius-full);
-		border: 1px solid var(--border);
-		background: var(--surface);
-		color: var(--text);
-		cursor: pointer;
-		font-size: var(--text-md);
-		line-height: 1;
-		opacity: 0;
-		transition: opacity 120ms;
-	}
-	.avatar:hover .emote-trigger,
-	.avatar:focus-within .emote-trigger {
-		opacity: 1;
-	}
-	.emote-pop {
-		position: absolute;
-		bottom: 100%;
-		right: 0;
-		display: flex;
-		flex-wrap: wrap;
-		width: 132px;
-		gap: var(--space-1);
-		padding: var(--space-2);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
-		background: var(--surface);
-		box-shadow: var(--shadow-2);
-	}
-	.emote-pop button {
-		min-height: var(--target-min);
-		padding: 0 var(--space-1);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-sm);
-		background: var(--surface-2);
-		color: var(--text);
-		font-size: var(--text-sm);
-		cursor: pointer;
-	}
-	.emote-pop button[aria-pressed='true'] {
-		background: var(--accent);
-		color: var(--accent-contrast);
-		border-color: var(--accent);
-	}
 	.face {
 		font-family: var(--font-emoji);
 		font-size: 40px;
+	}
+	/* Which avatar is yours used to be implied by the emote launcher hanging
+	   off it. The launcher now lives in the bottom bar, so mark it explicitly
+	   — and not by color alone (the accessible name says "(you)" too). */
+	.avatar.self .name {
+		font-weight: 600;
+	}
+	.avatar.self .name::after {
+		content: ' (you)';
+		color: var(--text-muted);
+		font-weight: 400;
 	}
 	.name {
 		font: var(--text-xs) var(--font-ui);

@@ -2,6 +2,7 @@ import { SvelteMap } from 'svelte/reactivity';
 import type { Mutation, Point, Transform } from '$lib/model/types';
 import { StoreRejection } from '$lib/model/types';
 import type { RoomStore } from './room-store';
+import type { EmoteName } from '$lib/model/emotes';
 
 /**
  * The optimistic layer (AR-SYNC-2), store-agnostic: overlays apply instantly
@@ -18,7 +19,7 @@ export class SyncClient {
 	lastRejection = $state<string | null>(null);
 	/** Transient reactions (UX-AV-4), keyed by participant id, with a nonce so a
 	 * repeat of the same emote re-triggers the animation. Never persisted. */
-	readonly emotes = new SvelteMap<string, { emote: string; nonce: number }>();
+	readonly emotes = new SvelteMap<string, { emote: EmoteName; nonce: number }>();
 	private emoteNonce = 0;
 	/** Screen-reader announcement text (aria-live region — UX-A11Y-3). */
 	announcement = $state('');
@@ -81,7 +82,7 @@ export class SyncClient {
 	}
 
 	/** Fire a transient reaction on your own avatar and broadcast it (UX-AV-4/7). */
-	react(participantId: string, emote: 'tada' | 'bounce' | 'bored' | 'spin' | 'heart' | 'laugh'): void {
+	react(participantId: string, emote: EmoteName): void {
 		this.emoteNonce += 1;
 		this.emotes.set(participantId, { emote, nonce: this.emoteNonce });
 		this.store.sendEphemeral({ kind: 'emote', id: participantId, emote });

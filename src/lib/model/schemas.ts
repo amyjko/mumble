@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { isSafeBackground } from './background';
+import { EMOTE_NAMES } from './emotes';
 
 /**
  * The single source of truth for every shape that crosses a boundary:
@@ -215,7 +216,7 @@ export const ephemeralSchema = z.discriminatedUnion('kind', [
 		location: z.object({ x: z.number(), y: z.number() })
 	}),
 	z.object({ kind: z.literal('drag_end'), id: z.uuid() }),
-	z.object({ kind: z.literal('emote'), id: z.uuid(), emote: z.enum(['tada', 'bounce', 'bored', 'spin', 'heart', 'laugh']) })
+	z.object({ kind: z.literal('emote'), id: z.uuid(), emote: z.enum(EMOTE_NAMES) })
 ]);
 
 /**

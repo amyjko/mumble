@@ -54,6 +54,62 @@ test('chrome: Escape dismisses the open menu', async ({ page }) => {
 });
 
 /**
+ * Maximize must cover the floating chrome. The overlay is nested inside
+ * `main`, so no z-index could lift it above a fixed toolbar living in the ROOT
+ * stacking context — it was occluded no matter how high it bid. A modal
+ * <dialog> renders in the top layer, which sidesteps stacking contexts
+ * entirely, and inerts the rest of the page as a bonus.
+ */
+test('chrome: a maximized object covers the toolbar and holds focus', async ({ page }) => {
+	const room = `chrome-fs-${Date.now().toString(36)}`;
+	await page.goto(`/hey/${room}`);
+	await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await page.getByRole('button', { name: '+ note' }).click();
+	await page.locator('.frame').hover();
+	await page.getByRole('button', { name: 'Fill screen with this object' }).click();
+
+	const dialog = page.getByRole('dialog', { name: 'Fullscreen object' });
+	await expect(dialog).toBeVisible();
+
+	// The chrome sits under the dialog: hit-testing at the toolbar's own
+	// coordinates must NOT reach a toolbar button.
+	const covered = await page.evaluate(() => {
+		const bar = document.querySelector('header.bar');
+		if (!(bar instanceof HTMLElement)) return null;
+		const box = bar.getBoundingClientRect();
+		const hit = document.elementFromPoint(box.left + 8, box.top + 8);
+		return { reachesBar: bar.contains(hit) };
+	});
+	expect(covered).not.toBeNull();
+	expect(covered?.reachesBar).toBe(false);
+
+	// Modal semantics: focus cannot reach any CONTROL outside the dialog. The
+	// previous overlay claimed aria-modal="true" but had no trap at all, so Tab
+	// walked straight out into the live canvas behind it.
+	//
+	// The assertion allows <body>: when the tab cycle wraps from the last
+	// tabbable back to the first, the browser parks focus on the document
+	// itself for one step. That is the wrap point, not an escape — what must
+	// never happen is a real control outside the dialog taking focus.
+	for (let i = 0; i < 6; i++) {
+		await page.keyboard.press('Tab');
+		const landing = await page.evaluate(() => {
+			const dialog = document.querySelector('dialog[open]');
+			const active = document.activeElement;
+			if (!(dialog instanceof HTMLElement) || active === null) return 'unknown';
+			if (dialog.contains(active)) return 'inside';
+			if (active === document.body || active === document.documentElement) return 'wrap';
+			return `ESCAPED:${active.tagName}`;
+		});
+		expect(landing).not.toContain('ESCAPED');
+	}
+
+	await page.keyboard.press('Escape');
+	await expect(dialog).toBeHidden();
+	await expect(page.getByRole('button', { name: '+ note' })).toBeVisible();
+});
+
+/**
  * The toolbar was one hard non-wrapping flex row with no max-width, so on a
  * narrow window its right-hand controls ran off-screen — and `main` is
  * `fixed; inset: 0`, so there was no scroll to reach them either. It must now

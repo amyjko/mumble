@@ -11,6 +11,7 @@
 	import AvatarTile from './AvatarTile.svelte';
 	import ObjectContent from '$lib/objects/ObjectContent.svelte';
 	import Button from '$lib/ui/Button.svelte';
+	import { canEdit } from '$lib/model/permissions';
 
 	interface Props {
 		store: RoomStore;
@@ -37,10 +38,25 @@
 	// Freehand drawing capture (UX-OBJ-11): world-space points, local view state.
 	let stroke = $state<{ x: number; y: number }[] | null>(null);
 	const strokePreview = $derived(stroke === null ? '' : pointsToPath(stroke));
-	function focusOnMount(node: HTMLElement): void {
-		node.focus();
-	}
 	const fullscreenObject = $derived(fullscreenId === null ? null : (store.state.objects[fullscreenId] ?? null));
+
+	let fullscreenDialog = $state<HTMLDialogElement | null>(null);
+
+	function closeFullscreen(): void {
+		fullscreenId = null;
+	}
+
+	/**
+	 * Drive the native modal from state. The `.open` checks matter: `onclose`
+	 * (fired by Escape or the backdrop) sets fullscreenId back to null, and
+	 * without the guards this effect would re-enter showModal/close.
+	 */
+	$effect(() => {
+		const dialog = fullscreenDialog;
+		if (dialog === null) return;
+		if (fullscreenObject !== null && !dialog.open) dialog.showModal();
+		else if (fullscreenObject === null && dialog.open) dialog.close();
+	});
 
 	const objects = $derived(Object.values(store.state.objects));
 	const participants = $derived(Object.values(store.state.participants));
@@ -282,32 +298,32 @@
 		</Button>
 	</div>
 
-	{#if fullscreenObject !== null}
-		<!-- Fullscreen overlay (UX-CANVAS-4): per-viewer, mutates nothing shared.
-		     Escape or the close button restores the prior view. -->
-		<div
-			class="fullscreen-overlay"
-			role="dialog"
-			aria-modal="true"
-			aria-label="Fullscreen object"
-			tabindex="-1"
-			use:focusOnMount
-			onkeydown={(e) => {
-				if (e.key === 'Escape') fullscreenId = null;
-			}}
-		>
-				<Button label="Exit fullscreen" onclick={() => (fullscreenId = null)}>✕ close</Button>
+	<!--
+		Fullscreen (UX-CANVAS-4): per-viewer, mutates nothing shared.
+
+		A MODAL <dialog>, not a positioned div. showModal() puts it in the top
+		layer, which is the only way it can paint above the page chrome: the
+		overlay is nested inside `main`, so however high its z-index went, a
+		fixed toolbar in the ROOT stacking context still covered it — hence
+		"maximize is occluded by the floating menus". The modal also brings
+		native Escape, a backdrop, and inerting of the rest of the page, which
+		replaces a hand-rolled key handler and a focus helper that had no
+		focus trap at all.
+	-->
+	<dialog bind:this={fullscreenDialog} class="fullscreen" aria-label="Fullscreen object" onclose={closeFullscreen}>
+		{#if fullscreenObject !== null}
+			<Button label="Exit fullscreen" onclick={closeFullscreen}>✕ close</Button>
 			<div class="fs-content">
 				<ObjectContent
 					object={fullscreenObject}
 					{sync}
-					editable={fullscreenObject.creator_id === identity.id || fullscreenObject.permission === 'all'}
+					editable={canEdit(fullscreenObject, identity.id, false)}
 					{identity}
-					onexit={() => (fullscreenId = null)}
+					onexit={closeFullscreen}
 				/>
 			</div>
-		</div>
-	{/if}
+		{/if}
+	</dialog>
 </div>
 
 <style>
@@ -369,12 +385,26 @@
 		min-width: 40px;
 		text-align: right;
 	}
-	.fullscreen-overlay {
-		position: absolute;
-		inset: 0;
-		z-index: var(--z-overlay);
+	.fullscreen {
+		/* The top layer handles stacking; a z-index here would be meaningless. */
+		width: 100vw;
+		max-width: 100vw;
+		height: 100vh;
+		max-height: 100vh;
+		margin: 0;
+		padding: var(--space-3);
+		box-sizing: border-box;
+		border: none;
 		display: flex;
 		flex-direction: column;
+		gap: var(--space-2);
+		background: var(--bg-canvas);
+		color: var(--text);
+	}
+	.fullscreen:not([open]) {
+		display: none;
+	}
+	.fullscreen::backdrop {
 		background: var(--bg-canvas);
 	}
 	.fs-content {

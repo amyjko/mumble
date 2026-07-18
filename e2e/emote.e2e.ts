@@ -9,16 +9,15 @@ test('raise hand persists and syncs; a peer cannot toggle it', async ({ browser 
 
 	await a.goto(`/hey/${room}`);
 	await expect(a.getByRole('application', { name: 'Room canvas' })).toBeVisible();
-	// A raises hand via its own avatar's emote menu.
-	await a.locator('.avatar').first().hover();
-	// exact: the room-menu trigger is now a button named after the room,
-	// and room names in this suite start with 'emote-'.
-	await a.getByRole('button', { name: 'Emote', exact: true }).click();
+	// A raises hand from the dedicated emote bar. It used to hang off your own
+	// avatar and appear only on hover, which was hard to find and unreachable
+	// on touch; there is now exactly one always-visible launcher.
 	await a.getByRole('button', { name: '✋ hand' }).click();
 	await expect(a.locator('.avatar.raised')).toHaveCount(1);
 
-	// B sees A's raised hand (persistent, synced) — and B's own avatar is the
-	// only one B can emote (A's avatar shows no emote trigger for B).
+	// B sees A's raised hand (persistent, synced). Self-only is now structural:
+	// the single bar can address nobody but you, and the store enforces it too
+	// (memory-store.spec.ts covers the rejection).
 	await b.goto(`/hey/${room}`);
 	await expect(b.locator('.avatar.raised')).toHaveCount(1);
 
