@@ -220,3 +220,19 @@ describe('chat object (UX-OBJ-3) — retained log, open posting', () => {
 		await expect(store.commit({ kind: 'post_message', id: n.id, message: msg(ALICE, 'x') })).rejects.toMatchObject({ reason: 'invalid' });
 	});
 });
+
+describe('canvas background (UX-CANVAS-5)', () => {
+	it('sets a safe background into shared state', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		await store.commit({ kind: 'set_background', value: 'var(--surface-2)' });
+		expect(store.state.background).toBe('var(--surface-2)');
+	});
+
+	it('the seam rejects an unsafe background value (schema refine)', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		await expect(
+			store.commit({ kind: 'set_background', value: 'url(https://evil/x)' })
+		).rejects.toMatchObject({ reason: 'invalid' });
+		expect(store.state.background).toBe('');
+	});
+});

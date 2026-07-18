@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isSafeBackground } from './background';
 
 /**
  * The single source of truth for every shape that crosses a boundary:
@@ -103,7 +104,9 @@ export const participantSchema = z.object({
 
 export const roomStateSchema = z.object({
 	objects: z.record(z.uuid(), canvasObjectSchema),
-	participants: z.record(z.uuid(), participantSchema)
+	participants: z.record(z.uuid(), participantSchema),
+	/** Shared canvas background (UX-CANVAS-5); '' = the default token bg. */
+	background: z.string().default('')
 });
 
 /**
@@ -128,7 +131,11 @@ export const mutationSchema = z.discriminatedUnion('kind', [
 		id: z.uuid(),
 		location: z.object({ x: z.number(), y: z.number() })
 	}),
-	z.object({ kind: z.literal('remove_participant'), id: z.uuid() })
+	z.object({ kind: z.literal('remove_participant'), id: z.uuid() }),
+	z.object({
+		kind: z.literal('set_background'),
+		value: z.string().refine(isSafeBackground, 'Unsafe background value')
+	})
 ]);
 
 /** Ephemeral traffic (AR-SYNC-1 class 2/3): never persisted, throttled ~15–20 Hz. */

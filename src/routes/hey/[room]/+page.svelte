@@ -6,6 +6,7 @@
 	import { SyncClient } from '$lib/store/sync-client.svelte';
 	import { Viewport } from '$lib/canvas/viewport.svelte';
 	import { newNote, newTimer, newChat, maxZOf } from '$lib/model/create';
+	import { BACKGROUND_PRESETS } from '$lib/model/background';
 	import WorldCanvas from '$lib/canvas/WorldCanvas.svelte';
 	import DevPanel from '$lib/dev/DevPanel.svelte';
 
@@ -64,6 +65,10 @@
 		void sync.commit({ kind: 'create_object', object: newChat(identity.id, centerWorld(), maxZOf(objects)) });
 		sync.announce('Chat added');
 	}
+	function setBackground(value: string): void {
+		void sync.commit({ kind: 'set_background', value });
+		sync.announce('Background changed');
+	}
 </script>
 
 <svelte:head>
@@ -76,6 +81,29 @@
 	<button class="add" onclick={addNote}>+ note</button>
 	<button class="add" onclick={addTimer}>+ timer</button>
 	<button class="add" onclick={addChat}>+ chat</button>
+	<details class="bg">
+		<summary>background</summary>
+		<div class="bg-menu">
+			{#each BACKGROUND_PRESETS as preset (preset.name)}
+				<button
+					type="button"
+					onclick={() => {
+						setBackground(preset.value);
+					}}>{preset.name}</button
+				>
+			{/each}
+			<label class="bg-custom">
+				custom
+				<input
+					type="color"
+					aria-label="Custom background color"
+					oninput={(e) => {
+						setBackground(e.currentTarget.value);
+					}}
+				/>
+			</label>
+		</div>
+	</details>
 	<span class="hint">or double-click the canvas</span>
 </header>
 
@@ -120,6 +148,43 @@
 		cursor: pointer;
 	}
 	.hint {
+		color: var(--text-muted);
+	}
+	.bg summary {
+		cursor: pointer;
+		color: var(--text-muted);
+		min-height: var(--target-min);
+		display: inline-flex;
+		align-items: center;
+	}
+	.bg-menu {
+		position: absolute;
+		margin-top: var(--space-1);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		padding: var(--space-2);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-md);
+		background: var(--surface);
+		box-shadow: var(--shadow-2);
+	}
+	.bg-menu button {
+		min-height: var(--target-min);
+		padding: var(--space-1) var(--space-2);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		background: var(--surface-2);
+		color: var(--text);
+		font: var(--text-sm) var(--font-ui);
+		cursor: pointer;
+		text-align: left;
+	}
+	.bg-custom {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		font-size: var(--text-sm);
 		color: var(--text-muted);
 	}
 	main {

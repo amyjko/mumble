@@ -24,6 +24,8 @@
 		viewport.size = { width, height };
 	});
 
+	const roomBg = $derived(store.state.background === '' ? 'var(--bg-canvas)' : store.state.background);
+
 	const objects = $derived(Object.values(store.state.objects));
 	const participants = $derived(Object.values(store.state.participants));
 
@@ -170,8 +172,7 @@
 	tabindex="0"
 	bind:clientWidth={width}
 	bind:clientHeight={height}
-	style:background-size="{grid.px}px {grid.px}px"
-	style:background-position="{grid.x}px {grid.y}px"
+	style:background={roomBg}
 	onwheel={onWheel}
 	onpointerdown={onBackgroundDown}
 	onpointermove={onBackgroundMove}
@@ -180,6 +181,14 @@
 	ondblclick={onDoubleClick}
 	onkeydown={onCanvasKey}
 >
+	<!-- Grid is its own layer so the room background (UX-CANVAS-5) shows behind
+	     it; decorative, so aria-hidden and pointer-transparent. -->
+	<div
+		class="grid"
+		aria-hidden="true"
+		style:background-size="{grid.px}px {grid.px}px"
+		style:background-position="{grid.x}px {grid.y}px"
+	></div>
 	<!-- AR-CANVAS-1: one transformed world layer; pan/zoom mutate this
 	     container's transform, never the objects. -->
 	<div
@@ -220,9 +229,14 @@
 		position: absolute;
 		inset: 0;
 		overflow: hidden;
-		background-color: var(--bg-canvas);
-		background-image: radial-gradient(circle, var(--grid-dot) 8%, transparent 9%);
+		background: var(--bg-canvas);
 		touch-action: none;
+	}
+	.grid {
+		position: absolute;
+		inset: 0;
+		pointer-events: none;
+		background-image: radial-gradient(circle, var(--grid-dot) 8%, transparent 9%);
 	}
 	.world {
 		position: absolute;
