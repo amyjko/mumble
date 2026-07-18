@@ -371,7 +371,18 @@
 			rotate: 360deg;
 		}
 	}
+	/*
+	 * POSITIONED, so it paints above .skin. The sticker layer is absolutely
+	 * positioned and therefore paints above static siblings regardless of DOM
+	 * order — it was covering the face entirely, leaving a blank white circle.
+	 *
+	 * This hid from three separate DOM probes: the element exists, has a box,
+	 * and even answers elementFromPoint, because .skin sets pointer-events:
+	 * none — so hit-testing skips the very layer that was painting over it.
+	 * Only a screenshot showed it.
+	 */
 	.face {
+		position: relative;
 		display: inline-flex;
 	}
 	.badge {

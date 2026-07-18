@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom } from './support/join';
+import { joinRoom, roomName } from './support/join';
 
 /**
  * Avatars are canvas objects (UX-AV-1): resizable, rotatable, and reshapeable
@@ -98,3 +98,31 @@ test('avatar: emoji use the emoji font everywhere', async ({ page }) => {
 	expect(fonts.length).toBeGreaterThan(0);
 	for (const family of fonts) expect(family).toContain('Noto Color Emoji');
 });
+
+/**
+ * The avatar's face must actually be VISIBLE, not merely present.
+ *
+ * The sticker layer is absolutely positioned and so paints above static
+ * siblings regardless of DOM order; it covered the face completely, leaving a
+ * blank white circle. Every DOM-level check passed while it was broken — the
+ * element existed, had a bounding box, and even answered elementFromPoint,
+ * because the covering layer sets pointer-events: none and hit-testing
+ * therefore skips it.
+ *
+ * So this asserts on PIXELS: the face region must not be uniformly the sticker
+ * colour. Nothing cheaper would have caught it.
+ */
+test('avatar: the face is actually painted, not covered by the sticker', async ({ page }) => {
+	await joinRoom(page, roomName('face'), 'Amy');
+
+	const face = page.locator('.avatar .face');
+	await expect(face).toBeVisible();
+
+	const shot = await face.screenshot();
+	// A PNG of a single flat colour compresses to almost nothing; a rendered
+	// emoji does not. This is a deliberately crude signal, chosen because it
+	// cannot be fooled by the DOM being right while the paint is wrong.
+	expect(shot.byteLength).toBeGreaterThan(400);
+
+});
+
