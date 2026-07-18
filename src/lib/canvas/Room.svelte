@@ -19,6 +19,7 @@
 	import SwatchPicker from '$lib/ui/SwatchPicker.svelte';
 	import { DRAW_COLORS } from '$lib/model/palette';
 	import { canonicalRoomName, roomNameMessage, roomNameProblem } from '$lib/model/room-name';
+	import { counts as stageCounts, type Capacity, type StageState } from '$lib/model/stage';
 	import { AVATAR_EMOJI, saveIdentity } from '$lib/model/identity';
 	import EmojiPicker from '$lib/ui/EmojiPicker.svelte';
 	import Emoji from '$lib/ui/Emoji.svelte';
@@ -83,8 +84,10 @@
 				rotation: existing?.rotation ?? 0,
 				clip: existing?.clip ?? { shape: 'circle' },
 				fake: false,
-				raised_hand: existing?.raised_hand ?? false,
-				away: existing?.away ?? false
+				away: existing?.away ?? false,
+				// You arrive silent and opt in by unmuting (UX-STAGE-10), which is
+				// also what keeps a rejoin from silently re-taking an audio slot.
+				muted: existing?.muted ?? true
 			}
 		});
 		return () => {
@@ -93,6 +96,25 @@
 	});
 
 	const count = $derived(Object.keys(store.state.participants).length);
+
+	/**
+	 * UX-STAGE-9: the room surfaces live counts and the queue with its order,
+	 * so "scarcity is legible before you bump into it". Computed by the pure
+	 * module — this component renders it, it does not derive it (AR-TEST-4).
+	 */
+	const stage = $derived<StageState>({
+		capacity: store.state.capacity,
+		video_holders: store.state.video_holders,
+		audio_holders: store.state.audio_holders,
+		queue: store.state.queue,
+		mode: store.state.mode
+	});
+	const slots = $derived(stageCounts(stage));
+	const nameOf = (id: string): string => store.state.participants[id]?.name ?? 'Someone';
+
+	function setCapacity(next: Partial<Capacity>): void {
+		void sync.commit({ kind: 'set_capacity', capacity: { ...stage.capacity, ...next } });
+	}
 	/** Stub-only: chat history evicted to bound localStorage (CHAT_LOG_LIMIT). */
 	const dropped = $derived(store instanceof MemoryRoomStore ? store.droppedChatMessages : 0);
 
@@ -281,6 +303,51 @@
 	</Popover>
 
 	<span class="count">{count} here</span>
+	<span class="count" aria-label="Stage capacity">
+		{slots.video.held}/{slots.video.max} video · {slots.audio.held}/{slots.audio.max} audio
+	</span>
+
+	<Popover id="stage-menu" label="stage" anchor="top-start">
+		<div class="menu">
+			<p class="hint">
+				Three numbers are the whole stage policy (UX-STAGE-2): one video slot is a
+				turn-taking conch, many is a gallery.
+			</p>
+			<div class="row">
+				<Field
+					label="Video slots"
+					value={String(stage.capacity.max_av)}
+					oncommit={(v: string) => {
+						setCapacity({ max_av: Number(v) || 0 });
+					}}
+				/>
+				<Field
+					label="Audio slots"
+					value={String(stage.capacity.max_audio)}
+					oncommit={(v: string) => {
+						setCapacity({ max_audio: Number(v) || 0 });
+					}}
+				/>
+				<Field
+					label="Max people"
+					value={String(stage.capacity.max_participants)}
+					oncommit={(v: string) => {
+						setCapacity({ max_participants: Number(v) || 1 });
+					}}
+				/>
+			</div>
+			{#if stage.queue.length > 0}
+				<p class="hint">Waiting for a slot, in order:</p>
+				<ol class="queue">
+					{#each stage.queue as waiting, index (waiting)}
+						<li>{index + 1}. {nameOf(waiting)}</li>
+					{/each}
+				</ol>
+			{:else}
+				<p class="hint">Nobody is waiting.</p>
+			{/if}
+		</div>
+	</Popover>
 	<Button disabled={!mayCreate} onclick={addNote}>+ note</Button>
 	<Button disabled={!mayCreate} onclick={addTimer}>+ timer</Button>
 	<Button disabled={!mayCreate} onclick={addChat}>+ chat</Button>
@@ -431,6 +498,16 @@
 	.count,
 	.hint {
 		color: var(--text-muted);
+	}
+	.hint {
+		margin: 0;
+		font-size: var(--text-sm);
+		color: var(--text-muted);
+	}
+	.queue {
+		margin: 0;
+		padding-left: var(--space-4);
+		font-size: var(--text-sm);
 	}
 	.warn,
 	.problem {

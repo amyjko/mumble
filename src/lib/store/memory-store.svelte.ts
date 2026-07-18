@@ -20,11 +20,26 @@ import { untrack } from 'svelte';
 import { canEdit } from '$lib/model/permissions';
 import { ellipsePoints, nearestLegal, placementLegal } from '$lib/canvas/geometry';
 import { applyEncodedUpdate, docFromEncoded, encodeDoc, mergeEncoded, noteText } from '$lib/model/ydoc';
+import {
+	admits,
+	applyCapacity,
+	freshStage,
+	grantSlot,
+	lowerHand,
+	mutedAudio,
+	participantLeft,
+	raiseHand,
+	releaseSlot,
+	revokeSlot,
+	takeSlot,
+	unmutedAudio,
+	type StageState
+} from '$lib/model/stage';
 import type { Clip, SolverShape } from '$lib/model/types';
 import type { RoomStore } from './room-store';
 
 function freshState(): RoomState {
-	return { objects: {}, participants: {}, background: '', title: '', description: '', create_permission: 'all', border_default: DEFAULT_BORDER_WIDTH, configurations: {}, active_config: null };
+	return { objects: {}, participants: {}, background: '', title: '', description: '', create_permission: 'all', border_default: DEFAULT_BORDER_WIDTH, ...freshStage(), transport: 'p2p', configurations: {}, active_config: null };
 }
 
 /**
@@ -153,6 +168,29 @@ export class MemoryRoomStore implements RoomStore {
 	private broadcastState(): void {
 		if (this.closed) return;
 		this.channel?.postMessage({ v: 1, t: 'state', state: $state.snapshot(this.state) });
+	}
+
+	/**
+	 * The stage slice, lifted out of room state and put back. Every stage case
+	 * below is then ONE call into the pure module — which is what AR-TEST-4
+	 * means by the capacity/queue rules staying extractable.
+	 */
+	private stage(): StageState {
+		return {
+			capacity: this.state.capacity,
+			video_holders: this.state.video_holders,
+			audio_holders: this.state.audio_holders,
+			queue: this.state.queue,
+			mode: this.state.mode
+		};
+	}
+
+	private applyStage(next: StageState): void {
+		this.state.capacity = next.capacity;
+		this.state.video_holders = next.video_holders;
+		this.state.audio_holders = next.audio_holders;
+		this.state.queue = next.queue;
+		this.state.mode = next.mode;
 	}
 
 	/** Solver view of current occupancy (objects + avatars), minus exclusions. */
@@ -340,6 +378,13 @@ export class MemoryRoomStore implements RoomStore {
 				break;
 			}
 			case 'upsert_participant': {
+				// UX-STAGE-11: admission is refused once the room is full. Someone
+				// already present is never turned away for being present.
+				const present = Object.keys(this.state.participants).length;
+				const already = this.state.participants[m.participant.id] !== undefined;
+				if (!admits(this.stage(), present, already)) {
+					throw new StoreRejection('permission', 'This room is full');
+				}
 				const spot = nearestLegal(shapeOfParticipant(m.participant), this.shapes(m.participant.id));
 				const participant: Participant = { ...m.participant, location: spot };
 				this.state.participants[participant.id] = participant;
@@ -357,6 +402,10 @@ export class MemoryRoomStore implements RoomStore {
 			}
 			case 'remove_participant': {
 				this.state.participants = omitKey(this.state.participants, m.id);
+				// Leaving releases both slots and drops you from the queue
+				// (UX-STAGE-4) — a queue holding absent people hands slots to
+				// nobody.
+				this.applyStage(participantLeft(this.stage(), m.id));
 				break;
 			}
 			case 'size_participant': {
@@ -388,13 +437,56 @@ export class MemoryRoomStore implements RoomStore {
 				existing.clip = m.clip;
 				break;
 			}
-			case 'set_hand':
+			case 'set_hand': {
+				// UX-AV-6: raising a hand IS entering the slot queue. It is no
+				// longer a stored flag, so there is nothing to keep in sync.
+				this.requireSelf(m.id, 'You can only raise your own hand');
+				this.requireParticipant(m.id);
+				this.applyStage(m.raised ? raiseHand(this.stage(), m.id) : lowerHand(this.stage(), m.id));
+				break;
+			}
+			case 'take_slot': {
+				this.requireSelf(m.id, 'You can only take your own slot');
+				this.requireParticipant(m.id);
+				this.applyStage(takeSlot(this.stage(), m.id, m.media));
+				break;
+			}
+			case 'release_slot': {
+				this.requireSelf(m.id, 'You can only release your own slot');
+				this.requireParticipant(m.id);
+				this.applyStage(releaseSlot(this.stage(), m.id, m.media));
+				break;
+			}
+			case 'set_muted': {
+				this.requireSelf(m.id, 'You can only mute yourself');
+				const self = this.requireParticipant(m.id);
+				self.muted = m.muted;
+				this.applyStage(
+					m.muted ? mutedAudio(this.stage(), m.id) : unmutedAudio(this.stage(), m.id)
+				);
+				break;
+			}
+			case 'grant_slot': {
+				this.requireHostForRoom();
+				this.requireParticipant(m.id);
+				this.applyStage(grantSlot(this.stage(), m.id, m.media));
+				break;
+			}
+			case 'revoke_slot': {
+				this.requireHostForRoom();
+				this.applyStage(revokeSlot(this.stage(), m.id, m.media));
+				break;
+			}
+			case 'set_capacity': {
+				this.requireHostForRoom();
+				this.applyStage(applyCapacity(this.stage(), m.capacity));
+				break;
+			}
 			case 'set_away': {
 				// UX-AV-7: emotes are self-initiated — you may only change your own.
 				this.requireSelf(m.id, 'You can only emote yourself');
 				const participant = this.state.participants[m.id];
 				if (participant === undefined) throw new StoreRejection('invalid', 'Unknown participant');
-				if (m.kind === 'set_hand') participant.raised_hand = m.raised;
 				else participant.away = m.away;
 				break;
 			}
@@ -503,6 +595,9 @@ export class MemoryRoomStore implements RoomStore {
 		}
 		return {
 			layouts,
+			// Capacity is per-configuration (UX-STAGE-1), so it travels with the
+			// snapshot and is re-applied on switch (AR-MEDIA-1).
+			capacity: { ...this.state.capacity },
 			background: this.state.background,
 			title: this.state.title,
 			description: this.state.description
@@ -516,9 +611,20 @@ export class MemoryRoomStore implements RoomStore {
 			object.transform = { ...layout.transform };
 			object.hidden = layout.hidden;
 		}
+		// AR-MEDIA-1: caps are re-read on a configuration switch, and lowering
+		// one releases holders beyond it, in reverse acquisition order, to the
+		// queue. Routing through applyCapacity means switch and reset get that
+		// for free rather than each reimplementing it.
+		this.applyStage(applyCapacity(this.stage(), snapshot.capacity));
 		this.state.background = snapshot.background;
 		this.state.title = snapshot.title;
 		this.state.description = snapshot.description;
+	}
+
+	private requireParticipant(id: string): Participant {
+		const participant = this.state.participants[id];
+		if (participant === undefined) throw new StoreRejection('invalid', 'Unknown participant');
+		return participant;
 	}
 
 	private requireObject(id: string): CanvasObject {

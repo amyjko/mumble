@@ -32,8 +32,8 @@
 				rotation: 0,
 				clip: { shape: 'circle' },
 				fake: true,
-				raised_hand: false,
-				away: false
+				away: false,
+				muted: true
 			}
 		});
 	}

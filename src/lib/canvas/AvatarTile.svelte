@@ -6,7 +6,7 @@
 	import { resolveDrag } from './geometry';
 	import { AVATAR_BORDER, shapeOfParticipant } from '$lib/store/memory-store.svelte';
 	import { AVATAR_Z } from './layers';
-	import { EMOTE_EMOJI, HAND_EMOJI, AWAY_EMOJI } from '$lib/model/emotes';
+	import { EMOTE_EMOJI, HAND_EMOJI, AWAY_EMOJI, VIDEO_EMOJI, MIC_EMOJI, MUTED_EMOJI } from '$lib/model/emotes';
 	import Emoji from '$lib/ui/Emoji.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import TransformHandles from './TransformHandles.svelte';
@@ -18,6 +18,10 @@
 	/** Avatars stay recognisably people: smaller than this and the face is gone. */
 	const MIN_AVATAR = 56;
 
+	/**
+	 * Raise-hand is queue membership now (UX-AV-6), not a stored flag — so
+	 * there is nothing to keep in sync when a handoff promotes someone.
+	 */
 	interface Props {
 		participant: Participant;
 		store: RoomStore;
@@ -28,6 +32,12 @@
 	}
 
 	let { participant, store, sync, viewport, obstacles, isSelf }: Props = $props();
+
+	/** UX-AV-6: the raised hand IS the queue entry. */
+	const queued = $derived(store.state.queue.includes(participant.id));
+	/** UX-STAGE-9: who holds what is explicit, and shown on the avatar. */
+	const hasVideo = $derived(store.state.video_holders.includes(participant.id));
+	const hasAudio = $derived(store.state.audio_holders.includes(participant.id));
 
 	/** Placement is shared state (UX-AV-2); in-flight drags overlay it. */
 	const effective = $derived(sync.participantOverlays.get(participant.id) ?? participant.location);
@@ -288,7 +298,7 @@
 	class:fake={participant.fake}
 	class:away={participant.away}
 	class:self={isSelf}
-	class:raised={participant.raised_hand}
+	class:raised={queued}
 	class:bounce={latest === 'bounce'}
 	class:spin={latest === 'spin'}
 	class:bored={latest === 'bored'}
@@ -317,8 +327,17 @@
 
 	<!-- Persistent states (UX-AV-5) are room-visible signals, so they are big
 	     and centered above the head rather than small corner marks. -->
-	{#if participant.raised_hand}
+	{#if queued}
 		<span class="badge hand"><Emoji glyph={HAND_EMOJI} label="hand raised" /></span>
+	{/if}
+	{#if hasVideo || hasAudio}
+		<!-- UX-STAGE-9: "each participant's A/V object is annotated with whether
+		     they hold a video slot, an audio slot, or neither". -->
+		<span class="badge slots">
+			{#if hasVideo}<Emoji glyph={VIDEO_EMOJI} label="holds a video slot" />{/if}
+			{#if hasAudio}<Emoji glyph={MIC_EMOJI} label="holds an audio slot" />{/if}
+			{#if participant.muted}<Emoji glyph={MUTED_EMOJI} label="muted" />{/if}
+		</span>
 	{/if}
 	{#if participant.away}
 		<span class="badge away-badge"><Emoji glyph={AWAY_EMOJI} label="stepped away" /></span>
@@ -479,6 +498,16 @@
 	.face {
 		position: relative;
 		display: inline-flex;
+	}
+	/* Slot badges sit BELOW the tile so they never collide with the raised-hand
+	   badge above it. */
+	.badge.slots {
+		bottom: auto;
+		top: 100%;
+		margin-top: var(--space-4);
+		font-size: 18px;
+		display: flex;
+		gap: var(--space-0);
 	}
 	.badge {
 		position: absolute;

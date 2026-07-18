@@ -40,8 +40,8 @@ const person = (id: string): Participant => ({
 	rotation: 0,
 	clip: { shape: 'circle' },
 	fake: false,
-	raised_hand: false,
-	away: false
+	away: false,
+	muted: true
 });
 
 /** Chat fixture usable from any describe (the other one is block-scoped). */
@@ -296,7 +296,7 @@ describe('emotes (UX-AV-5/7)', () => {
 		await store.commit({ kind: 'upsert_participant', participant: person(ALICE) });
 		await store.commit({ kind: 'set_hand', id: ALICE, raised: true });
 		await store.commit({ kind: 'set_away', id: ALICE, away: true });
-		expect(store.state.participants[ALICE]?.raised_hand).toBe(true);
+		expect(store.state.queue).toContain(ALICE); // raise-hand IS the queue entry
 		expect(store.state.participants[ALICE]?.away).toBe(true);
 	});
 
@@ -812,5 +812,89 @@ describe('configurations can be edited (UX-ROOM-4/6)', () => {
 		await store.commit({ kind: 'rename_config', id, name: 'New' });
 		expect(store.state.configurations[id]?.name).toBe('New');
 		expect(store.state.configurations[id]?.snapshot.layouts[object.id]).toBeDefined();
+	});
+});
+
+describe('the stage, through the store (UX-STAGE, AR-CTRL-2)', () => {
+	const join = async (store: MemoryRoomStore, id: string): Promise<void> => {
+		await store.commit({ kind: 'upsert_participant', participant: person(id) });
+	};
+
+	it('taking a slot is one call into the pure module', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		await join(store, ALICE);
+		await store.commit({ kind: 'take_slot', id: ALICE, media: 'video' });
+		expect(store.state.video_holders).toEqual([ALICE]);
+	});
+
+	it('you cannot take, release or mute on someone ELSE behalf', async () => {
+		// Your slot and your mic are yours, the same self-only rule as emotes.
+		const store = makeStore(`r${String(Math.random())}`, BOB);
+		await join(store, ALICE);
+		await expect(
+			store.commit({ kind: 'take_slot', id: ALICE, media: 'video' })
+		).rejects.toMatchObject({ reason: 'permission' });
+		await expect(store.commit({ kind: 'set_muted', id: ALICE, muted: false })).rejects.toMatchObject({
+			reason: 'permission'
+		});
+	});
+
+	it('raise-hand IS the queue entry — there is no separate flag to drift', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		await join(store, ALICE);
+		await store.commit({ kind: 'set_hand', id: ALICE, raised: true });
+		expect(store.state.queue).toEqual([ALICE]);
+		await store.commit({ kind: 'set_hand', id: ALICE, raised: false });
+		expect(store.state.queue).toEqual([]);
+	});
+
+	it('leaving frees your slots and promotes the queue head', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		await join(store, ALICE);
+		await store.commit({ kind: 'set_capacity', capacity: { max_participants: 10, max_av: 1, max_audio: 0 } });
+		await store.commit({ kind: 'take_slot', id: ALICE, media: 'video' });
+		// Someone else is waiting.
+		await store.commit({ kind: 'upsert_participant', participant: person(BOB) });
+		expect(store.state.video_holders).toEqual([ALICE]);
+
+		await store.commit({ kind: 'remove_participant', id: ALICE });
+		expect(store.state.video_holders).toEqual([]);
+	});
+
+	it('admission is refused once the room is full (UX-STAGE-11)', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		await store.commit({ kind: 'set_capacity', capacity: { max_participants: 1, max_av: 1, max_audio: 1 } });
+		await join(store, ALICE);
+		await expect(
+			store.commit({ kind: 'upsert_participant', participant: person(BOB) })
+		).rejects.toMatchObject({ reason: 'permission' });
+
+		// ...but re-upserting someone already present is never refused, or a
+		// simple reconnect would lock you out of your own room.
+		await expect(join(store, ALICE)).resolves.toBeUndefined();
+	});
+
+	it('a configuration switch re-applies its capacity and trims holders', async () => {
+		// AR-MEDIA-1: caps are re-read on switch, and lowering one releases
+		// holders beyond it. Configurations carry the numbers (UX-STAGE-1).
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		await join(store, ALICE);
+		await store.commit({ kind: 'set_capacity', capacity: { max_participants: 10, max_av: 2, max_audio: 0 } });
+		await store.commit({ kind: 'take_slot', id: ALICE, media: 'video' });
+
+		const roomy = uuid();
+		await store.commit({ kind: 'save_config', id: roomy, name: 'Roomy' });
+
+		// A second configuration with no video slots at all.
+		await store.commit({ kind: 'set_capacity', capacity: { max_participants: 10, max_av: 0, max_audio: 0 } });
+		const silent = uuid();
+		await store.commit({ kind: 'save_config', id: silent, name: 'Silent' });
+
+		await store.commit({ kind: 'switch_config', id: roomy });
+		expect(store.state.capacity.max_av).toBe(2);
+
+		await store.commit({ kind: 'switch_config', id: silent });
+		expect(store.state.capacity.max_av).toBe(0);
+		expect(store.state.video_holders).toEqual([]); // trimmed, not left over-cap
 	});
 });

@@ -42,3 +42,8 @@ export const EMOTE_LABEL: Record<EmoteName, string> = {
  */
 export const HAND_EMOJI = '✋';
 export const AWAY_EMOJI = '💤';
+
+/** Slot-state glyphs (UX-STAGE-9): who holds what, shown on their avatar. */
+export const VIDEO_EMOJI = '\u{1F3A5}';
+export const MIC_EMOJI = '\u{1F3A4}';
+export const MUTED_EMOJI = '\u{1F507}';

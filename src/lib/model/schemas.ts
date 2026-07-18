@@ -143,6 +143,15 @@ export const canvasObjectSchema = z.discriminatedUnion('type', [
 	drawingObjectSchema
 ]);
 
+export const slotMediaSchema = z.enum(['video', 'audio']);
+
+/** UX-STAGE-1's three numbers. Publish caps may not exceed the room size. */
+export const capacitySchema = z.object({
+	max_participants: z.number().int().min(1).max(200).default(20),
+	max_av: z.number().int().min(0).max(200).default(4),
+	max_audio: z.number().int().min(0).max(200).default(8)
+});
+
 export const participantSchema = z.object({
 	id: z.uuid(),
 	name: z.string().min(1),
@@ -161,10 +170,16 @@ export const participantSchema = z.object({
 	clip: clipSchema.default({ shape: 'circle' }),
 	/** Dev-panel fakes are marked so they can be styled/cleared distinctly. */
 	fake: z.boolean(),
-	/** Persistent emotes (UX-AV-5): raise-hand and stepped-away. Persist even
-	 * after leaving. Defaults keep older stored participants valid. */
-	raised_hand: z.boolean().default(false),
-	away: z.boolean().default(false)
+	/**
+	 * Stepped-away (UX-AV-5), a persistent emote. Raise-hand USED to live here
+	 * too; it is now derived from queue membership, because UX-AV-6 says
+	 * raise-hand IS the slot-request queue entry and two sources of truth would
+	 * drift the moment a handoff promoted someone (nothing would lower the
+	 * hand). Zod strips unknown keys, so stored participants migrate for free.
+	 */
+	away: z.boolean().default(false),
+	/** Mic state (UX-STAGE-10). You arrive silent and opt in by unmuting. */
+	muted: z.boolean().default(true)
 });
 
 /**
@@ -188,6 +203,8 @@ export const layoutSchema = z.object({
 
 export const configSnapshotSchema = z.object({
 	layouts: z.record(z.uuid(), layoutSchema),
+	/** UX-STAGE-1: the numbers belong to the configuration, not the room. */
+	capacity: capacitySchema.default({ max_participants: 20, max_av: 4, max_audio: 8 }),
 	background: z.string(),
 	title: z.string(),
 	description: z.string()
@@ -213,6 +230,19 @@ export const roomStateSchema = z.object({
 	 * host branch is.
 	 */
 	create_permission: z.enum(['all', 'host']).default('all'),
+	/**
+	 * The stage (AR-CTRL-2). Holder lists are EXPLICIT, never derived — they
+	 * are the authorization fact UX-STAGE-9 renders and UX-STAGE-6 enforces.
+	 * `capacity` mirrors the active configuration's numbers (UX-STAGE-1).
+	 * `transport` is carried inert at 'p2p': it is a V2 media-plane fact
+	 * (AR-TRANSPORT-6) parked here now so adding it later is not a migration.
+	 */
+	capacity: capacitySchema.default({ max_participants: 20, max_av: 4, max_audio: 8 }),
+	video_holders: z.array(z.uuid()).default([]),
+	audio_holders: z.array(z.uuid()).default([]),
+	queue: z.array(z.uuid()).default([]),
+	mode: z.enum(['open', 'moderated']).default('open'),
+	transport: z.enum(['p2p', 'promoting', 'sfu', 'demoting']).default('p2p'),
 	/** UX-OBJ-8's room default. New objects inherit it; each may override. */
 	border_default: z.number().nonnegative().max(40).default(DEFAULT_BORDER_WIDTH),
 	configurations: z.record(z.uuid(), configurationSchema).default({}),
@@ -265,7 +295,15 @@ export const mutationSchema = z.discriminatedUnion('kind', [
 		rotation: z.number()
 	}),
 	z.object({ kind: z.literal('set_participant_clip'), id: z.uuid(), clip: clipSchema }),
+	// UX-AV-6: raising a hand IS entering the queue, so this keeps its name and
+	// changes meaning rather than growing a second, near-identical mutation.
 	z.object({ kind: z.literal('set_hand'), id: z.uuid(), raised: z.boolean() }),
+	z.object({ kind: z.literal('take_slot'), id: z.uuid(), media: slotMediaSchema }),
+	z.object({ kind: z.literal('release_slot'), id: z.uuid(), media: slotMediaSchema }),
+	z.object({ kind: z.literal('set_muted'), id: z.uuid(), muted: z.boolean() }),
+	z.object({ kind: z.literal('grant_slot'), id: z.uuid(), media: slotMediaSchema }),
+	z.object({ kind: z.literal('revoke_slot'), id: z.uuid(), media: slotMediaSchema }),
+	z.object({ kind: z.literal('set_capacity'), capacity: capacitySchema }),
 	z.object({ kind: z.literal('set_away'), id: z.uuid(), away: z.boolean() }),
 	// Change your own name or camera-off face (UX-ID-1, UX-AV-3). Self-only:
 	// your identity is yours, the same rule that governs emotes (UX-AV-7).
