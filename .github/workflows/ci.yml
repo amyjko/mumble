@@ -69,13 +69,18 @@ jobs:
       - name: Svelte check
         run: pnpm run check:svelte
 
+      # MUST precede the vitest step, not just the e2e one: the `client` Vitest
+      # project runs component tests in real Chromium via the Playwright
+      # provider (AR-TEST-3). With the install after it, those 9 tests silently
+      # did not run and CI reported 251 passing where local reports 260 — a
+      # green suite that was quietly smaller than it looked.
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
       # Node + browser projects. Includes the computed token-contrast spec and
       # the no-raw-color / no-raw-emoji enforcement.
       - name: Unit and component tests
         run: pnpm exec vitest --run
-
-      - name: Install Playwright browsers
-        run: pnpm exec playwright install --with-deps chromium
 
       # Runs against the built worker under wrangler dev (AR-TEST-9 /
       # AR-DEPLOY-4): the only place the production runtime is exercised.
