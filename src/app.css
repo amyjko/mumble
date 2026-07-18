@@ -39,6 +39,8 @@
 	--note: light-dark(#fef3c7, #fef3c7);
 	--note-text: light-dark(#292018, #292018);
 	--sticker-text: light-dark(#57534e, #57534e);
+	--note-code-bg: light-dark(#2920181f, #2920181f);
+	--note-quote-border: light-dark(#2920184d, #2920184d);
 	--grid-dot: light-dark(#78716c59, #a8a29e40);
 
 	/* Elevation */

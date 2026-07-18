@@ -24,7 +24,7 @@ export default defineConfig(
 			parserOptions: {
 				projectService: {
 					// Config files no tsconfig claims; type-aware linting still applies.
-					allowDefaultProject: ['eslint.config.js', 'playwright.config.ts', 'e2e/*.ts']
+					allowDefaultProject: ['eslint.config.js', 'playwright.config.ts']
 				},
 				tsconfigRootDir: import.meta.dirname
 			}
