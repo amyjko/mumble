@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BACKGROUND_LEVELS, isSafeBackground } from './background';
+import { BACKGROUND_GRADIENTS, BACKGROUND_LEVELS, isSafeBackground } from './background';
 
 describe('isSafeBackground (UX-CANVAS-5 injection guard)', () => {
 	it('accepts colors, gradients, and tokens', () => {
@@ -31,6 +31,24 @@ describe('isSafeBackground (UX-CANVAS-5 injection guard)', () => {
 
 	it('every shipped brightness level is itself safe', () => {
 		for (const level of BACKGROUND_LEVELS) expect(isSafeBackground(level.value), level.name).toBe(true);
+	});
+
+	it('every shipped gradient is itself safe', () => {
+		// The sanitizer already permitted gradients; this pins that the ones we
+		// actually ship pass it, so a future gradient using url() or a stray
+		// semicolon cannot slip in beside them.
+		for (const g of BACKGROUND_GRADIENTS) expect(isSafeBackground(g.value), g.name).toBe(true);
+	});
+
+	it('gradients are built only from the contrast-checked ramp', () => {
+		// A gradient composed of arbitrary colours could put text on a surface
+		// theme-contrast.spec.ts has never vouched for. Restricting them to
+		// --bg-level-* tokens is what keeps the contrast guarantee intact.
+		for (const g of BACKGROUND_GRADIENTS) {
+			const tokens = g.value.match(/var\(--[a-z0-9-]+\)/g) ?? [];
+			expect(tokens.length, g.name).toBeGreaterThan(0);
+			for (const token of tokens) expect(token, g.name).toMatch(/^var\(--bg-level-[1-5]\)$/);
+		}
 	});
 });
 

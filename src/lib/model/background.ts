@@ -39,3 +39,16 @@ export const BACKGROUND_LEVELS: { name: string; value: string }[] = [
 	{ name: 'Brightness 4', value: 'var(--bg-level-4)' },
 	{ name: 'Brightness 5, brightest', value: 'var(--bg-level-5)' }
 ];
+
+/**
+ * Gentle gradients built from the brightness ramp (UX-CANVAS-5 allows "any CSS
+ * background"). They are composed from the same contrast-checked tokens, so a
+ * gradient can never put text on a surface the ramp has not vouched for —
+ * which is why arbitrary user colours stay unavailable. `isSafeBackground`
+ * already permitted gradients; only the picker was limited to flat levels.
+ */
+export const BACKGROUND_GRADIENTS: { name: string; value: string }[] = [
+	{ name: 'Soft top light', value: 'linear-gradient(180deg, var(--bg-level-4), var(--bg-level-2))' },
+	{ name: 'Soft side light', value: 'linear-gradient(100deg, var(--bg-level-2), var(--bg-level-4))' },
+	{ name: 'Centre spot', value: 'radial-gradient(circle at 50% 35%, var(--bg-level-4), var(--bg-level-1))' }
+];

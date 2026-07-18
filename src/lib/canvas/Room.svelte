@@ -5,7 +5,7 @@
 	import { SyncClient } from '$lib/store/sync-client.svelte';
 	import { Viewport } from '$lib/canvas/viewport.svelte';
 	import { newNote, newTimer, newChat, maxZOf } from '$lib/model/create';
-	import { BACKGROUND_LEVELS } from '$lib/model/background';
+	import { BACKGROUND_GRADIENTS, BACKGROUND_LEVELS } from '$lib/model/background';
 	import { DEFAULT_DRAW_COLOR } from '$lib/model/palette';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
@@ -355,6 +355,17 @@
 					}}>{level.name}</Button
 				>
 			{/each}
+			<hr />
+			<div class="menu" role="radiogroup" aria-label="Room gradient">
+				{#each BACKGROUND_GRADIENTS as gradient (gradient.name)}
+					<Button
+						pressed={store.state.background === gradient.value}
+						onclick={() => {
+							setBackground(gradient.value);
+						}}>{gradient.name}</Button
+					>
+				{/each}
+			</div>
 		</div>
 	</Popover>
 

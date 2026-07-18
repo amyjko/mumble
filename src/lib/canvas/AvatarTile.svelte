@@ -237,6 +237,7 @@
 	class:raised={participant.raised_hand}
 	class:bounce={latest === 'bounce'}
 	class:spin={latest === 'spin'}
+	class:bored={latest === 'bored'}
 	style:--ring-width="{AVATAR_BORDER}px"
 	style:width="{shown.width}px"
 	style:height="{shown.height}px"
@@ -338,13 +339,28 @@
 	.avatar.fake {
 		filter: saturate(0.4);
 	}
+	/* UX-AV-5's "greyscale blur state". The blur was missing, so stepped-away
+	   read as merely desaturated rather than absent. Applied to the face only,
+	   so the away badge announcing the state stays legible. */
 	.avatar.away .face {
-		filter: grayscale(1) opacity(0.6);
+		filter: grayscale(1) opacity(0.6) blur(1.5px);
 	}
-	.avatar.raised {
+	/*
+	 * UX-AV-5: raise-hand "stretches the A/V slot's corner like a hand being
+	 * raised and makes the corner glow". It was a plain ring around the whole
+	 * tile — the glow without the gesture. The skin's top-left corner now
+	 * elongates while the glow stays.
+	 */
+	.avatar.raised .skin {
+		border-top-left-radius: 4px;
+		scale: 1.06;
+		transform-origin: top left;
 		box-shadow:
 			0 0 0 3px var(--accent),
-			0 0 16px var(--accent);
+			0 0 18px var(--accent);
+		transition:
+			scale 180ms ease,
+			border-top-left-radius 180ms ease;
 	}
 	/* Bounce/spin use the standalone translate/rotate properties, which compose
 	   with the positioning transform rather than overriding it. */
@@ -353,6 +369,31 @@
 	}
 	.avatar.spin {
 		animation: emote-spin 0.7s linear 1;
+	}
+	/* UX-AV-4's "laying down" — it had a floating glyph but no animation, so
+	   boredom was the one emote with nothing to see. Uses the standalone
+	   `rotate`/`translate` properties like its siblings, so it composes with
+	   the positioning transform instead of overwriting it. */
+	.avatar.bored {
+		animation: emote-bored 1.4s ease-in-out 1;
+	}
+	@keyframes emote-bored {
+		0% {
+			rotate: 0deg;
+			translate: 0 0;
+		}
+		25% {
+			rotate: -78deg;
+			translate: -6px 10px;
+		}
+		75% {
+			rotate: -78deg;
+			translate: -6px 10px;
+		}
+		100% {
+			rotate: 0deg;
+			translate: 0 0;
+		}
 	}
 	@keyframes emote-bounce {
 		0%,
