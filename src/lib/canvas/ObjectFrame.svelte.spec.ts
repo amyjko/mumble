@@ -48,7 +48,8 @@ function harness(dragged: CanvasObject, obstacle: CanvasObject | null) {
 			sync,
 			viewport,
 			identity: { id: ACTOR, name: 'tester', emoji: '🐢' },
-			obstacles: () => (obstacle === null ? [] : [shapeOfObject(obstacle)])
+			obstacles: () => (obstacle === null ? [] : [shapeOfObject(obstacle)]),
+			onFullscreen: () => {}
 		}
 	};
 }

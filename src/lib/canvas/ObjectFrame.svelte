@@ -6,9 +6,7 @@
 	import { resolveMove } from './geometry';
 	import { canDelete, canEdit } from '$lib/model/permissions';
 	import { shapeOfObject } from '$lib/store/memory-store.svelte';
-	import NoteObject from '$lib/objects/NoteObject.svelte';
-	import TimerObject from '$lib/objects/TimerObject.svelte';
-	import ChatObject from '$lib/objects/ChatObject.svelte';
+	import ObjectContent from '$lib/objects/ObjectContent.svelte';
 	import { displayMs, formatMs } from '$lib/model/timer';
 
 	interface Props {
@@ -19,9 +17,11 @@
 		identity: StoredIdentity;
 		/** Current occupancy for the solver, excluding this object. */
 		obstacles: () => SolverShape[];
+		/** Per-viewer fullscreen request (UX-CANVAS-4) — local, never synced. */
+		onFullscreen: (id: string) => void;
 	}
 
-	let { object, store, sync, viewport, identity, obstacles }: Props = $props();
+	let { object, store, sync, viewport, identity, obstacles, onFullscreen }: Props = $props();
 	const actorId = $derived(identity.id);
 
 	const editable = $derived(canEdit(object, actorId, false));
@@ -140,6 +140,11 @@
 			event.preventDefault();
 			return;
 		}
+		if (event.key === 'f' || event.key === 'F') {
+			onFullscreen(object.id);
+			event.preventDefault();
+			return;
+		}
 		if (!editable) return;
 		const step = event.shiftKey ? 1 : 16;
 		let dx = 0;
@@ -224,15 +229,18 @@
 	onfocus={onFocus}
 >
 	<div class="content" style:border-radius={innerRadius}>
-		<!-- Dispatch on the discriminated union (AR-CANVAS-3). -->
-		{#if object.type === 'note'}
-			<NoteObject {object} {sync} {editable} onexit={exitToFrame} />
-		{:else if object.type === 'timer'}
-			<TimerObject {object} {sync} {editable} />
-		{:else if object.type === 'chat'}
-			<ChatObject {object} {sync} {identity} onexit={exitToFrame} />
-		{/if}
+		<ObjectContent {object} {sync} {editable} {identity} onexit={exitToFrame} />
 	</div>
+	<button
+		class="fullscreen"
+		aria-label="Fill screen with this object"
+		onpointerdown={(e) => {
+			e.stopPropagation();
+		}}
+		onclick={() => {
+			onFullscreen(object.id);
+		}}>⛶</button
+	>
 	{#if deletable}
 		<button
 			class="delete"
@@ -275,22 +283,30 @@
 		height: 100%;
 		overflow: hidden;
 	}
+	.fullscreen,
 	.delete {
 		position: absolute;
 		top: calc(-1 * var(--space-3));
-		right: calc(-1 * var(--space-3));
 		width: var(--target-min);
 		height: var(--target-min);
 		border-radius: var(--radius-full);
 		border: none;
 		background: var(--text);
 		color: var(--surface);
-		font-size: var(--text-md);
+		font-size: var(--text-sm);
 		line-height: 1;
 		cursor: pointer;
 		opacity: 0;
 		transition: opacity 120ms;
 	}
+	.fullscreen {
+		left: calc(-1 * var(--space-3));
+	}
+	.delete {
+		right: calc(-1 * var(--space-3));
+	}
+	.frame:hover .fullscreen,
+	.frame:focus-within .fullscreen,
 	.frame:hover .delete,
 	.frame:focus-within .delete {
 		opacity: 1;

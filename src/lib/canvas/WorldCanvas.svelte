@@ -8,6 +8,7 @@
 	import type { Bounds } from './geometry';
 	import ObjectFrame from './ObjectFrame.svelte';
 	import AvatarTile from './AvatarTile.svelte';
+	import ObjectContent from '$lib/objects/ObjectContent.svelte';
 
 	interface Props {
 		store: RoomStore;
@@ -25,6 +26,13 @@
 	});
 
 	const roomBg = $derived(store.state.background === '' ? 'var(--bg-canvas)' : store.state.background);
+
+	// Per-viewer fullscreen (UX-CANVAS-4): local view state, never synced.
+	let fullscreenId = $state<string | null>(null);
+	function focusOnMount(node: HTMLElement): void {
+		node.focus();
+	}
+	const fullscreenObject = $derived(fullscreenId === null ? null : (store.state.objects[fullscreenId] ?? null));
 
 	const objects = $derived(Object.values(store.state.objects));
 	const participants = $derived(Object.values(store.state.participants));
@@ -204,6 +212,9 @@
 				{viewport}
 				{identity}
 				obstacles={obstaclesFor(object.id)}
+				onFullscreen={(id: string) => {
+					fullscreenId = id;
+				}}
 			/>
 		{/each}
 		{#each participants as participant (participant.id)}
@@ -222,6 +233,33 @@
 			⤢ auto-fit {viewport.autoZoom ? 'on' : 'off'}
 		</button>
 	</div>
+
+	{#if fullscreenObject !== null}
+		<!-- Fullscreen overlay (UX-CANVAS-4): per-viewer, mutates nothing shared.
+		     Escape or the close button restores the prior view. -->
+		<div
+			class="fullscreen-overlay"
+			role="dialog"
+			aria-modal="true"
+			aria-label="Fullscreen object"
+			tabindex="-1"
+			use:focusOnMount
+			onkeydown={(e) => {
+				if (e.key === 'Escape') fullscreenId = null;
+			}}
+		>
+			<button class="fs-close" aria-label="Exit fullscreen" onclick={() => (fullscreenId = null)}>✕ close</button>
+			<div class="fs-content">
+				<ObjectContent
+					object={fullscreenObject}
+					{sync}
+					editable={fullscreenObject.creator_id === identity.id || fullscreenObject.permission === 'all'}
+					{identity}
+					onexit={() => (fullscreenId = null)}
+				/>
+			</div>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -280,5 +318,33 @@
 		background: var(--accent);
 		color: var(--accent-contrast);
 		border-color: var(--accent);
+	}
+	.fullscreen-overlay {
+		position: absolute;
+		inset: 0;
+		z-index: 20000;
+		display: flex;
+		flex-direction: column;
+		background: var(--bg-canvas);
+	}
+	.fs-close {
+		align-self: flex-end;
+		margin: var(--space-3);
+		min-height: var(--target-min);
+		padding: var(--space-1) var(--space-3);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		background: var(--surface);
+		color: var(--text);
+		font: var(--text-sm) var(--font-ui);
+		cursor: pointer;
+	}
+	.fs-content {
+		flex: 1;
+		min-height: 0;
+		margin: 0 var(--space-6) var(--space-6);
+		border-radius: var(--radius-lg);
+		overflow: hidden;
+		box-shadow: var(--shadow-2);
 	}
 </style>
