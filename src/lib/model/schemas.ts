@@ -201,8 +201,17 @@ export const layoutSchema = z.object({
 	hidden: z.boolean().default(false)
 });
 
+export const pointSchema = z.object({ x: z.number(), y: z.number() });
+
 export const configSnapshotSchema = z.object({
 	layouts: z.record(z.uuid(), layoutSchema),
+	/**
+	 * The configuration's drop-in point (UX-AV-2): where a participant appears
+	 * when they have no remembered location HERE. A draggable marker, not an
+	 * object — the glossary is explicit about that, and it matters: a marker
+	 * holds no space, takes no permission, and cannot be deleted like content.
+	 */
+	default_location: pointSchema.default({ x: 0, y: 0 }),
 	/** UX-STAGE-1: the numbers belong to the configuration, not the room. */
 	capacity: capacitySchema.default({ max_participants: 20, max_av: 4, max_audio: 8 }),
 	background: z.string(),
@@ -245,6 +254,18 @@ export const roomStateSchema = z.object({
 	transport: z.enum(['p2p', 'promoting', 'sfu', 'demoting']).default('p2p'),
 	/** UX-OBJ-8's room default. New objects inherit it; each may override. */
 	border_default: z.number().nonnegative().max(40).default(DEFAULT_BORDER_WIDTH),
+	/**
+	 * Remembered placement, keyed (participant, configuration) — AR-CTRL-6's
+	 * triple minus room_id, which the store already scopes.
+	 *
+	 * Separate from both objects and the stage, deliberately: capacity is a
+	 * count, placement is a coordinate, and fusing them is what made arrival
+	 * order decide who could speak. Keyed per configuration so your spot in
+	 * "Standup" never leaks into "Retro" (UX-AV-9).
+	 */
+	participant_locations: z.record(z.string(), pointSchema).default({}),
+	/** The live default location; a configuration switch re-applies its own. */
+	default_location: pointSchema.default({ x: 0, y: 0 }),
 	configurations: z.record(z.uuid(), configurationSchema).default({}),
 	active_config: z.uuid().nullable().default(null)
 });
@@ -304,6 +325,8 @@ export const mutationSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('grant_slot'), id: z.uuid(), media: slotMediaSchema }),
 	z.object({ kind: z.literal('revoke_slot'), id: z.uuid(), media: slotMediaSchema }),
 	z.object({ kind: z.literal('set_capacity'), capacity: capacitySchema }),
+	/** Hosts position the drop-in point like any other element (UX-AV-2). */
+	z.object({ kind: z.literal('set_default_location'), location: pointSchema }),
 	z.object({ kind: z.literal('set_away'), id: z.uuid(), away: z.boolean() }),
 	// Change your own name or camera-off face (UX-ID-1, UX-AV-3). Self-only:
 	// your identity is yours, the same rule that governs emotes (UX-AV-7).

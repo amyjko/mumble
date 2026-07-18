@@ -898,3 +898,99 @@ describe('the stage, through the store (UX-STAGE, AR-CTRL-2)', () => {
 		expect(store.state.video_holders).toEqual([]); // trimmed, not left over-cap
 	});
 });
+
+describe('placement: remembered, default, nearest legal (AR-CTRL-4/6, UX-AV-2/9)', () => {
+	it('a first visit lands on the configuration default, not the origin', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		await store.commit({ kind: 'set_default_location', location: { x: 300, y: 200 } });
+		await store.commit({ kind: 'upsert_participant', participant: person(ALICE) });
+		expect(store.state.participants[ALICE]?.location).toEqual({ x: 300, y: 200 });
+	});
+
+	it('a return visit lands where you last were, not the default', async () => {
+		const room = `r${String(Math.random())}`;
+		const store = makeStore(room, ALICE);
+		await store.commit({ kind: 'set_default_location', location: { x: 300, y: 200 } });
+		await store.commit({ kind: 'upsert_participant', participant: person(ALICE) });
+		await store.commit({ kind: 'move_participant', id: ALICE, location: { x: 800, y: 40 } });
+		await store.commit({ kind: 'remove_participant', id: ALICE });
+
+		// Rejoin: remembered beats default (UX-AV-9).
+		await store.commit({ kind: 'upsert_participant', participant: person(ALICE) });
+		expect(store.state.participants[ALICE]?.location).toEqual({ x: 800, y: 40 });
+	});
+
+	it('a remembered spot is RE-VALIDATED, not trusted', async () => {
+		// AR-CTRL-4 is explicit: the layout may have changed since, so an
+		// illegal remembered spot falls through to the same search rather than
+		// dropping someone on top of content.
+		const room = `r${String(Math.random())}`;
+		const store = makeStore(room, ALICE);
+		await store.commit({ kind: 'upsert_participant', participant: person(ALICE) });
+		await store.commit({ kind: 'move_participant', id: ALICE, location: { x: 600, y: 0 } });
+		await store.commit({ kind: 'remove_participant', id: ALICE });
+
+		// Someone parks a note exactly there while she is away.
+		await store.commit({ kind: 'create_object', object: note(ALICE, 600) });
+
+		await store.commit({ kind: 'upsert_participant', participant: person(ALICE) });
+		const back = store.state.participants[ALICE];
+		expect(back).toBeDefined();
+		if (back === undefined) return;
+		// She is somewhere legal, and not on top of the note.
+		expect(back.location).not.toEqual({ x: 600, y: 0 });
+	});
+
+	it('memory is keyed PER CONFIGURATION, so Standup does not leak into Retro', async () => {
+		// UX-AV-9's exact claim, and the reason the key is a pair rather than
+		// just a participant id.
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		await store.commit({ kind: 'upsert_participant', participant: person(ALICE) });
+
+		const standup = uuid();
+		await store.commit({ kind: 'save_config', id: standup, name: 'Standup' });
+		await store.commit({ kind: 'move_participant', id: ALICE, location: { x: 100, y: 100 } });
+
+		const retro = uuid();
+		await store.commit({ kind: 'save_config', id: retro, name: 'Retro' });
+		await store.commit({ kind: 'move_participant', id: ALICE, location: { x: 700, y: 500 } });
+
+		// Switching re-places people by the same rule (AR-CTRL-4 reads locations
+		// at entry AND on switch — nothing did the latter before).
+		await store.commit({ kind: 'switch_config', id: standup });
+		expect(store.state.participants[ALICE]?.location).toEqual({ x: 100, y: 100 });
+
+		await store.commit({ kind: 'switch_config', id: retro });
+		expect(store.state.participants[ALICE]?.location).toEqual({ x: 700, y: 500 });
+	});
+
+	it('a configuration carries its own drop-in point', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		await store.commit({ kind: 'set_default_location', location: { x: 50, y: 50 } });
+		const near = uuid();
+		await store.commit({ kind: 'save_config', id: near, name: 'Near' });
+
+		await store.commit({ kind: 'set_default_location', location: { x: 900, y: 900 } });
+		const far = uuid();
+		await store.commit({ kind: 'save_config', id: far, name: 'Far' });
+
+		await store.commit({ kind: 'switch_config', id: near });
+		expect(store.state.default_location).toEqual({ x: 50, y: 50 });
+		await store.commit({ kind: 'switch_config', id: far });
+		expect(store.state.default_location).toEqual({ x: 900, y: 900 });
+	});
+
+	it('arriving never displaces anyone (UX-AV-2)', async () => {
+		// Two people whose default is the same spot: the second is placed
+		// nearby, and the first does not move.
+		const room = `r${String(Math.random())}`;
+		const store = makeStore(room, ALICE);
+		await store.commit({ kind: 'set_default_location', location: { x: 400, y: 400 } });
+		await store.commit({ kind: 'upsert_participant', participant: person(ALICE) });
+		const first = { ...(store.state.participants[ALICE]?.location ?? { x: 0, y: 0 }) };
+
+		await store.commit({ kind: 'upsert_participant', participant: person(BOB) });
+		expect(store.state.participants[ALICE]?.location).toEqual(first);
+		expect(store.state.participants[BOB]?.location).not.toEqual(first);
+	});
+});

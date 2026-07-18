@@ -12,6 +12,7 @@
 	import { simplify, strokeBounds, normalizePoints, pointsToPath } from '$lib/model/drawing';
 	import type { Bounds } from './geometry';
 	import ObjectFrame from './ObjectFrame.svelte';
+	import DefaultLocation from './DefaultLocation.svelte';
 	import AvatarTile from './AvatarTile.svelte';
 	import ObjectContent from '$lib/objects/ObjectContent.svelte';
 	import Button from '$lib/ui/Button.svelte';
@@ -318,6 +319,11 @@
 		class:animated={viewport.animating}
 		style:transform="translate({viewport.camera.x}px, {viewport.camera.y}px) scale({viewport.camera.scale})"
 	>
+		<!-- The configuration's drop-in point (UX-AV-2). In the world layer so it
+		     pans and scales with content, but it is a marker, not an object: it
+		     holds no space and is not part of any object layout. -->
+		<DefaultLocation {store} {sync} {viewport} />
+
 		{#each rendered as object (object.id)}
 			<ObjectFrame
 				{object}

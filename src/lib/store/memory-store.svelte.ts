@@ -35,11 +35,11 @@ import {
 	unmutedAudio,
 	type StageState
 } from '$lib/model/stage';
-import type { Clip, SolverShape } from '$lib/model/types';
+import type { Clip, Point, SolverShape } from '$lib/model/types';
 import type { RoomStore } from './room-store';
 
 function freshState(): RoomState {
-	return { objects: {}, participants: {}, background: '', title: '', description: '', create_permission: 'all', border_default: DEFAULT_BORDER_WIDTH, ...freshStage(), transport: 'p2p', configurations: {}, active_config: null };
+	return { objects: {}, participants: {}, background: '', title: '', description: '', create_permission: 'all', border_default: DEFAULT_BORDER_WIDTH, ...freshStage(), transport: 'p2p', participant_locations: {}, default_location: { x: 0, y: 0 }, configurations: {}, active_config: null };
 }
 
 /**
@@ -385,9 +385,8 @@ export class MemoryRoomStore implements RoomStore {
 				if (!admits(this.stage(), present, already)) {
 					throw new StoreRejection('permission', 'This room is full');
 				}
-				const spot = nearestLegal(shapeOfParticipant(m.participant), this.shapes(m.participant.id));
-				const participant: Participant = { ...m.participant, location: spot };
-				this.state.participants[participant.id] = participant;
+				const located: Participant = { ...m.participant, location: this.entryLocation(m.participant) };
+				this.state.participants[located.id] = located;
 				break;
 			}
 			case 'move_participant': {
@@ -398,6 +397,9 @@ export class MemoryRoomStore implements RoomStore {
 					throw new StoreRejection('overlap', 'That placement overlaps content');
 				}
 				existing.location = m.location;
+				// AR-CTRL-6: remembered placement is written on drop, keyed per
+				// configuration, so it can be read back on entry and on switch.
+				this.state.participant_locations[this.locationKey(m.id)] = { ...m.location };
 				break;
 			}
 			case 'remove_participant': {
@@ -477,6 +479,11 @@ export class MemoryRoomStore implements RoomStore {
 				this.applyStage(revokeSlot(this.stage(), m.id, m.media));
 				break;
 			}
+			case 'set_default_location': {
+				this.requireHostForRoom();
+				this.state.default_location = m.location;
+				break;
+			}
 			case 'set_capacity': {
 				this.requireHostForRoom();
 				this.applyStage(applyCapacity(this.stage(), m.capacity));
@@ -546,6 +553,12 @@ export class MemoryRoomStore implements RoomStore {
 				if (config === undefined) throw new StoreRejection('invalid', 'Unknown configuration');
 				this.state.active_config = m.id;
 				this.applySnapshot(config.snapshot);
+				// AR-CTRL-4 says locations are read at entry AND on configuration
+				// switch, which nothing did before: people simply stayed where the
+				// previous layout had put them. Now everyone is re-placed by the
+				// same three-step rule, so a configuration genuinely restores where
+				// people were IN IT (UX-AV-9) rather than only where objects were.
+				this.replaceEveryone();
 				break;
 			}
 			case 'reset_config': {
@@ -598,6 +611,7 @@ export class MemoryRoomStore implements RoomStore {
 			// Capacity is per-configuration (UX-STAGE-1), so it travels with the
 			// snapshot and is re-applied on switch (AR-MEDIA-1).
 			capacity: { ...this.state.capacity },
+			default_location: { ...this.state.default_location },
 			background: this.state.background,
 			title: this.state.title,
 			description: this.state.description
@@ -616,9 +630,49 @@ export class MemoryRoomStore implements RoomStore {
 		// queue. Routing through applyCapacity means switch and reset get that
 		// for free rather than each reimplementing it.
 		this.applyStage(applyCapacity(this.stage(), snapshot.capacity));
+		this.state.default_location = { ...snapshot.default_location };
 		this.state.background = snapshot.background;
 		this.state.title = snapshot.title;
 		this.state.description = snapshot.description;
+	}
+
+	/** Key for AR-CTRL-6's table. room_id is implicit: this store IS one room. */
+	private locationKey(participantId: string): string {
+		return `${participantId}:${this.state.active_config ?? 'none'}`;
+	}
+
+	/**
+	 * Where someone appears on entry (AR-CTRL-4), in the order the requirement
+	 * states: remembered location for THIS configuration → the configuration's
+	 * default location → the nearest legal position (UX-OBJ-12).
+	 *
+	 * Only the third step existed before; a participant simply arrived wherever
+	 * the caller suggested. The first two are what make UX-AV-2's "arriving
+	 * never displaces anyone" and UX-AV-9's per-configuration memory true.
+	 *
+	 * A remembered location is RE-VALIDATED, not trusted: the layout may have
+	 * changed since, so an illegal remembered spot falls through to the same
+	 * search rather than dropping someone on top of content.
+	 */
+	private entryLocation(participant: Participant): Point {
+		const remembered = this.state.participant_locations[this.locationKey(participant.id)];
+		const preferred = remembered ?? this.state.default_location;
+		const shape = { ...shapeOfParticipant(participant), x: preferred.x, y: preferred.y };
+		return nearestLegal(shape, this.shapes(participant.id));
+	}
+
+	/**
+	 * Re-place every participant for the now-active configuration. Ordered by
+	 * id so the result does not depend on object iteration order, and each
+	 * person is excluded from their own obstacle set so they can land on the
+	 * spot they are already standing in.
+	 */
+	private replaceEveryone(): void {
+		for (const id of Object.keys(this.state.participants).sort()) {
+			const participant = this.state.participants[id];
+			if (participant === undefined) continue;
+			participant.location = this.entryLocation(participant);
+		}
 	}
 
 	private requireParticipant(id: string): Participant {
