@@ -1,0 +1,17 @@
+# pnpm 11 settings live HERE, not in .npmrc (which is auth/registry only in v11+).
+
+# AR-STACK-4: supply-chain cooldown. pnpm 11 defaults to 1440 (24h); 7 days is a
+# better match for real detection windows. This has a real cost — it means we are
+# deliberately always ~a week behind on releases. That is the feature.
+minimumReleaseAge: 10080
+
+# Build scripts are blocked by default in pnpm 11 (strictDepBuilds). Note this is
+# `allowBuilds` (a map) — v10's `onlyBuiltDependencies` list is the old spelling.
+# These three are load-bearing, not optional:
+#   workerd — the Workers runtime; `pnpm preview` / wrangler cannot run without it
+#   esbuild — Vite's transform pipeline
+#   sharp   — image processing
+allowBuilds:
+  esbuild: true
+  sharp: true
+  workerd: true
