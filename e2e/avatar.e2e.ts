@@ -75,7 +75,17 @@ test('avatar: raised hand and away are prominent badges', async ({ page }) => {
 	const room = `avatar-badge-${Date.now().toString(36)}`;
 	await joinRoom(page, room);
 
-	await page.getByRole('button', { name: 'Raise hand' }).click();
+	// The room has to be CONTENDED for a raised hand to exist at all: raising
+	// is queueing (UX-AV-6), and with a slot free you are promoted into it
+	// immediately rather than left waiting. So remove every slot first.
+	await page.getByRole('button', { name: /^stage/ }).click();
+	for (const field of ['Video slots', 'Audio slots']) {
+		await page.getByRole('textbox', { name: field }).fill('0');
+		await page.getByRole('textbox', { name: field }).blur();
+	}
+	await page.keyboard.press('Escape');
+
+	await page.getByRole('button', { name: 'Raise hand to queue' }).click();
 	const hand = page.getByRole('img', { name: 'hand raised' });
 	await expect(hand).toBeVisible();
 	// Large enough to read at a glance, not a corner tick.

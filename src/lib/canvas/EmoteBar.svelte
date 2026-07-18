@@ -92,7 +92,7 @@
 			? 'Turn camera off (frees a video slot)'
 			: videoFree > 0
 				? `Turn camera on (${String(videoFree)} of ${String(counts.video.max)} video slots free)`
-				: 'No video slots free — raise your hand to queue'}
+				: 'Turn camera on — no video slots free'}
 		onclick={() => {
 			void sync.commit({
 				kind: hasVideo ? 'release_slot' : 'take_slot',

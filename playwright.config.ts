@@ -16,9 +16,14 @@ export default defineConfig({
 		// A cold `wrangler types` + `vite build` + workerd start comfortably
 		// exceeds Playwright's 60s default on a CI runner.
 		timeout: 180_000,
-		// Locally, reuse a preview server that is already up; in CI always start
-		// clean so a stale process can never serve an old bundle.
-		reuseExistingServer: !ci
+		// NEVER reuse, even locally. The command BUILDS before serving, so
+		// reusing a running server silently skips the rebuild and tests the
+		// previous bundle. That is not hypothetical: it reported two green
+		// full-suite runs against code that had already changed, and CI — where
+		// reuse was already off — caught the failure I had just been told did
+		// not exist. A ~10s rebuild is worth never again wondering whether a
+		// green run meant anything.
+		reuseExistingServer: false
 	},
 	testMatch: '**/*.e2e.{ts,js}',
 	// Chromium only: AR-TEST-9's fake media devices are unsupported on WebKit,
