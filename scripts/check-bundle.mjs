@@ -31,7 +31,7 @@ function parseLimit(argv) {
 	const raw = argv[at + 1];
 	const value = Number(raw);
 	if (!Number.isFinite(value) || value <= 0) {
-		console.error(`check-bundle: --limit-kib needs a positive number, got ${String(raw)}`);
+		console.error(`check-bundle: --limit-kib needs a positive number, got ${raw}`);
 		process.exit(2);
 	}
 	return value;

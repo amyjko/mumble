@@ -23,13 +23,16 @@ export default defineConfig(
 			globals: { ...globals.browser, ...globals.node },
 			parserOptions: {
 				projectService: {
-					// Files no tsconfig claims — config and build scripts. Type-aware
-					// linting still applies to them; they just have no project.
+					// Config and build scripts, which no app tsconfig claims. They get
+					// tsconfig.node.json so `process` and node: imports resolve — the
+					// root tsconfig's explicit `types` array excludes @types/node,
+					// which is right for app code (workerd, not Node) and wrong here.
 					allowDefaultProject: [
 						'eslint.config.js',
 						'playwright.config.ts',
 						'scripts/*.mjs'
-					]
+					],
+					defaultProject: 'tsconfig.node.json'
 				},
 				tsconfigRootDir: import.meta.dirname
 			}

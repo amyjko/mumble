@@ -1,0 +1,28 @@
+{
+	// The project for files that run in NODE rather than in the app: the eslint
+	// config, the Playwright config, and build scripts.
+	//
+	// They need their own tsconfig because the root one sets
+	// `"types": ["./worker-configuration.d.ts"]` — an explicit list, which
+	// therefore EXCLUDES @types/node. That is correct for app code (it runs in
+	// workerd, not Node) and wrong for these files, which legitimately use
+	// `process`, `node:path`, and `node:child_process`.
+	//
+	// Referenced from eslint.config.js as projectService.defaultProject, so
+	// type-aware linting applies to them with the right globals instead of
+	// resolving everything to `any` and firing no-unsafe-* on the whole file.
+	"compilerOptions": {
+		"types": ["node"],
+		"lib": ["esnext"],
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"target": "esnext",
+		"allowJs": true,
+		"checkJs": false,
+		"strict": true,
+		"noEmit": true,
+		"esModuleInterop": true,
+		"skipLibCheck": true
+	},
+	"include": ["eslint.config.js", "playwright.config.ts", "scripts/**/*.mjs"]
+}

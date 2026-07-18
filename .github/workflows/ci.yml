@@ -36,6 +36,18 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # MUST precede lint. tsconfig.json extends .svelte-kit/tsconfig.json,
+      # which is GENERATED — without it every type resolves to `any` and the
+      # no-unsafe-* rules fire on the entire codebase (1923 errors, reproduced
+      # locally by deleting .svelte-kit). The `prepare` hook does run this on
+      # install, but it ends in `|| echo ''` and so swallows its own failure;
+      # relying on a step that cannot report failing is how this stayed
+      # invisible until CI existed.
+      - name: Generate framework types
+        run: |
+          pnpm exec svelte-kit sync
+          pnpm exec wrangler types
+
       # Ordered cheapest-first (TESTING.md §12) so the fastest signal fails
       # first: seconds of linting before minutes of browsers.
       - name: Lint (the TypeScript norms gate)
