@@ -1,5 +1,8 @@
 /**
- * The emote vocabulary (UX-AV-4/5), in one place.
+ * The emote vocabulary (UX-AV-4/5), in one place — and the source of truth
+ * DESIGN.md's UX-AV-4 now enumerates. `heart` and `laugh` shipped here before
+ * the requirement listed them; rather than delete working emotes or leave the
+ * drift, UX-AV-4 was amended to match (2026-07-18).
  *
  * The six-name union used to be written out longhand in three files
  * (schemas.ts, sync-client, AvatarTile), so adding an emote meant editing all
