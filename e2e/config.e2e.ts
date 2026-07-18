@@ -9,7 +9,7 @@ test('config: save layout, move object, switch back restores position', async ({
 	const worldX = () => frame.evaluate((el) => (el instanceof HTMLElement ? el.style.transform : ''));
 
 	// Save current layout as a configuration.
-	await page.getByText('configs', { exact: true }).click();
+	await page.getByRole('button', { name: /configs/ }).click();
 	await page.getByRole('textbox', { name: 'Configuration name' }).fill('Start');
 	await page.getByRole('button', { name: 'save', exact: true }).click();
 	const saved = await worldX();

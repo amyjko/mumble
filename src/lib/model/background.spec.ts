@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BACKGROUND_PRESETS, isSafeBackground } from './background';
+import { BACKGROUND_LEVELS, isSafeBackground } from './background';
 
 describe('isSafeBackground (UX-CANVAS-5 injection guard)', () => {
 	it('accepts colors, gradients, and tokens', () => {
@@ -29,7 +29,30 @@ describe('isSafeBackground (UX-CANVAS-5 injection guard)', () => {
 		}
 	});
 
-	it('every shipped preset is itself safe', () => {
-		for (const p of BACKGROUND_PRESETS) expect(isSafeBackground(p.value), p.name).toBe(true);
+	it('every shipped brightness level is itself safe', () => {
+		for (const level of BACKGROUND_LEVELS) expect(isSafeBackground(level.value), level.name).toBe(true);
+	});
+});
+
+describe('BACKGROUND_LEVELS (the brightness ramp users pick from)', () => {
+	it('offers the room default plus one entry per ramp token', () => {
+		expect(BACKGROUND_LEVELS[0]?.value).toBe('');
+		const levels = BACKGROUND_LEVELS.slice(1);
+		expect(levels).toHaveLength(5);
+		levels.forEach((level, i) => {
+			expect(level.value).toBe(`var(--bg-level-${String(i + 1)})`);
+		});
+	});
+
+	it('names carry the ORDER, so the choice is not color-only', () => {
+		// A picker made of near-identical shades cannot rely on appearance to
+		// convey rank (WCAG 1.4.1) — and the old names (Dawn, Spotlight) carried
+		// no order at all. Every level names its position.
+		const levels = BACKGROUND_LEVELS.slice(1);
+		levels.forEach((level, i) => {
+			expect(level.name).toContain(String(i + 1));
+		});
+		expect(levels[0]?.name).toContain('dimmest');
+		expect(levels[4]?.name).toContain('brightest');
 	});
 });

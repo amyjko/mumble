@@ -10,14 +10,19 @@ test('background: a preset chosen in A applies and syncs to B', async ({ browser
 	await a.goto(`/hey/${room}`);
 	const canvasA = a.getByRole('application', { name: 'Room canvas' });
 	await expect(canvasA).toBeVisible();
-	const before = await canvasA.evaluate((el) => getComputedStyle(el).backgroundImage);
+	const before = await canvasA.evaluate((el) => getComputedStyle(el).backgroundColor);
 
-	await a.getByRole('group').getByText('background').click(); // open <details>
-	await a.getByRole('button', { name: 'Dawn' }).click();
+	// Popover trigger (was a <details><summary>), then a brightness level
+	// (the named presets Paper/Slate/Dawn/Spotlight are gone — they named
+	// nothing rankable, see BACKGROUND_LEVELS).
+	await a.getByRole('button', { name: /background/ }).click();
+	await a.getByRole('button', { name: 'Brightness 5, brightest' }).click();
 
-	// The canvas background changed (a gradient is now applied).
+	// backgroundCOLOR, not backgroundImage: the ramp is solid colors. The old
+	// presets were gradients, which is the only reason the image property was
+	// the right thing to watch before.
 	await expect
-		.poll(async () => canvasA.evaluate((el) => getComputedStyle(el).backgroundImage))
+		.poll(async () => canvasA.evaluate((el) => getComputedStyle(el).backgroundColor))
 		.not.toBe(before);
 
 	// A second viewer sees the same room background.
@@ -25,7 +30,7 @@ test('background: a preset chosen in A applies and syncs to B', async ({ browser
 	const canvasB = b.getByRole('application', { name: 'Room canvas' });
 	await expect(canvasB).toBeVisible();
 	await expect
-		.poll(async () => canvasB.evaluate((el) => getComputedStyle(el).backgroundImage))
+		.poll(async () => canvasB.evaluate((el) => getComputedStyle(el).backgroundColor))
 		.not.toBe(before);
 
 	await context.close();

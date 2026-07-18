@@ -11,7 +11,9 @@ test('raise hand persists and syncs; a peer cannot toggle it', async ({ browser 
 	await expect(a.getByRole('application', { name: 'Room canvas' })).toBeVisible();
 	// A raises hand via its own avatar's emote menu.
 	await a.locator('.avatar').first().hover();
-	await a.getByRole('button', { name: 'Emote' }).click();
+	// exact: the room-menu trigger is now a button named after the room,
+	// and room names in this suite start with 'emote-'.
+	await a.getByRole('button', { name: 'Emote', exact: true }).click();
 	await a.getByRole('button', { name: '✋ hand' }).click();
 	await expect(a.locator('.avatar.raised')).toHaveCount(1);
 
