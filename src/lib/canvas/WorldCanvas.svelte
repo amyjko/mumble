@@ -16,6 +16,7 @@
 	import ObjectContent from '$lib/objects/ObjectContent.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import { canEdit, canSee } from '$lib/model/permissions';
+	import { untrack } from 'svelte';
 
 	interface Props {
 		store: RoomStore;
@@ -92,6 +93,40 @@
 			...participants.filter((p) => p.id !== excludeId).map(shapeOfParticipant)
 		];
 	}
+
+	/**
+	 * Announce what OTHER people do (UX-A11Y-3).
+	 *
+	 * Only your own creations and deletions were announced, so a screen-reader
+	 * user had no idea the room was changing around them — objects appeared and
+	 * vanished silently. Remote changes arrive in the full-state broadcast
+	 * rather than as ephemeral messages, so they have to be found by diffing
+	 * successive snapshots; there is no event to listen to.
+	 *
+	 * Deliberately skips your own changes (already announced at the point of
+	 * action, with better wording) and stays silent on the FIRST snapshot,
+	 * which would otherwise read out the entire room on arrival.
+	 */
+	let seen: Map<string, { type: string; creator: string }> | null = null;
+	$effect(() => {
+		const current = new Map(objects.map((o) => [o.id, { type: o.type, creator: o.creator_id }]));
+		untrack(() => {
+			const previous = seen;
+			seen = current;
+			if (previous === null) return; // first load: describe nothing
+			const nameOf = (id: string): string => store.state.participants[id]?.name ?? 'Someone';
+			for (const [id, info] of current) {
+				if (!previous.has(id) && info.creator !== identity.id) {
+					sync.announce(`${nameOf(info.creator)} added a ${info.type}`);
+				}
+			}
+			for (const [id, info] of previous) {
+				if (!current.has(id) && info.creator !== identity.id) {
+					sync.announce(`${nameOf(info.creator)}'s ${info.type} was deleted`);
+				}
+			}
+		});
+	});
 
 	/** Auto-zoom (UX-CANVAS-3): recompute while engaged, on content/size change. */
 	$effect(() => {

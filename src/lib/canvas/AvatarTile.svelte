@@ -183,6 +183,60 @@
 
 	function onKeyDown(event: KeyboardEvent): void {
 		if (event.target !== event.currentTarget) return;
+
+		/*
+		 * Keyboard parity with objects (UX-A11Y-2): "everything the pointer does
+		 * can be done from the keyboard". Avatars gained pointer resize, rotate
+		 * and reshape when they became canvas objects, and the keyboard was left
+		 * behind — so those three were pointer-only, which is exactly the gap
+		 * the requirement forbids. Same keys as ObjectFrame, so there is one
+		 * vocabulary to learn rather than two.
+		 */
+		if (isSelf && event.altKey && event.key.startsWith('Arrow')) {
+			const g = 16;
+			const min = MIN_AVATAR;
+			const size = {
+				width:
+					event.key === 'ArrowRight'
+						? participant.size.width + g
+						: event.key === 'ArrowLeft'
+							? Math.max(min, participant.size.width - g)
+							: participant.size.width,
+				height:
+					event.key === 'ArrowDown'
+						? participant.size.height + g
+						: event.key === 'ArrowUp'
+							? Math.max(min, participant.size.height - g)
+							: participant.size.height
+			};
+			event.preventDefault();
+			void sync.commit({
+				kind: 'size_participant',
+				id: participant.id,
+				location: { x: effective.x, y: effective.y },
+				size,
+				rotation: participant.rotation
+			});
+			return;
+		}
+		if (isSelf && (event.key === '[' || event.key === ']')) {
+			event.preventDefault();
+			const delta = event.key === '[' ? -15 : 15;
+			void sync.commit({
+				kind: 'size_participant',
+				id: participant.id,
+				location: { x: effective.x, y: effective.y },
+				size: participant.size,
+				rotation: snapRotation(participant.rotation + delta, true)
+			});
+			return;
+		}
+		if (isSelf && (event.key === 'c' || event.key === 'C')) {
+			event.preventDefault();
+			cycleAvatarShape();
+			return;
+		}
+
 		const step = event.shiftKey ? 1 : 16;
 		let dx = 0;
 		let dy = 0;

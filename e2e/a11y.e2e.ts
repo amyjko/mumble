@@ -111,3 +111,68 @@ test('theme persists across reload and applies pre-paint', async ({ page }) => {
 	await page.reload();
 	await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 });
+
+/**
+ * UX-A11Y-2 requires that everything the pointer does can be done from the
+ * keyboard. Avatars gained pointer resize/rotate/reshape when they became
+ * canvas objects and the keyboard was left behind, so those three were
+ * pointer-only — exactly the gap the requirement forbids.
+ */
+test('keyboard: an avatar can be resized, rotated and reshaped without a pointer', async ({ page }) => {
+	await joinRoom(page, `kbdav-${Date.now().toString(36)}`);
+	const avatar = page.locator('.avatar');
+	await avatar.focus();
+
+	const before = await avatar.evaluate((el) => ({
+		w: Math.round(el.getBoundingClientRect().width),
+		transform: el.style.transform
+	}));
+
+	for (let i = 0; i < 4; i++) await page.keyboard.press('Alt+ArrowRight');
+	await expect
+		.poll(async () => avatar.evaluate((el) => Math.round(el.getBoundingClientRect().width)))
+		.toBeGreaterThan(before.w);
+
+	await page.keyboard.press(']');
+	await expect.poll(async () => avatar.evaluate((el) => el.style.transform)).toContain('rotate(15deg)');
+
+	// `c` cycles the clip, same key objects use.
+	await page.keyboard.press('c');
+	await expect(page.getByRole('button', { name: /^Change avatar shape \(currently ellipse/ })).toBeVisible();
+});
+
+/**
+ * Remote changes were silent (UX-A11Y-3): only your own creations and
+ * deletions were announced, so a screen-reader user could not tell the room
+ * was changing around them.
+ */
+test('announcements: another person adding an object is announced', async ({ browser }) => {
+	// ONE context, two identities. Separate contexts would be the natural way
+	// to model two people, but the stub syncs over BroadcastChannel and
+	// localStorage, neither of which crosses a context — so nothing would
+	// reach the other page. Instead both pages share a context (so sync works)
+	// and the second is given its own identity directly, which is what makes
+	// it a different participant.
+	const room = `ann-${Date.now().toString(36)}`;
+	const context = await browser.newContext();
+	const pa = await context.newPage();
+	const pb = await context.newPage();
+
+	await joinRoom(pa, room, 'Amy');
+
+	await pb.goto(`/hey/${room}`);
+	await pb.evaluate(() => {
+		localStorage.setItem(
+			'mumble:identity',
+			JSON.stringify({ id: crypto.randomUUID(), name: 'Bo', emoji: '\u{1F419}' })
+		);
+	});
+	await pb.reload();
+	await expect(pb.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+
+	// Bo adds a note; Amy's live region should say so.
+	await pb.getByRole('button', { name: '+ note' }).click();
+	await expect(pa.locator('.sr-only[aria-live]')).toContainText(/Bo added a note/i, { timeout: 10_000 });
+
+	await context.close();
+});
