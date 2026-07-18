@@ -131,6 +131,13 @@
 		sync.announce('Your name and face were updated');
 	}
 
+	/** UX-OBJ-9: creation permission is a ROOM setting, default all-may-create. */
+	const mayCreate = $derived(store.state.create_permission === 'all');
+	function setCreatePermission(value: 'all' | 'host'): void {
+		void sync.commit({ kind: 'set_room_create_permission', value });
+		sync.announce(value === 'all' ? 'Anyone can add objects' : 'Only hosts can add objects');
+	}
+
 	function setBackground(value: string): void {
 		void sync.commit({ kind: 'set_background', value });
 		sync.announce('Background changed');
@@ -217,6 +224,27 @@
 					saveMeta(store.state.title, description);
 				}}
 			/>
+			<div class="row" role="group" aria-label="Who can add objects">
+				<Button
+					pressed={mayCreate}
+					onclick={() => {
+						setCreatePermission('all');
+					}}>anyone adds</Button
+				>
+				<Button
+					pressed={!mayCreate}
+					onclick={() => {
+						setCreatePermission('host');
+					}}>hosts only</Button
+				>
+			</div>
+			{#if !mayCreate}
+				<!-- Honest about a real consequence: the host role does not exist
+				     yet (AR-CTRL-5), so "hosts only" currently means nobody. -->
+				<p class="problem" role="alert">
+					No one can add objects until the host role exists — switch back to “anyone adds”.
+				</p>
+			{/if}
 			<div class="row">
 				<Field label="New room name" bind:value={renameDraft} placeholder="new-name" />
 				<Button disabled={!renameReady} onclick={renameRoom}>rename</Button>
@@ -242,9 +270,9 @@
 	</Popover>
 
 	<span class="count">{count} here</span>
-	<Button onclick={addNote}>+ note</Button>
-	<Button onclick={addTimer}>+ timer</Button>
-	<Button onclick={addChat}>+ chat</Button>
+	<Button disabled={!mayCreate} onclick={addNote}>+ note</Button>
+	<Button disabled={!mayCreate} onclick={addTimer}>+ timer</Button>
+	<Button disabled={!mayCreate} onclick={addChat}>+ chat</Button>
 
 	<Popover id="config-menu" label="configs" anchor="top-start">
 		<div class="menu">

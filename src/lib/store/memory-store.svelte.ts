@@ -23,7 +23,7 @@ import type { Clip, SolverShape } from '$lib/model/types';
 import type { RoomStore } from './room-store';
 
 function freshState(): RoomState {
-	return { objects: {}, participants: {}, background: '', title: '', description: '', configurations: {}, active_config: null };
+	return { objects: {}, participants: {}, background: '', title: '', description: '', create_permission: 'all', configurations: {}, active_config: null };
 }
 
 /**
@@ -203,6 +203,10 @@ export class MemoryRoomStore implements RoomStore {
 	private apply(m: Mutation): void {
 		switch (m.kind) {
 			case 'create_object': {
+				// UX-OBJ-9: creation is gated by a ROOM setting, before anything
+				// else — placement should not be computed for a create that is
+				// about to be refused.
+				this.requireMayCreate();
 				// Exempt objects land exactly where they were made. Relocating a
 				// just-finished stroke off the ink the user drew was the most
 				// visible symptom of drawings taking part in collision.
@@ -271,6 +275,23 @@ export class MemoryRoomStore implements RoomStore {
 				existing.payload.messages = withNew.slice(-CHAT_LOG_LIMIT);
 				this.droppedChatMessages += withNew.length - existing.payload.messages.length;
 				existing.updated_at = nowIso();
+				break;
+			}
+			case 'set_permission': {
+				const existing = this.requireObject(m.id);
+				// Creator-only, NOT requireEditable: with permission 'all' anyone
+				// can edit an object, and letting them also re-lock it would let a
+				// passer-by take it from its creator.
+				if (existing.creator_id !== this.actorId) {
+					throw new StoreRejection('permission', 'Only the creator can change who may edit this');
+				}
+				existing.permission = m.permission;
+				existing.updated_at = nowIso();
+				break;
+			}
+			case 'set_room_create_permission': {
+				this.requireHostForRoom();
+				this.state.create_permission = m.value;
 				break;
 			}
 			case 'set_hidden': {
@@ -467,6 +488,27 @@ export class MemoryRoomStore implements RoomStore {
 	 */
 	private requireSelf(id: string, message: string): void {
 		if (id !== this.actorId) throw new StoreRejection('permission', message);
+	}
+
+	/**
+	 * UX-OBJ-9's room-level creation gate. Like canEdit's host branch, the
+	 * restricted value is enforceable but unreachable until the host role
+	 * exists (AR-CTRL-5) — so today this only ever admits.
+	 */
+	private requireMayCreate(): void {
+		if (this.state.create_permission === 'all') return;
+		// 'host' is enforced honestly, which today means it admits NOBODY: the
+		// role arrives with admission (AR-CTRL-5) and until then a room has no
+		// hosts. The alternative — quietly letting everyone create anyway —
+		// would make the setting a lie, so the UI warns instead.
+		throw new StoreRejection('permission', 'Only hosts may add objects in this room');
+	}
+
+	/** Room settings are host-only once the role exists; open until then. */
+	private requireHostForRoom(): void {
+		// Deliberately a no-op, mirroring canEdit's documented precedent: the
+		// gate is written where it belongs so it lights up with the role rather
+		// than being retrofitted.
 	}
 
 	private requireEditable(object: CanvasObject): void {

@@ -1,10 +1,11 @@
 <script lang="ts">
-	import type { CanvasObject, Point, SolverShape, StoredIdentity, Transform } from '$lib/model/types';
+	import type { CanvasObject, Permission, Point, SolverShape, StoredIdentity, Transform } from '$lib/model/types';
 	import type { RoomStore } from '$lib/store/room-store';
 	import type { SyncClient } from '$lib/store/sync-client.svelte';
 	import type { Viewport } from './viewport.svelte';
 	import { resolveDrag } from './geometry';
-	import { canDelete, canEdit } from '$lib/model/permissions';
+	import { PERMISSION_EMOJI, PERMISSION_LABEL, canDelete, canEdit } from '$lib/model/permissions';
+	import Emoji from '$lib/ui/Emoji.svelte';
 	import { shapeOfObject, participatesInCollision } from '$lib/store/memory-store.svelte';
 	import ObjectContent from '$lib/objects/ObjectContent.svelte';
 	import { displayMs, formatMs } from '$lib/model/timer';
@@ -320,6 +321,20 @@
 	 * alongside position and size — not a delete. The object keeps existing;
 	 * its creator still sees it, ghosted, which is what makes this reversible.
 	 */
+	/**
+	 * Who besides the creator may edit this (UX-PERM-1). Cycles all -> host ->
+	 * none, the enum's own order. Creator-only, because with 'all' anyone can
+	 * edit the object and letting them re-lock it would let a passer-by take it.
+	 */
+	const isCreator = $derived(object.creator_id === actorId);
+
+	function cyclePermission(): void {
+		const next: Permission =
+			object.permission === 'all' ? 'host' : object.permission === 'host' ? 'none' : 'all';
+		void sync.commit({ kind: 'set_permission', id: object.id, permission: next });
+		sync.announce(PERMISSION_LABEL[next]);
+	}
+
 	function toggleHidden(): void {
 		void sync.commit({ kind: 'set_hidden', id: object.id, hidden: !object.hidden });
 		sync.announce(object.hidden ? 'Object shown' : 'Object hidden from others');
@@ -431,6 +446,18 @@
 	></div>
 	{#if editable}
 		<TransformHandles {onHandleDown} subject="object" />
+		{#if isCreator}
+			<span class="chrome permission">
+				<Button
+					variant="chrome"
+					shape="icon"
+					label="Change who can edit ({PERMISSION_LABEL[object.permission]})"
+					onpointerdown={stopPointer}
+					onclick={cyclePermission}
+					><Emoji glyph={PERMISSION_EMOJI[object.permission]} /></Button
+				>
+			</span>
+		{/if}
 		<span class="chrome visibility">
 			<Button
 				variant="chrome"
@@ -575,6 +602,20 @@
 		border: 2px dashed var(--border-strong);
 		border-radius: inherit;
 		pointer-events: none;
+	}
+	/*
+	 * BELOW the object, beside the visibility toggle — not in a corner. All
+	 * four corners are already spoken for (fullscreen, delete, shape, and the
+	 * resize grips), and putting this at bottom-right made it swallow the `se`
+	 * handle's clicks. Same lesson as the visibility badge covering a round
+	 * object's silhouette: the frame's edges are crowded, so new chrome goes
+	 * outside it.
+	 */
+	.chrome.permission {
+		top: 100%;
+		margin-top: var(--space-1);
+		left: 50%;
+		translate: calc(-50% - var(--control-height) - var(--space-1)) 0;
 	}
 	.chrome.shape {
 		bottom: calc(-1 * var(--space-3));

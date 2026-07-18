@@ -199,6 +199,13 @@ export const roomStateSchema = z.object({
 	/** Room title/description (UX-ROOM-2); '' title falls back to the name. */
 	title: z.string().max(120).default(''),
 	description: z.string().max(2000).default(''),
+	/**
+	 * Who may add objects (UX-OBJ-9): "creation permission is a room setting
+	 * (default: all may create, hosts may restrict)". The 'host' value is
+	 * enforceable but unreachable until the role exists, exactly as canEdit's
+	 * host branch is.
+	 */
+	create_permission: z.enum(['all', 'host']).default('all'),
 	configurations: z.record(z.uuid(), configurationSchema).default({}),
 	active_config: z.uuid().nullable().default(null)
 });
@@ -221,6 +228,13 @@ export const mutationSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('set_clip'), id: z.uuid(), clip: clipSchema }),
 	// Visibility is layout, so it is a per-configuration property (UX-ROOM-3).
 	z.object({ kind: z.literal('set_hidden'), id: z.uuid(), hidden: z.boolean() }),
+	// UX-PERM-1's enum has existed and been tested since slice 1, but nothing
+	// could SET it — every object was born 'all', so the host and none branches
+	// had never run in the product. Creator-only: deciding who may edit your
+	// object is itself a creator's decision.
+	z.object({ kind: z.literal('set_permission'), id: z.uuid(), permission: permissionSchema }),
+	// The room-level half of UX-OBJ-9.
+	z.object({ kind: z.literal('set_room_create_permission'), value: z.enum(['all', 'host']) }),
 	z.object({ kind: z.literal('delete_object'), id: z.uuid() }),
 	z.object({ kind: z.literal('upsert_participant'), participant: participantSchema }),
 	z.object({

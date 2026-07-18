@@ -662,3 +662,60 @@ describe('chat retention is bounded ONLY in the stub (UX-OBJ-3 deviation)', () =
 		expect(got.payload.messages[0]?.text).toBe('m3');
 	});
 });
+
+describe('object permission is settable (UX-PERM-1)', () => {
+	it('the creator can lock an object, and the lock then bites', async () => {
+		// The enum, canEdit, and its spec all existed; nothing could SET it, so
+		// the `host` and `none` branches had never run in the product.
+		const room = `r${String(Math.random())}`;
+		const alice = makeStore(room, ALICE);
+		const object = note(ALICE, 0);
+		await alice.commit({ kind: 'create_object', object });
+		await alice.commit({ kind: 'set_permission', id: object.id, permission: 'none' });
+		expect(alice.state.objects[object.id]?.permission).toBe('none');
+
+		const bob = makeStore(room, BOB);
+		await vi.waitFor(() => {
+			expect(bob.state.objects[object.id]?.permission).toBe('none');
+		});
+		await expect(
+			bob.commit({ kind: 'move_object', id: object.id, transform: { ...object.transform, x: 400 } })
+		).rejects.toMatchObject({ reason: 'permission' });
+	});
+
+	it('a non-creator cannot change who may edit', async () => {
+		// Not requireEditable: with 'all', anyone can edit the object, and
+		// letting them re-lock it would let a passer-by take it from its creator.
+		const room = `r${String(Math.random())}`;
+		const alice = makeStore(room, ALICE);
+		const object = note(ALICE, 0);
+		await alice.commit({ kind: 'create_object', object });
+
+		const bob = makeStore(room, BOB);
+		await vi.waitFor(() => {
+			expect(bob.state.objects[object.id]).toBeDefined();
+		});
+		await expect(
+			bob.commit({ kind: 'set_permission', id: object.id, permission: 'none' })
+		).rejects.toMatchObject({ reason: 'permission' });
+	});
+});
+
+describe('creation permission is a room setting (UX-OBJ-9)', () => {
+	it('defaults to all-may-create', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		expect(store.state.create_permission).toBe('all');
+		await expect(store.commit({ kind: 'create_object', object: note(ALICE, 0) })).resolves.toBeUndefined();
+	});
+
+	it('host-only refuses creation — including, today, by everyone', async () => {
+		// Enforced honestly: the host role arrives with admission, so a
+		// host-only room currently admits nobody. Quietly allowing everyone
+		// would make the setting a lie; the UI warns instead.
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		await store.commit({ kind: 'set_room_create_permission', value: 'host' });
+		await expect(
+			store.commit({ kind: 'create_object', object: note(ALICE, 200) })
+		).rejects.toMatchObject({ reason: 'permission' });
+	});
+});

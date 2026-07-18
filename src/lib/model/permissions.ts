@@ -1,4 +1,4 @@
-import type { CanvasObject } from './types';
+import type { CanvasObject, Permission } from './types';
 
 /**
  * UX-PERM-1..2, pure and node-tested. The creator can always edit or delete
@@ -36,3 +36,21 @@ export function canSee(object: CanvasObject, actorId: string, isHost: boolean): 
 	if (!object.hidden) return true;
 	return object.creator_id === actorId || isHost;
 }
+
+/**
+ * Glyphs for each permission (UX-PERM-1). Data, not markup, so every render
+ * goes through <Emoji> and therefore --font-emoji — enforced by
+ * no-raw-emoji.spec.ts, which caught these as literals when they were written
+ * inline.
+ */
+export const PERMISSION_EMOJI: Record<Permission, string> = {
+	all: '\u{1F513}',
+	host: '\u{1F6E1}\u{FE0F}',
+	none: '\u{1F512}'
+};
+
+export const PERMISSION_LABEL: Record<Permission, string> = {
+	all: 'Anyone can edit',
+	host: 'Hosts can edit',
+	none: 'Only you can edit'
+};
