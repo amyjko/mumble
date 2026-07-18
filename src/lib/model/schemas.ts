@@ -122,7 +122,11 @@ export const participantSchema = z.object({
 	/** Shared placement (UX-AV-2): everyone sees participants in the same spots. */
 	location: z.object({ x: z.number(), y: z.number() }),
 	/** Dev-panel fakes are marked so they can be styled/cleared distinctly. */
-	fake: z.boolean()
+	fake: z.boolean(),
+	/** Persistent emotes (UX-AV-5): raise-hand and stepped-away. Persist even
+	 * after leaving. Defaults keep older stored participants valid. */
+	raised_hand: z.boolean().default(false),
+	away: z.boolean().default(false)
 });
 
 export const roomStateSchema = z.object({
@@ -156,6 +160,8 @@ export const mutationSchema = z.discriminatedUnion('kind', [
 		location: z.object({ x: z.number(), y: z.number() })
 	}),
 	z.object({ kind: z.literal('remove_participant'), id: z.uuid() }),
+	z.object({ kind: z.literal('set_hand'), id: z.uuid(), raised: z.boolean() }),
+	z.object({ kind: z.literal('set_away'), id: z.uuid(), away: z.boolean() }),
 	z.object({
 		kind: z.literal('set_background'),
 		value: z.string().refine(isSafeBackground, 'Unsafe background value')
@@ -170,7 +176,8 @@ export const ephemeralSchema = z.discriminatedUnion('kind', [
 		id: z.uuid(),
 		location: z.object({ x: z.number(), y: z.number() })
 	}),
-	z.object({ kind: z.literal('drag_end'), id: z.uuid() })
+	z.object({ kind: z.literal('drag_end'), id: z.uuid() }),
+	z.object({ kind: z.literal('emote'), id: z.uuid(), emote: z.enum(['tada', 'bounce', 'bored', 'spin', 'heart', 'laugh']) })
 ]);
 
 /**

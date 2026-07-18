@@ -41,7 +41,9 @@
 				name: identity.name,
 				emoji: identity.emoji,
 				location: existing?.location ?? { x: 0, y: 0 },
-				fake: false
+				fake: false,
+				raised_hand: existing?.raised_hand ?? false,
+				away: existing?.away ?? false
 			}
 		});
 		return () => {

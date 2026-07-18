@@ -250,7 +250,14 @@
 			/>
 		{/each}
 		{#each participants as participant (participant.id)}
-			<AvatarTile {participant} {store} {sync} {viewport} obstacles={obstaclesFor(participant.id)} />
+			<AvatarTile
+				{participant}
+				{store}
+				{sync}
+				{viewport}
+				obstacles={obstaclesFor(participant.id)}
+				isSelf={participant.id === identity.id}
+			/>
 		{/each}
 		{#if stroke !== null}
 			<svg class="stroke-preview" aria-hidden="true">

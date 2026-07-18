@@ -26,7 +26,9 @@
 				name: `fake-${String(fakeCount)}`,
 				emoji: FAKE_EMOJI[fakeCount % FAKE_EMOJI.length] ?? '🐨',
 				location: { x: 40 * fakeCount, y: 40 * fakeCount },
-				fake: true
+				fake: true,
+				raised_hand: false,
+				away: false
 			}
 		});
 	}

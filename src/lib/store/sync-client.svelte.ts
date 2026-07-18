@@ -16,6 +16,10 @@ export class SyncClient {
 	readonly participantOverlays = new SvelteMap<string, Point>();
 	/** Last rejection, for surfacing in UI; cleared on the next success. */
 	lastRejection = $state<string | null>(null);
+	/** Transient reactions (UX-AV-4), keyed by participant id, with a nonce so a
+	 * repeat of the same emote re-triggers the animation. Never persisted. */
+	readonly emotes = new SvelteMap<string, { emote: string; nonce: number }>();
+	private emoteNonce = 0;
 	/** Screen-reader announcement text (aria-live region — UX-A11Y-3). */
 	announcement = $state('');
 	private announceNonce = 0;
@@ -42,6 +46,10 @@ export class SyncClient {
 				case 'drag_end':
 					this.objectOverlays.delete(message.id);
 					this.participantOverlays.delete(message.id);
+					break;
+				case 'emote':
+					this.emoteNonce += 1;
+					this.emotes.set(message.id, { emote: message.emote, nonce: this.emoteNonce });
 					break;
 			}
 		});
@@ -71,4 +79,12 @@ export class SyncClient {
 			}
 		}
 	}
+
+	/** Fire a transient reaction on your own avatar and broadcast it (UX-AV-4/7). */
+	react(participantId: string, emote: 'tada' | 'bounce' | 'bored' | 'spin' | 'heart' | 'laugh'): void {
+		this.emoteNonce += 1;
+		this.emotes.set(participantId, { emote, nonce: this.emoteNonce });
+		this.store.sendEphemeral({ kind: 'emote', id: participantId, emote });
+	}
+
 }

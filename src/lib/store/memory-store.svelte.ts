@@ -232,6 +232,18 @@ export class MemoryRoomStore implements RoomStore {
 				this.state.participants = omitKey(this.state.participants, m.id);
 				break;
 			}
+			case 'set_hand':
+			case 'set_away': {
+				// UX-AV-7: emotes are self-initiated — you may only change your own.
+				if (m.id !== this.actorId) {
+					throw new StoreRejection('permission', 'You can only emote yourself');
+				}
+				const participant = this.state.participants[m.id];
+				if (participant === undefined) throw new StoreRejection('invalid', 'Unknown participant');
+				if (m.kind === 'set_hand') participant.raised_hand = m.raised;
+				else participant.away = m.away;
+				break;
+			}
 			case 'set_clip': {
 				const existing = this.requireObject(m.id);
 				this.requireEditable(existing);

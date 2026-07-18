@@ -255,3 +255,24 @@ describe('clip shapes (UX-OBJ-7)', () => {
 		).rejects.toMatchObject({ reason: 'permission' });
 	});
 });
+
+describe('emotes (UX-AV-5/7)', () => {
+	it('set_hand / set_away change your OWN participant', async () => {
+		const room = `r${String(Math.random())}`;
+		const store = makeStore(room, ALICE);
+		await store.commit({ kind: 'upsert_participant', participant: { id: ALICE, name: 'a', emoji: 'x', location: { x: 0, y: 0 }, fake: false, raised_hand: false, away: false } });
+		await store.commit({ kind: 'set_hand', id: ALICE, raised: true });
+		await store.commit({ kind: 'set_away', id: ALICE, away: true });
+		expect(store.state.participants[ALICE]?.raised_hand).toBe(true);
+		expect(store.state.participants[ALICE]?.away).toBe(true);
+	});
+
+	it('you cannot emote someone else (UX-AV-7 self-only)', async () => {
+		const room = `r${String(Math.random())}`;
+		const store = makeStore(room, BOB);
+		await store.commit({ kind: 'upsert_participant', participant: { id: ALICE, name: 'a', emoji: 'x', location: { x: 0, y: 0 }, fake: false, raised_hand: false, away: false } });
+		await expect(
+			store.commit({ kind: 'set_hand', id: ALICE, raised: true })
+		).rejects.toMatchObject({ reason: 'permission' });
+	});
+});
