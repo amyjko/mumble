@@ -1,4 +1,12 @@
 {
 	"extends": "../tsconfig.json",
+	"compilerOptions": {
+		// E2E specs run in NODE, not workerd. The root tsconfig sets an explicit
+		// `types` array (worker-configuration only), which is correct for app
+		// code and leaves Node globals — Buffer, process — untyped here. A
+		// Playwright screenshot returns a Buffer, so without this every
+		// assertion on one resolves to `any` and trips the no-unsafe-* rules.
+		"types": ["node"]
+	},
 	"include": ["**/*.ts"]
 }
