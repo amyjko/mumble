@@ -228,6 +228,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
 <div
 	class="canvas"
+	class:draw-mode={drawMode}
 	role="application"
 	aria-label="Room canvas"
 	tabindex="0"
@@ -348,6 +349,20 @@
 	}
 	.canvas:active {
 		cursor: grabbing;
+	}
+	/*
+	 * Draw mode makes the WHOLE canvas a drawing surface, objects included.
+	 * Two things otherwise swallowed a stroke that started over an object: the
+	 * frame stops pointerdown propagation to begin a drag, and onBackgroundDown
+	 * ignores events whose target is a child. Making content pointer-transparent
+	 * for the duration fixes both at once and needs no special case in either
+	 * handler — the event simply arrives at the canvas, as it does over empty
+	 * space. Ink belongs on top of what it annotates, and drawings are exempt
+	 * from collision (UX-OBJ-12), so there is nothing to arbitrate.
+	 */
+	.canvas.draw-mode :global(.frame),
+	.canvas.draw-mode :global(.avatar) {
+		pointer-events: none;
 	}
 	.grid {
 		position: absolute;
