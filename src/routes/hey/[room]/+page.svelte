@@ -19,6 +19,7 @@
 	import Popover from '$lib/ui/Popover.svelte';
 	import SwatchPicker from '$lib/ui/SwatchPicker.svelte';
 	import { DRAW_COLORS } from '$lib/model/palette';
+	import { canonicalRoomName, roomNameMessage, roomNameProblem } from '$lib/model/room-name';
 
 	let { data }: PageProps = $props();
 
@@ -37,7 +38,6 @@
 	let drawColor = $state(DEFAULT_DRAW_COLOR);
 	let renameDraft = $state('');
 	let configNameDraft = $state('');
-	const ROOM_NAME = /^[a-z0-9_-]{2,32}$/i;
 
 	$effect(() => {
 		const current = store;
@@ -117,9 +117,31 @@
 	function deleteConfig(id: string): void {
 		void sync.commit({ kind: 'delete_config', id });
 	}
+	/** Why the rename cannot proceed, or null. Shown next to the field. */
+	const renameProblem = $derived.by(() => {
+		if (renameDraft.trim() === '') return null;
+		const problem = roomNameProblem(renameDraft);
+		if (problem !== null) return roomNameMessage(problem);
+		if (canonicalRoomName(renameDraft) === data.room) return 'That is already this room\u2019s name.';
+		return null;
+	});
+	const renameReady = $derived(renameDraft.trim() !== '' && renameProblem === null);
+
+	/**
+	 * UX-ROOM-10 requires hosts be WARNED before renaming, because existing
+	 * links break. That warning was simply missing — and unlike the two
+	 * behaviors the stub cannot yet honor (freeing the old name, and old URLs
+	 * ceasing to resolve), nothing admitted its absence.
+	 */
 	function renameRoom(): void {
-		const name = renameDraft.trim().toLowerCase();
-		if (!ROOM_NAME.test(name) || name === data.room) return;
+		if (!renameReady) return;
+		const name = canonicalRoomName(renameDraft);
+		const ok = confirm(
+			`Rename this room to “${name}”?\n\n` +
+				'Anyone holding a link to the current name will lose access to this room. ' +
+				'Links cannot be updated for them.'
+		);
+		if (!ok) return;
 		// Carry this room's state to the new name. NOTE: the old name is not
 		// truly freed in the stub — real uniqueness/freeing is server-side
 		// (AR-BACKEND-10, UX-ROOM-10); old URLs still rehydrate here.
@@ -162,8 +184,11 @@
 			/>
 			<div class="row">
 				<Field label="New room name" bind:value={renameDraft} placeholder="new-name" />
-				<Button onclick={renameRoom}>rename</Button>
+				<Button disabled={!renameReady} onclick={renameRoom}>rename</Button>
 			</div>
+			{#if renameProblem !== null}
+				<p class="problem" role="alert">{renameProblem}</p>
+			{/if}
 		</div>
 	</Popover>
 
@@ -287,8 +312,13 @@
 	.hint {
 		color: var(--text-muted);
 	}
-	.warn {
+	.warn,
+	.problem {
 		color: var(--danger);
+	}
+	.problem {
+		margin: 0;
+		font-size: var(--text-sm);
 	}
 	/* Popover body layout only; Field and Button paint themselves. */
 	.menu {

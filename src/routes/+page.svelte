@@ -2,13 +2,15 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import Button from '$lib/ui/Button.svelte';
+	import { canonicalRoomName, roomNameMessage, roomNameProblem } from '$lib/model/room-name';
 
 	let room = $state('');
-	const valid = $derived(/^[a-z0-9_-]{2,32}$/i.test(room));
+	const problem = $derived(room === '' ? null : roomNameProblem(room));
+	const valid = $derived(room !== '' && problem === null);
 
 	function go(event: SubmitEvent): void {
 		event.preventDefault();
-		if (valid) void goto(resolve('/hey/[room]', { room: room.toLowerCase() }));
+		if (valid) void goto(resolve('/hey/[room]', { room: canonicalRoomName(room) }));
 	}
 </script>
 
@@ -21,12 +23,27 @@
 	<p>A playful, customizable meeting room for small groups.</p>
 	<form onsubmit={go}>
 		<span class="prefix">mumble.studio/hey/</span>
-		<input bind:value={room} placeholder="room-name" aria-label="Room name" />
+		<input
+			bind:value={room}
+			placeholder="room-name"
+			aria-label="Room name"
+			aria-invalid={problem !== null}
+			aria-describedby={problem === null ? undefined : 'room-name-problem'}
+		/>
 		<Button type="submit" variant="primary" disabled={!valid}>go</Button>
 	</form>
+	{#if problem !== null}
+		<!-- Say which rule was broken. A disabled button with no explanation
+		     leaves you guessing whether the name is malformed or taken. -->
+		<p id="room-name-problem" class="problem" role="alert">{roomNameMessage(problem)}</p>
+	{/if}
 </main>
 
 <style>
+	.problem {
+		color: var(--danger);
+		font-size: var(--text-sm);
+	}
 	main {
 		max-width: 460px;
 		margin: 18vh auto 0;

@@ -1,5 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
+import { canonicalRoomName, isValidRoomName } from '$lib/model/room-name';
 
 /**
  * Client-rendered: the canvas is per-viewer state (UX-CANVAS-2) and the stub
@@ -8,10 +9,13 @@ import type { PageLoad } from './$types';
  */
 export const ssr = false;
 
-/** UX-ROOM-9's name rule, enforced at the route from day one. */
-const ROOM_NAME = /^[a-z0-9_-]{2,32}$/i;
-
+/**
+ * UX-ROOM-9's name rule, enforced at the route from day one — now from the one
+ * shared module rather than a second copy of the pattern. A reserved name 404s
+ * exactly like a malformed one: from outside, an unclaimable name and a
+ * nonexistent room are the same thing.
+ */
 export const load: PageLoad = ({ params }) => {
-	if (!ROOM_NAME.test(params.room)) error(404, 'No such room');
-	return { room: params.room.toLowerCase() };
+	if (!isValidRoomName(params.room)) error(404, 'No such room');
+	return { room: canonicalRoomName(params.room) };
 };
