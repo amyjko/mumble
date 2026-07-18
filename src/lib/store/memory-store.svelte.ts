@@ -18,6 +18,7 @@ import type {
 import { untrack } from 'svelte';
 import { canEdit } from '$lib/model/permissions';
 import { ellipsePoints, nearestLegal, placementLegal } from '$lib/canvas/geometry';
+import { applyEncodedUpdate, docFromEncoded, encodeDoc, mergeEncoded, noteText } from '$lib/model/ydoc';
 import type { Clip, SolverShape } from '$lib/model/types';
 import type { RoomStore } from './room-store';
 
@@ -78,7 +79,7 @@ export class MemoryRoomStore implements RoomStore {
 				const envelope = parsed.data;
 				switch (envelope.t) {
 					case 'state':
-						this.state = envelope.state;
+						this.state = this.mergeIncoming(envelope.state);
 						break;
 					case 'ephemeral':
 						for (const handler of this.handlers) handler(envelope.message);
@@ -90,6 +91,28 @@ export class MemoryRoomStore implements RoomStore {
 			};
 			this.channel.postMessage({ v: 1, t: 'hello' });
 		}
+	}
+
+	/**
+	 * Reconcile an inbound room snapshot with local state.
+	 *
+	 * Everything except note text is last-writer-wins on the snapshot, which is
+	 * the documented limitation of a store with no central authority. Note
+	 * DOCUMENTS are different: replacing them wholesale would discard whatever
+	 * this tab typed since the sender's snapshot was taken, which is exactly
+	 * the data loss the CRDT exists to prevent. So the two states are merged,
+	 * and the merge is order-independent — both tabs converge on the same text
+	 * regardless of which snapshot arrives last.
+	 */
+	private mergeIncoming(incoming: RoomState): RoomState {
+		for (const [id, object] of Object.entries(incoming.objects)) {
+			if (object.type !== 'note') continue;
+			const mine = this.state.objects[id];
+			if (mine === undefined || mine.type !== 'note') continue;
+			const merged = mergeEncoded(mine.payload.doc, object.payload.doc);
+			object.payload = { doc: merged, text: noteText(docFromEncoded(merged)) };
+		}
+		return incoming;
 	}
 
 	private hydrate(): RoomState {
@@ -194,11 +217,19 @@ export class MemoryRoomStore implements RoomStore {
 			}
 			case 'edit_note': {
 				const existing = this.requireObject(m.id);
+				// Permission is checked ONCE per edit, at the mutation boundary.
+				// See the note on session-scoped gating in the class doc.
 				this.requireEditable(existing);
 				// The union now has >1 member, so the type guard is mandatory — the
 				// norms re-imposing the check at compile time, exactly as predicted.
 				if (existing.type !== 'note') throw new StoreRejection('invalid', 'Not a note');
-				existing.payload = m.payload;
+				// MERGE the update into the note's document rather than replacing
+				// its text: that is the entire point of the CRDT (AR-SYNC-4).
+				const doc = docFromEncoded(existing.payload.doc);
+				if (!applyEncodedUpdate(doc, m.update)) {
+					throw new StoreRejection('invalid', 'Malformed note update');
+				}
+				existing.payload = { doc: encodeDoc(doc), text: noteText(doc) };
 				existing.updated_at = nowIso();
 				break;
 			}

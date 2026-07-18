@@ -30,7 +30,7 @@ function note(x: number, y: number): CanvasObject {
 		border: { width: 10 },
 		default_transform: transform,
 		hidden: false,
-		payload: { text: '' },
+		payload: { text: '', doc: '' },
 		created_at: '2026-07-17T00:00:00.000Z',
 		updated_at: '2026-07-17T00:00:00.000Z'
 	};

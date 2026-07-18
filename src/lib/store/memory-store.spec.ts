@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AVATAR_SIZE, MemoryRoomStore } from './memory-store.svelte';
 import { StoreRejection } from '$lib/model/types';
 import type { CanvasObject, Participant } from '$lib/model/types';
+import { docFromEncoded, encodeDoc, encodedFromText, noteText, textType } from '$lib/model/ydoc';
 
 const ALICE = '11111111-1111-4111-8111-111111111111';
 const BOB = '22222222-2222-4222-8222-222222222222';
@@ -24,7 +25,7 @@ const note = (creator: string, x: number, permission: 'host' | 'all' | 'none' = 
 		border: { width: 10 },
 		default_transform: transform,
 		hidden: false,
-		payload: { text: '' },
+		payload: { text: '', doc: '' },
 		created_at: '2026-07-17T00:00:00.000Z',
 		updated_at: '2026-07-17T00:00:00.000Z'
 	};
@@ -187,7 +188,7 @@ describe('timer object (UX-OBJ-4) + union type guards', () => {
 			store.commit({ kind: 'edit_timer', id: n.id, payload: { mode: 'countup', durationMs: 0, running: false, startedAt: null, elapsedBeforeMs: 0 } })
 		).rejects.toMatchObject({ reason: 'invalid' });
 		await expect(
-			store.commit({ kind: 'edit_note', id: t.id, payload: { text: 'x' } })
+			store.commit({ kind: 'edit_note', id: t.id, update: encodedFromText('x') })
 		).rejects.toMatchObject({ reason: 'invalid' });
 	});
 });
@@ -331,7 +332,7 @@ describe('configurations (UX-ROOM-3..6) — snapshot model', () => {
 		await store.commit({ kind: 'set_room_meta', title: 'A', description: '' });
 		await store.commit({ kind: 'save_config', id: '11111111-1111-4111-8111-aaaaaaaaaaaa', name: 'ConfA' });
 		await store.commit({ kind: 'set_room_meta', title: 'B', description: '' });
-		await store.commit({ kind: 'edit_note', id: n.id, payload: { text: 'kept' } });
+		await store.commit({ kind: 'edit_note', id: n.id, update: encodedFromText('kept') });
 		await store.commit({ kind: 'switch_config', id: '11111111-1111-4111-8111-aaaaaaaaaaaa' });
 		expect(store.state.title).toBe('A'); // layout/meta restored
 		expect(store.state.objects[n.id]?.type === 'note' && store.state.objects[n.id]?.payload).toBeTruthy();
@@ -551,12 +552,70 @@ describe('configurations carry visibility (UX-ROOM-3/5)', () => {
 		const configId = uuid();
 		await store.commit({ kind: 'save_config', id: configId, name: 'Start' });
 
-		await store.commit({ kind: 'edit_note', id: object.id, payload: { text: 'written later' } });
+		await store.commit({ kind: 'edit_note', id: object.id, update: encodedFromText('written later') });
 		await store.commit({ kind: 'switch_config', id: configId });
 
 		const settled = store.state.objects[object.id];
 		expect(settled?.type).toBe('note');
 		if (settled?.type !== 'note') return;
 		expect(settled.payload.text).toBe('written later');
+	});
+});
+
+describe('note editing is a CRDT (AR-SYNC-4)', () => {
+	it('an update merges into the note rather than replacing it', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const object = note(ALICE, 0);
+		await store.commit({ kind: 'create_object', object });
+
+		// Seed some text, then apply an independent edit built on that base.
+		const base = encodedFromText('hello');
+		await store.commit({ kind: 'edit_note', id: object.id, update: base });
+		const settled = store.state.objects[object.id];
+		expect(settled?.type).toBe('note');
+		if (settled?.type !== 'note') return;
+		expect(settled.payload.text).toBe('hello');
+
+		const doc = docFromEncoded(settled.payload.doc);
+		textType(doc).insert(textType(doc).length, ' world');
+		await store.commit({ kind: 'edit_note', id: object.id, update: encodeDoc(doc) });
+
+		const after = store.state.objects[object.id];
+		expect(after?.type).toBe('note');
+		if (after?.type !== 'note') return;
+		expect(after.payload.text).toBe('hello world');
+	});
+
+	it('keeps the materialized text in step with the document', async () => {
+		// `text` exists so the rest of the app never decodes a CRDT; it must
+		// therefore never drift from `doc`.
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const object = note(ALICE, 0);
+		await store.commit({ kind: 'create_object', object });
+		await store.commit({ kind: 'edit_note', id: object.id, update: encodedFromText('in step') });
+
+		const settled = store.state.objects[object.id];
+		if (settled?.type !== 'note') throw new Error('expected a note');
+		expect(settled.payload.text).toBe(noteText(docFromEncoded(settled.payload.doc)));
+	});
+
+	it('rejects a malformed update', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const object = note(ALICE, 0);
+		await store.commit({ kind: 'create_object', object });
+		await expect(
+			store.commit({ kind: 'edit_note', id: object.id, update: 'definitely not base64 !!' })
+		).rejects.toMatchObject({ reason: 'invalid' });
+	});
+
+	it("still refuses an edit to someone else's locked note (UX-PERM-1)", async () => {
+		// Permission is checked once per mutation, at the boundary — the CRDT
+		// changes what an edit CARRIES, not who may make one.
+		const store = makeStore(`r${String(Math.random())}`, BOB);
+		const locked = note(ALICE, 0, 'none');
+		await store.commit({ kind: 'create_object', object: locked });
+		await expect(
+			store.commit({ kind: 'edit_note', id: locked.id, update: encodedFromText('nope') })
+		).rejects.toMatchObject({ reason: 'permission' });
 	});
 });

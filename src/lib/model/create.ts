@@ -26,7 +26,7 @@ export function newNote(creatorId: string, center: Point, maxZ: number): CanvasO
 		border: { width: 10 },
 		default_transform: transform,
 		hidden: false,
-		payload: { text: '' },
+		payload: { text: '', doc: '' },
 		created_at: now,
 		updated_at: now
 	};

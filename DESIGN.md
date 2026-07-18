@@ -221,7 +221,7 @@ Accessibility is user experience, not compliance paperwork: a meeting product th
 
 - [ ] **AR-SYNC-2** (MVP) — Clients apply optimistic updates and reconcile on authoritative confirmation or rejection (revert on reject). — _serves: UX-QOS-1, UX-PERM-4._
 - [ ] **AR-SYNC-3** (MVP) — Every persisted-state mutation goes through the control plane (SvelteKit server route using the service-role client), which enforces UX-PERM before writing; clients hold no write path that bypasses it. Client-side checks exist only for responsiveness. — _serves: UX-PERM-1..4._
-- [ ] **AR-SYNC-4** (MVP) — Notes (UX-OBJ-2) use a CRDT (e.g. Yjs) with updates carried over the room's Broadcast channel and persistence into the object payload; exact provider/compaction strategy is an open item. — _serves: UX-OBJ-2._
+- [ ] **AR-SYNC-4** (MVP) — Notes (UX-OBJ-2) use **Yjs**, with updates carried over the room's Broadcast channel and the document persisted into the object payload (base64 alongside a materialized `text` copy for rendering and accessible names). Edits are DELTAS, not whole-text writes, and the receive path MERGES rather than replaces — replacing is what made concurrent editing lossy. Compaction is an open item. — _serves: UX-OBJ-2._
 
 ## 17. Media model and stage enforcement (AR-MEDIA)
 
@@ -445,7 +445,9 @@ The host is chosen on the same criterion as the media plane: **the free tier has
 
 - Measure real-world Broadcast latency from target regions, especially intercontinental (AR-BACKEND-7); decide whether AR-BACKEND-8 (Durable Object for hot room_state) is needed.
 - Verify Supabase Realtime message-counting semantics (1 vs N per broadcast) and current per-tier quotas; model room-hour message costs (AR-BACKEND-5).
-- Choose the CRDT provider and persistence/compaction strategy for notes (AR-SYNC-4).
+- ~~Choose the CRDT provider for notes (AR-SYNC-4).~~ **Resolved 2026-07-18: Yjs**, the provider AR-SYNC-4 already named. Rationale and measured bundle cost in [STACK.md](STACK.md#dependency-exceptions); the integration is contained to `model/ydoc.ts`.
+- **Persistence/compaction for note documents (AR-SYNC-4) — now live, not hypothetical.** A note stores its full Yjs state, and deletions leave tombstones, so a heavily-edited note's stored size grows with its EDIT HISTORY rather than its text. The stub keeps whole documents in localStorage with no compaction, which is fine at prototype scale and is not fine with a real backend. Needs a decision on snapshot-and-truncate vs. server-side GC before AR-BACKEND lands.
+- **Permission granularity for streamed edits (AR-SYNC-4 × UX-PERM-4).** Permission is checked once per `edit_note` mutation, at the boundary, and the whole update is rejected if it fails. That is coherent today because an update is committed per keystroke-batch. It does NOT extend to a future where ops stream continuously: a mid-stream rejection has no meaningful revert, since UX-PERM-4's "visibly reverted" assumes a discrete change to undo. Options are per-session gating at editor open, or accepting that permission changes take effect only on the next session. Surfaced deliberately rather than being settled by whoever implements streaming first.
 - Track Supabase passkeys to GA (AR-AUTH-5); design the guest→email/phone→passkey upgrade ladder.
 - Stale anonymous-user cleanup job (AR-AUTH-3).
 

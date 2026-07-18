@@ -66,9 +66,23 @@ const objectBase = z.object({
 	updated_at: z.iso.datetime()
 });
 
+/**
+ * A note (UX-OBJ-2) is collaboratively edited, so its text is a CRDT
+ * document, not a string (AR-SYNC-4).
+ *
+ * `doc` is the authoritative value: base64-encoded Yjs state. `text` is a
+ * MATERIALIZED copy kept alongside it, because plenty of the app needs a plain
+ * string and should not have to decode a CRDT to get one — markdown rendering,
+ * the accessible name, and eventually search. Anything that WRITES goes
+ * through `doc`; `text` is derived from it on every apply and never edited
+ * directly.
+ */
 export const noteObjectSchema = objectBase.extend({
 	type: z.literal('note'),
-	payload: z.object({ text: z.string() })
+	payload: z.object({
+		text: z.string(),
+		doc: z.string().default('')
+	})
 });
 
 /**
@@ -199,11 +213,11 @@ export const roomStateSchema = z.object({
 export const mutationSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('create_object'), object: canvasObjectSchema }),
 	z.object({ kind: z.literal('move_object'), id: z.uuid(), transform: transformSchema }),
-	z.object({
-		kind: z.literal('edit_note'),
-		id: z.uuid(),
-		payload: z.object({ text: z.string() })
-	}),
+	/**
+	 * An edit is a Yjs UPDATE, not a replacement string. That is what lets two
+	 * people type at once: updates merge, whole-text writes clobber.
+	 */
+	z.object({ kind: z.literal('edit_note'), id: z.uuid(), update: z.string() }),
 	z.object({ kind: z.literal('edit_timer'), id: z.uuid(), payload: timerPayloadSchema }),
 	z.object({ kind: z.literal('post_message'), id: z.uuid(), message: chatMessageSchema }),
 	z.object({ kind: z.literal('set_clip'), id: z.uuid(), clip: clipSchema }),

@@ -2,6 +2,9 @@
 	import type { NoteCanvasObject } from '$lib/model/types';
 	import type { SyncClient } from '$lib/store/sync-client.svelte';
 	import { renderMarkdown } from '$lib/model/markdown';
+	import { untrack } from 'svelte';
+	import * as Y from 'yjs';
+	import { applyEncodedUpdate, encodeUpdateSince, noteText, textType } from '$lib/model/ydoc';
 
 	interface Props {
 		object: NoteCanvasObject;
@@ -14,46 +17,171 @@
 	let { object, sync, editable, onexit }: Props = $props();
 
 	/**
-	 * Local draft while typing; remote updates apply only when not focused, so
-	 * a peer's edit never yanks the caret. (Real concurrent editing is CRDT
-	 * territory — AR-SYNC-4, deliberately deferred.)
+	 * Live collaborative editing (UX-OBJ-2 / AR-SYNC-4).
+	 *
+	 * The old model kept a local draft and applied remote text only while
+	 * UNFOCUSED, which is precisely what made concurrent editing impossible:
+	 * whoever blurred last overwrote the other's work wholesale. Now a local
+	 * Y.Doc mirrors the note, local keystrokes become CRDT updates, and remote
+	 * updates apply *while you type* — with the caret carried across them.
 	 */
-	// Deliberate initial-value capture: draft is the local editing buffer; the
-	// $effect below syncs remote edits in while the textarea is unfocused.
-	// svelte-ignore state_referenced_locally
-	let draft = $state(object.payload.text);
+	let textarea = $state<HTMLTextAreaElement | null>(null);
 	let focused = $state(false);
+	/**
+	 * True while an IME composition is in flight. Applying a remote update
+	 * mid-composition destroys the pending characters, so remote text is held
+	 * back until the composition commits — the failure mode that makes
+	 * hand-rolled editor bindings unusable in Japanese, Chinese, and Korean.
+	 */
+	let composing = $state(false);
 
+	const doc = new Y.Doc();
+	let text = $state('');
+
+	/** What the DOM currently shows, so we can diff the next input against it. */
+	let shown = '';
+
+	function syncFromDoc(): void {
+		text = noteText(doc);
+	}
+
+	/**
+	 * Pull the store's state into the local document. Merging (not assigning)
+	 * is what makes this safe to run at any moment, including mid-keystroke:
+	 * our own un-broadcast characters survive, and the operation is idempotent,
+	 * so a snapshot we have already seen changes nothing.
+	 */
 	$effect(() => {
-		if (!focused) draft = object.payload.text;
+		const encoded = object.payload.doc;
+		untrack(() => {
+			// Capture the caret BEFORE merging. A relative position is only
+			// meaningful against the document it was taken from: resolve the old
+			// index after the merge and it points wherever the peer's insertion
+			// happened to push that offset — typing "!" at the end of "END"
+			// after someone prepends "START " lands it as "STA!RT END".
+			const anchors = captureCaret();
+			if (encoded !== '') applyEncodedUpdate(doc, encoded);
+			syncFromDoc();
+			if (!composing) render(anchors);
+		});
 	});
 
-	/** Rendered markdown (UX-OBJ-2) overlays the raw textarea when not editing. */
-	const rendered = $derived(renderMarkdown(object.payload.text));
-	const showRendered = $derived(object.payload.text.trim() !== '' && (!focused || !editable));
-
-	function commitText(): void {
-		focused = false;
-		if (draft === object.payload.text) return;
-		void sync.commit({ kind: 'edit_note', id: object.id, payload: { text: draft } });
+	interface CaretAnchors {
+		start: Y.RelativePosition;
+		end: Y.RelativePosition;
 	}
+
+	function captureCaret(): CaretAnchors | null {
+		const el = textarea;
+		if (el === null || document.activeElement !== el) return null;
+		const type = textType(doc);
+		return {
+			start: Y.createRelativePositionFromTypeIndex(type, Math.min(el.selectionStart, type.length)),
+			end: Y.createRelativePositionFromTypeIndex(type, Math.min(el.selectionEnd, type.length))
+		};
+	}
+
+	/**
+	 * Write the document's text into the textarea, preserving the caret ACROSS
+	 * concurrent edits.
+	 *
+	 * The caret is captured as a Yjs relative position before the value
+	 * changes and resolved back to an index afterwards, so a peer inserting
+	 * text earlier in the note pushes your caret along with your own
+	 * characters rather than stranding it at a stale offset. A plain index
+	 * would drift by exactly the length of their insertion.
+	 */
+	function render(anchors: CaretAnchors | null): void {
+		const el = textarea;
+		if (el === null) return;
+		if (el.value === text) {
+			shown = text;
+			return;
+		}
+		el.value = text;
+		shown = text;
+		if (anchors === null) return;
+		// Resolve the pre-merge anchors against the POST-merge document: a peer's
+		// insertion ahead of the caret moves the caret with it, which is exactly
+		// what a plain index cannot express.
+		const from = Y.createAbsolutePositionFromRelativePosition(anchors.start, doc);
+		const to = Y.createAbsolutePositionFromRelativePosition(anchors.end, doc);
+		el.setSelectionRange(from?.index ?? text.length, to?.index ?? text.length);
+	}
+
+	/**
+	 * Turn a textarea value change into a minimal CRDT edit.
+	 *
+	 * Diffing by common prefix/suffix keeps an edit local to where it happened,
+	 * which is what lets two people work in different paragraphs without
+	 * touching each other's text. Replacing the whole string instead would
+	 * make every keystroke conflict with every other.
+	 */
+	function onInput(): void {
+		const el = textarea;
+		if (el === null || !editable) return;
+		const next = el.value;
+		const previous = shown;
+		if (next === previous) return;
+
+		let prefix = 0;
+		const max = Math.min(previous.length, next.length);
+		while (prefix < max && previous[prefix] === next[prefix]) prefix++;
+		let suffix = 0;
+		while (
+			suffix < max - prefix &&
+			previous[previous.length - 1 - suffix] === next[next.length - 1 - suffix]
+		) {
+			suffix++;
+		}
+		const removed = previous.length - prefix - suffix;
+		const inserted = next.slice(prefix, next.length - suffix);
+
+		const before = Y.encodeStateVector(doc);
+		doc.transact(() => {
+			const type = textType(doc);
+			if (removed > 0) type.delete(prefix, removed);
+			if (inserted !== '') type.insert(prefix, inserted);
+		});
+		shown = next;
+		syncFromDoc();
+
+		// Send only what changed since the store last saw this document.
+		const update = encodeUpdateSince(doc, before);
+		void sync.commit({ kind: 'edit_note', id: object.id, update });
+	}
+
+	/** Rendered markdown (UX-OBJ-2) overlays the raw textarea when not editing. */
+	const rendered = $derived(renderMarkdown(text));
+	const showRendered = $derived(text.trim() !== '' && (!focused || !editable));
 
 	function onKeyDown(event: KeyboardEvent): void {
 		if (event.key === 'Escape') {
 			event.preventDefault();
-			commitText();
+			focused = false;
 			onexit();
 		}
 	}
 </script>
 
 <div class="note-body" data-editable>
+	<!--
+		No bind:value. The value is written by render(), which carries the caret
+		across concurrent edits; a two-way binding would fight it and reset the
+		selection every time a peer typed a character.
+	-->
 	<textarea
+		bind:this={textarea}
 		class="note"
 		aria-label="Note text (markdown)"
-		bind:value={draft}
+		oninput={onInput}
 		onfocus={() => (focused = true)}
-		onblur={commitText}
+		onblur={() => (focused = false)}
+		oncompositionstart={() => (composing = true)}
+		oncompositionend={() => {
+			composing = false;
+			onInput();
+		}}
 		onkeydown={onKeyDown}
 		readonly={!editable}
 		placeholder="Write markdown…"

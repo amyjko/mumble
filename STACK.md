@@ -25,6 +25,35 @@ Cloudflare survives on the merits: the worker itself, running both Supabase libr
 
 ---
 
+## Dependency exceptions
+
+The project's norm is no runtime dependencies beyond the essentials
+(`zod`, `@supabase/*`). Each exception is recorded here with what it bought.
+
+### `yjs` — collaborative note text (AR-SYNC-4, 2026-07-18)
+
+UX-OBJ-2 requires notes to be "collaboratively edited live by multiple
+participants in real time." The previous implementation was last-writer-wins
+on blur: whoever finished second silently erased the other person's work.
+
+The norm was bent deliberately, and not because the merge algorithm is hard.
+A serviceable RGA is ~300-500 lines. The expensive part is the layer between
+the CRDT and a `<textarea>`: preserving the caret across a peer's concurrent
+insertion, and not destroying an in-flight IME composition. That is where
+hand-rolled implementations fail, it is where the bugs are invisible until
+someone types in Japanese, and it is hard to test. DESIGN.md AR-SYNC-4 already
+named Yjs.
+
+Cost, measured: the worker bundle is UNCHANGED at 235 KiB gzip, because the
+room route is `ssr=false` so Yjs never enters the server bundle. It lands in
+the room's client chunk instead — 60.6 KiB gzip for that route, 95.2 KiB gzip
+for the whole client payload. Nowhere near the 3 MB worker-script cap, which
+is the constraint that actually binds.
+
+Contained to one module: [ydoc.ts](src/lib/model/ydoc.ts) is the only place
+that touches the Yjs API or the base64 boundary, so swapping the provider
+means rewriting one file.
+
 ## 2. Versions
 
 Registry-verified 2026-07-16 unless noted.
