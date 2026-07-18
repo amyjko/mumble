@@ -69,10 +69,25 @@ export const timerObjectSchema = objectBase.extend({
 	payload: timerPayloadSchema
 });
 
+/** A chat message (UX-OBJ-3): room state, retained. Author is stamped at post. */
+export const chatMessageSchema = z.object({
+	id: z.uuid(),
+	author_id: z.uuid(),
+	author_name: z.string().min(1),
+	text: z.string().min(1),
+	at: z.iso.datetime()
+});
+
+export const chatObjectSchema = objectBase.extend({
+	type: z.literal('chat'),
+	payload: z.object({ messages: z.array(chatMessageSchema) })
+});
+
 /** Grows into a wider discriminated union as object types land (AR-CANVAS-3). */
 export const canvasObjectSchema = z.discriminatedUnion('type', [
 	noteObjectSchema,
-	timerObjectSchema
+	timerObjectSchema,
+	chatObjectSchema
 ]);
 
 export const participantSchema = z.object({
@@ -105,6 +120,7 @@ export const mutationSchema = z.discriminatedUnion('kind', [
 		payload: z.object({ text: z.string() })
 	}),
 	z.object({ kind: z.literal('edit_timer'), id: z.uuid(), payload: timerPayloadSchema }),
+	z.object({ kind: z.literal('post_message'), id: z.uuid(), message: chatMessageSchema }),
 	z.object({ kind: z.literal('delete_object'), id: z.uuid() }),
 	z.object({ kind: z.literal('upsert_participant'), participant: participantSchema }),
 	z.object({

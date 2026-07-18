@@ -194,6 +194,18 @@ export class MemoryRoomStore implements RoomStore {
 				existing.updated_at = nowIso();
 				break;
 			}
+			case 'post_message': {
+				// Posting is open participation, NOT layout editing — anyone present
+				// may add to a chat, regardless of the object's edit permission
+				// (moving/deleting the chat object still obeys permission). Same
+				// spirit as self-initiated emotes (UX-AV-7).
+				const existing = this.requireObject(m.id);
+				if (existing.type !== 'chat') throw new StoreRejection('invalid', 'Not a chat');
+				// Bound the retained log so localStorage can't grow without limit.
+				existing.payload.messages = [...existing.payload.messages, m.message].slice(-500);
+				existing.updated_at = nowIso();
+				break;
+			}
 			case 'delete_object': {
 				const existing = this.requireObject(m.id);
 				this.requireEditable(existing);

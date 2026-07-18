@@ -193,7 +193,7 @@
 				{store}
 				{sync}
 				{viewport}
-				actorId={identity.id}
+				{identity}
 				obstacles={obstaclesFor(object.id)}
 			/>
 		{/each}

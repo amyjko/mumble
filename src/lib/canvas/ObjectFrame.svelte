@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { CanvasObject, Point, SolverShape, Transform } from '$lib/model/types';
+	import type { CanvasObject, Point, SolverShape, StoredIdentity, Transform } from '$lib/model/types';
 	import type { RoomStore } from '$lib/store/room-store';
 	import type { SyncClient } from '$lib/store/sync-client.svelte';
 	import type { Viewport } from './viewport.svelte';
@@ -8,6 +8,7 @@
 	import { shapeOfObject } from '$lib/store/memory-store.svelte';
 	import NoteObject from '$lib/objects/NoteObject.svelte';
 	import TimerObject from '$lib/objects/TimerObject.svelte';
+	import ChatObject from '$lib/objects/ChatObject.svelte';
 	import { displayMs, formatMs } from '$lib/model/timer';
 
 	interface Props {
@@ -15,12 +16,13 @@
 		store: RoomStore;
 		sync: SyncClient;
 		viewport: Viewport;
-		actorId: string;
+		identity: StoredIdentity;
 		/** Current occupancy for the solver, excluding this object. */
 		obstacles: () => SolverShape[];
 	}
 
-	let { object, store, sync, viewport, actorId, obstacles }: Props = $props();
+	let { object, store, sync, viewport, identity, obstacles }: Props = $props();
+	const actorId = $derived(identity.id);
 
 	const editable = $derived(canEdit(object, actorId, false));
 	const deletable = $derived(canDelete(object, actorId, false));
@@ -32,6 +34,10 @@
 		if (object.type === 'timer') {
 			const kind = object.payload.mode === 'countdown' ? 'Countdown' : 'Count-up';
 			return `${kind} timer, ${formatMs(displayMs(object.payload, Date.now()))}`;
+		}
+		if (object.type === 'chat') {
+			const n = object.payload.messages.length;
+			return `Chat, ${String(n)} message${n === 1 ? '' : 's'}`;
 		}
 		const text = object.payload.text.trim();
 		return text === '' ? 'Empty note' : `Note: ${text.slice(0, 40)}`;
@@ -223,6 +229,8 @@
 			<NoteObject {object} {sync} {editable} onexit={exitToFrame} />
 		{:else if object.type === 'timer'}
 			<TimerObject {object} {sync} {editable} />
+		{:else if object.type === 'chat'}
+			<ChatObject {object} {sync} {identity} onexit={exitToFrame} />
 		{/if}
 	</div>
 	{#if deletable}

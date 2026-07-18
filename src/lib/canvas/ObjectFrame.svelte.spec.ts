@@ -47,7 +47,7 @@ function harness(dragged: CanvasObject, obstacle: CanvasObject | null) {
 			store,
 			sync,
 			viewport,
-			actorId: ACTOR,
+			identity: { id: ACTOR, name: 'tester', emoji: '🐢' },
 			obstacles: () => (obstacle === null ? [] : [shapeOfObject(obstacle)])
 		}
 	};

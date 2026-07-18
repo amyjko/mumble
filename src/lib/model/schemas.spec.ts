@@ -54,6 +54,20 @@ describe('canvas object discriminated union', () => {
 		expect(parsed.success).toBe(false);
 	});
 
+	it('accepts a chat with a message log; rejects an empty message', () => {
+		const ok = canvasObjectSchema.safeParse({
+			...base,
+			type: 'chat',
+			payload: { messages: [{ id: '55555555-5555-4555-8555-555555555555', author_id: '66666666-6666-4666-8666-666666666666', author_name: 'a', text: 'hi', at: '2026-07-17T00:00:00.000Z' }] }
+		});
+		expect(ok.success).toBe(true);
+		const bad = canvasObjectSchema.safeParse({
+			...base, type: 'chat',
+			payload: { messages: [{ id: '55555555-5555-4555-8555-555555555555', author_id: '66666666-6666-4666-8666-666666666666', author_name: 'a', text: '', at: '2026-07-17T00:00:00.000Z' }] }
+		});
+		expect(bad.success).toBe(false);
+	});
+
 	it('rejects non-positive dimensions', () => {
 		const bad = { ...base, type: 'note', payload: { text: '' }, transform: { ...base.transform, width: 0 } };
 		expect(canvasObjectSchema.safeParse(bad).success).toBe(false);

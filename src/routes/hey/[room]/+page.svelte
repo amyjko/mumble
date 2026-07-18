@@ -5,7 +5,7 @@
 	import { MemoryRoomStore } from '$lib/store/memory-store.svelte';
 	import { SyncClient } from '$lib/store/sync-client.svelte';
 	import { Viewport } from '$lib/canvas/viewport.svelte';
-	import { newNote, newTimer, maxZOf } from '$lib/model/create';
+	import { newNote, newTimer, newChat, maxZOf } from '$lib/model/create';
 	import WorldCanvas from '$lib/canvas/WorldCanvas.svelte';
 	import DevPanel from '$lib/dev/DevPanel.svelte';
 
@@ -59,6 +59,11 @@
 		void sync.commit({ kind: 'create_object', object: newTimer(identity.id, centerWorld(), maxZOf(objects)) });
 		sync.announce('Timer added');
 	}
+	function addChat(): void {
+		const objects = untrack(() => Object.values(store.state.objects));
+		void sync.commit({ kind: 'create_object', object: newChat(identity.id, centerWorld(), maxZOf(objects)) });
+		sync.announce('Chat added');
+	}
 </script>
 
 <svelte:head>
@@ -70,6 +75,7 @@
 	<span class="count">{count} here</span>
 	<button class="add" onclick={addNote}>+ note</button>
 	<button class="add" onclick={addTimer}>+ timer</button>
+	<button class="add" onclick={addChat}>+ chat</button>
 	<span class="hint">or double-click the canvas</span>
 </header>
 

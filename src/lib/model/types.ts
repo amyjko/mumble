@@ -3,6 +3,8 @@ import type {
 	noteObjectSchema,
 	timerObjectSchema,
 	timerPayloadSchema,
+	chatObjectSchema,
+	chatMessageSchema,
 	transformSchema,
 	clipSchema,
 	permissionSchema,
@@ -23,6 +25,8 @@ export type CanvasObject = z.infer<typeof canvasObjectSchema>;
 export type NoteCanvasObject = z.infer<typeof noteObjectSchema>;
 export type TimerCanvasObject = z.infer<typeof timerObjectSchema>;
 export type TimerPayload = z.infer<typeof timerPayloadSchema>;
+export type ChatCanvasObject = z.infer<typeof chatObjectSchema>;
+export type ChatMessage = z.infer<typeof chatMessageSchema>;
 export type Participant = z.infer<typeof participantSchema>;
 export type RoomState = z.infer<typeof roomStateSchema>;
 export type Mutation = z.infer<typeof mutationSchema>;

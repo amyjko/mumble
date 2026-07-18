@@ -62,6 +62,31 @@ export function newTimer(creatorId: string, center: Point, maxZ: number): Canvas
 	};
 }
 
+export function newChat(creatorId: string, center: Point, maxZ: number): CanvasObject {
+	const now = nowIso();
+	const transform = {
+		x: center.x - 140,
+		y: center.y - 110,
+		width: 280,
+		height: 220,
+		rotation: 0,
+		z: maxZ + 1
+	};
+	return {
+		id: crypto.randomUUID(),
+		type: 'chat',
+		creator_id: creatorId,
+		permission: 'all',
+		transform,
+		clip: { shape: 'rounded', radius: 8 },
+		border: { width: 10 },
+		default_transform: transform,
+		payload: { messages: [] },
+		created_at: now,
+		updated_at: now
+	};
+}
+
 export function maxZOf(objects: readonly CanvasObject[]): number {
 	return objects.reduce((z, o) => Math.max(z, o.transform.z), 0);
 }

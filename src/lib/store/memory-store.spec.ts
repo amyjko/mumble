@@ -175,3 +175,48 @@ describe('timer object (UX-OBJ-4) + union type guards', () => {
 		).rejects.toMatchObject({ reason: 'invalid' });
 	});
 });
+
+describe('chat object (UX-OBJ-3) — retained log, open posting', () => {
+	const chat = (creator: string, permission: 'all' | 'none' = 'all') => {
+		const transform = { x: 0, y: 0, width: 280, height: 220, rotation: 0, z: 1 };
+		return {
+			id: uuid(), type: 'chat' as const, creator_id: creator, permission,
+			transform, clip: { shape: 'rounded' as const, radius: 8 }, border: { width: 10 },
+			default_transform: transform, payload: { messages: [] },
+			created_at: '2026-07-17T00:00:00.000Z', updated_at: '2026-07-17T00:00:00.000Z'
+		};
+	};
+	const msg = (author: string, text: string) => ({
+		id: uuid(), author_id: author, author_name: 'x', text, at: '2026-07-17T00:00:00.000Z'
+	});
+
+	it('appends messages and retains them in order', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const c = chat(ALICE);
+		await store.commit({ kind: 'create_object', object: c });
+		await store.commit({ kind: 'post_message', id: c.id, message: msg(ALICE, 'one') });
+		await store.commit({ kind: 'post_message', id: c.id, message: msg(BOB, 'two') });
+		const got = store.state.objects[c.id];
+		expect(got?.type).toBe('chat');
+		if (got?.type === 'chat') expect(got.payload.messages.map((m) => m.text)).toEqual(['one', 'two']);
+	});
+
+	it('posting is open even on a `none`-permission chat owned by someone else', async () => {
+		const store = makeStore(`r${String(Math.random())}`, BOB);
+		const c = chat(ALICE, 'none'); // Alice owns it, locked to editing
+		await store.commit({ kind: 'create_object', object: c });
+		// Bob can still post (participation != layout editing)...
+		await expect(store.commit({ kind: 'post_message', id: c.id, message: msg(BOB, 'hi') })).resolves.toBeUndefined();
+		// ...but cannot MOVE it (that obeys permission).
+		await expect(
+			store.commit({ kind: 'move_object', id: c.id, transform: { ...c.transform, x: 99 } })
+		).rejects.toMatchObject({ reason: 'permission' });
+	});
+
+	it('rejects post_message to a non-chat object', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const n = note(ALICE, 0);
+		await store.commit({ kind: 'create_object', object: n });
+		await expect(store.commit({ kind: 'post_message', id: n.id, message: msg(ALICE, 'x') })).rejects.toMatchObject({ reason: 'invalid' });
+	});
+});
