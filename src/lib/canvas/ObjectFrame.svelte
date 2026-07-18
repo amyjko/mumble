@@ -9,7 +9,15 @@
 	import ObjectContent from '$lib/objects/ObjectContent.svelte';
 	import { displayMs, formatMs } from '$lib/model/timer';
 	import { clipPathCss, nextClip } from '$lib/model/clip';
-	import { resizeTransform, rotationForPointer, snapRotation, type ResizeHandle } from './resize';
+	import {
+		resizeTransform,
+		rotationForPointer,
+		snapRotation,
+		snapTo,
+		minSizeFor,
+		type ResizeHandle
+	} from './resize';
+	import { hint, SNAP_HINT } from './hint.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import { stopPointer } from '$lib/ui/events';
 	import { RAISED_Z } from './layers';
@@ -126,13 +134,21 @@
 			const center = { x: handleStart.x + handleStart.width / 2, y: handleStart.y + handleStart.height / 2 };
 			handleLast = { ...handleStart, rotation: snapRotation(rotationForPointer(center, world), event.shiftKey) };
 		} else {
-			handleLast = resizeTransform(handleStart, handleKind, world.x - handlePointer.x, world.y - handlePointer.y);
+			handleLast = resizeTransform(
+				handleStart,
+				handleKind,
+				world.x - handlePointer.x,
+				world.y - handlePointer.y,
+				event.shiftKey,
+				minSizeFor(object.type)
+			);
 		}
 		sync.objectOverlays.set(object.id, handleLast);
 	}
 
 	function onHandleUp(): void {
 		window.removeEventListener('pointermove', onHandleMove);
+		hint.clear();
 		if (handleKind === null) return;
 		handleKind = null;
 		commitTransform(handleLast);
@@ -146,6 +162,7 @@
 		handleStart = { ...effective };
 		handleLast = handleStart;
 		handlePointer = viewport.toWorld({ x: event.clientX, y: event.clientY });
+		hint.show(SNAP_HINT);
 		window.addEventListener('pointermove', onHandleMove);
 		window.addEventListener('pointerup', onHandleUp, { once: true });
 	}
@@ -154,6 +171,7 @@
 		if (!editable || isEditableTarget(event.target)) return;
 		event.stopPropagation();
 		dragging = true;
+		hint.show(SNAP_HINT);
 		pointerStart = viewport.toWorld({ x: event.clientX, y: event.clientY });
 		objectStart = { x: effective.x, y: effective.y };
 		lastResolved = objectStart;
@@ -166,13 +184,14 @@
 		if (!dragging) return;
 		const world = viewport.toWorld({ x: event.clientX, y: event.clientY });
 		const desired = {
-			x: objectStart.x + (world.x - pointerStart.x),
-			y: objectStart.y + (world.y - pointerStart.y)
+			x: snapTo(objectStart.x + (world.x - pointerStart.x), event.shiftKey),
+			y: snapTo(objectStart.y + (world.y - pointerStart.y), event.shiftKey)
 		};
 		lastResolved = moveTo(desired, lastResolved);
 	}
 
 	function onPointerUp(): void {
+		hint.clear();
 		if (!dragging) return;
 		dragging = false;
 		commitMove(lastResolved);
@@ -222,14 +241,17 @@
 		if (event.altKey && event.key.startsWith('Arrow')) {
 			const g = 16;
 			const t = object.transform;
+			// Same per-type floor the pointer path uses, rather than a second
+			// hard-coded 40 that could drift away from it.
+			const min = minSizeFor(object.type);
 			const grow =
 				event.key === 'ArrowRight'
 					? { width: t.width + g }
 					: event.key === 'ArrowLeft'
-						? { width: Math.max(40, t.width - g) }
+						? { width: Math.max(min.width, t.width - g) }
 						: event.key === 'ArrowDown'
 							? { height: t.height + g }
-							: { height: Math.max(40, t.height - g) };
+							: { height: Math.max(min.height, t.height - g) };
 			commitTransform({ ...t, ...grow });
 			event.preventDefault();
 			return;

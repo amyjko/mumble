@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MIN_SIZE, resizeTransform, rotationForPointer, snapRotation } from './resize';
+import { MIN_SIZE, SNAP_GRID, minSizeFor, resizeTransform, rotationForPointer, snapRotation, snapTo } from './resize';
 import type { Transform } from '$lib/model/types';
 
 const t: Transform = { x: 100, y: 100, width: 200, height: 160, rotation: 0, z: 1 };
@@ -40,5 +40,59 @@ describe('rotate (UX-OBJ-1)', () => {
 		expect(snapRotation(37, true)).toBe(30); // 37 is nearer 30 than 45
 		expect(snapRotation(37, false)).toBe(37);
 		expect(snapRotation(-15, true)).toBe(345);
+	});
+});
+
+describe('Shift-to-snap on pointer gestures', () => {
+	const t: Transform = { x: 100, y: 100, width: 200, height: 160, rotation: 0, z: 1 };
+
+	it('snapTo quantizes only when asked', () => {
+		expect(snapTo(103, true)).toBe(96); // 103/16 = 6.44 -> 6 -> 96
+		expect(snapTo(112, true)).toBe(112); // already on the lattice (16 x 7)
+		expect(snapTo(104, true)).toBe(112); // exact midpoint rounds up
+		expect(snapTo(105, true)).toBe(112); // 105/16 = 6.56 -> 7 -> 112
+		expect(snapTo(103, false)).toBe(103);
+		expect(snapTo(-9, true)).toBe(-16);
+	});
+
+	it('snaps the SIZE and keeps the anchored corner exactly put', () => {
+		// Dragging se: the nw corner is the anchor and must not move at all.
+		const r = resizeTransform(t, 'se', 7, 5, true);
+		expect(r.width % SNAP_GRID).toBe(0);
+		expect(r.height % SNAP_GRID).toBe(0);
+		expect(r.x).toBe(t.x);
+		expect(r.y).toBe(t.y);
+	});
+
+	it('snapping from nw moves the edge but pins the opposite corner', () => {
+		// The anchor is the se corner. Snapping x/y directly (rather than
+		// deriving them from a snapped size) would drift it off the object.
+		const r = resizeTransform(t, 'nw', 7, 5, true);
+		expect(r.width % SNAP_GRID).toBe(0);
+		expect(r.height % SNAP_GRID).toBe(0);
+		expect(r.x + r.width).toBe(t.x + t.width);
+		expect(r.y + r.height).toBe(t.y + t.height);
+	});
+});
+
+describe('per-type minimum sizes', () => {
+	const t: Transform = { x: 100, y: 100, width: 200, height: 160, rotation: 0, z: 1 };
+
+	it('gives control-bearing types room for their controls', () => {
+		// A flat 40px floor let a timer be shrunk until .content clipped its own
+		// start/reset buttons away — unusable, with no pointer route back.
+		expect(minSizeFor('timer').height).toBeGreaterThan(MIN_SIZE);
+		expect(minSizeFor('chat').height).toBeGreaterThan(MIN_SIZE);
+		expect(minSizeFor('note').height).toBeGreaterThan(MIN_SIZE);
+		// A drawing carries no controls, so the flat floor is right for it.
+		expect(minSizeFor('drawing')).toEqual({ width: MIN_SIZE, height: MIN_SIZE });
+	});
+
+	it('resizeTransform refuses to go below the type floor', () => {
+		const timerMin = minSizeFor('timer');
+		// Drag the se handle far past zero.
+		const r = resizeTransform(t, 'se', -9999, -9999, false, timerMin);
+		expect(r.width).toBe(timerMin.width);
+		expect(r.height).toBe(timerMin.height);
 	});
 });

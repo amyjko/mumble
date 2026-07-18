@@ -65,6 +65,21 @@
 		<!-- eslint-disable-next-line svelte/no-at-html-tags -- renderMarkdown (model/markdown.ts) is safe by construction: it HTML-escapes all input before emitting only tags it generates, and validates link hrefs. XSS-rejection cases are covered in markdown.spec.ts. -->
 		<div class="md" aria-hidden="true">{@html rendered}</div>
 	{/if}
+	{#if focused && editable}
+		<!--
+			Markdown support was discoverable only by reading the placeholder. The
+			legend appears while editing, where it is useful and where it cannot
+			cover the rendered view. aria-hidden: the textarea's own name already
+			says "markdown", so this would just be noise read twice.
+		-->
+		<div class="legend" aria-hidden="true">
+			<span><b>**bold**</b></span>
+			<span><i>*italic*</i></span>
+			<span># heading</span>
+			<span>- bullet</span>
+			<span>1. list</span>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -89,6 +104,21 @@
 	}
 	.note[readonly] {
 		cursor: default;
+	}
+	.legend {
+		position: absolute;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+		padding: var(--space-1) var(--space-2);
+		background: var(--note-code-bg);
+		color: var(--note-text);
+		font-size: var(--text-xs);
+		line-height: 1.3;
+		pointer-events: none;
 	}
 	.md {
 		position: absolute;

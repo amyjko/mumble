@@ -13,6 +13,7 @@
 	import WorldCanvas from '$lib/canvas/WorldCanvas.svelte';
 	import DevPanel from '$lib/dev/DevPanel.svelte';
 	import EmoteBar from '$lib/canvas/EmoteBar.svelte';
+	import HintBar from '$lib/canvas/HintBar.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import Field from '$lib/ui/Field.svelte';
 	import Popover from '$lib/ui/Popover.svelte';
@@ -223,6 +224,8 @@
 	<!-- Emotes get their own bar rather than hiding behind avatar hover: one
 	     always-visible launcher that can only ever act on you (UX-AV-7). -->
 	<EmoteBar {store} {sync} {identity} />
+	<!-- Teaches Shift-to-snap at the only moment it matters: mid-gesture. -->
+	<HintBar />
 	{#if import.meta.env.DEV}
 		<DevPanel {store} {sync} />
 	{/if}
