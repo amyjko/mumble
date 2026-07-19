@@ -34,13 +34,91 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      reserved_room_names: {
+        Row: {
+          name: string
+        }
+        Insert: {
+          name: string
+        }
+        Update: {
+          name?: string
+        }
+        Relationships: []
+      }
+      room_members: {
+        Row: {
+          created_at: string
+          hello: string | null
+          identity_id: string
+          role: string
+          room_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          hello?: string | null
+          identity_id: string
+          role?: string
+          room_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          hello?: string | null
+          identity_id?: string
+          role?: string
+          room_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "room_members_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rooms: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          owner_id: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          owner_id: string
+          updated_at?: string
+          version?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          owner_id?: string
+          updated_at?: string
+          version?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      is_admitted_member: { Args: { target_room: string }; Returns: boolean }
+      is_host: { Args: { target_room: string }; Returns: boolean }
+      is_member: { Args: { target_room: string }; Returns: boolean }
     }
     Enums: {
       [_ in never]: never

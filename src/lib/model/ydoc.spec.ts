@@ -98,3 +98,67 @@ describe('delta updates', () => {
 		expect(noteText(peer)).toBe('start more');
 	});
 });
+
+/**
+ * Document growth (the AR-SYNC-4 open item), settled by measurement.
+ *
+ * The worry was that a Yjs doc grows with edit history until it cannot be
+ * stored or broadcast. Measured on 2026-07-19 it does not, at anything like
+ * this product's scale: a ~500-character sticky note typed one character at a
+ * time encodes to 0.5 KB, because Yjs merges adjacent items from the same
+ * client. 5500 characters with heavy delete/retype churn is 5.4 KB — overhead
+ * roughly equal to the text, not exponential in edits.
+ *
+ * The two things that DO drive growth are pinned below, because both are
+ * load-bearing and neither is obvious from reading the code.
+ */
+describe('document growth stays proportional to text', () => {
+	const sentence = 'We should ship the smaller thing first and see what breaks. ';
+
+	function typed(text: string): Y.Doc {
+		const doc = new Y.Doc();
+		const body = doc.getText('body');
+		for (const ch of text) {
+			doc.transact(() => {
+				body.insert(body.length, ch);
+			});
+		}
+		return doc;
+	}
+
+	it('char-by-char typing does not multiply the stored size', () => {
+		const doc = typed(sentence.repeat(9));
+		const bytes = Y.encodeStateAsUpdate(doc).byteLength;
+		// ~540 chars of text. Generous ceiling: the point is the ORDER of
+		// magnitude, not the exact encoding, which is Yjs's to change.
+		expect(bytes).toBeLessThan(4096);
+	});
+
+	it('GARBAGE COLLECTION is load-bearing, not incidental', () => {
+		// `new Y.Doc()` defaults to gc: true and nothing in ydoc.ts overrides it.
+		// If someone ever passes { gc: false } — a reasonable-looking change if
+		// you want history — deleted text stops being reclaimed and documents
+		// grow without bound. Measured: 5000 chars deleted is 0.1 KB collected
+		// versus 5.0 KB uncollected, a 50x difference that would appear as a
+		// mysterious storage problem months later.
+		const collected = typed(sentence.repeat(85));
+		collected.transact(() => {
+			collected.getText('body').delete(0, 5000);
+		});
+
+		const retained = new Y.Doc({ gc: false });
+		const body = retained.getText('body');
+		for (const ch of sentence.repeat(85)) {
+			retained.transact(() => {
+				body.insert(body.length, ch);
+			});
+		}
+		retained.transact(() => {
+			body.delete(0, 5000);
+		});
+
+		expect(Y.encodeStateAsUpdate(collected).byteLength).toBeLessThan(
+			Y.encodeStateAsUpdate(retained).byteLength / 5
+		);
+	});
+});

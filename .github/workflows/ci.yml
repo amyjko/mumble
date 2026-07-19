@@ -100,14 +100,39 @@ jobs:
             test-results/
           retention-days: 7
 
-      # NOT RUN YET, deliberately: AR-TEST-5/6/7 (pgTAP RLS matrix, the
-      # vendored claims helper, and the real-JWT is_anonymous suite) need
-      # `supabase start` and a schema. supabase/migrations/ does not exist, so
-      # these would assert nothing. Add here — before the deploy gate — when
-      # the first migration lands:
-      #
-      #   - run: supabase start        # pin the CLI version; the 2.108.0
-      #   - run: supabase test db      # offline floor regresses silently
+
+  # The database gate (AR-TEST-5/6). A SEPARATE job, not extra steps on
+  # `verify`, so the fast lane still fails in seconds — starting Postgres,
+  # GoTrue, and the rest costs a couple of minutes, and a lint error should
+  # never wait for it.
+  #
+  # This is the first thing that proves AR-TEST-2's offline claim: the whole
+  # stack runs locally, with no network and no hosted project.
+  database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.109.1
+
+      # `db reset` applies every migration and then seed.sql, which is where the
+      # pgTAP claims helper lives — it cannot live in a test file (each runs in
+      # its own rolled-back transaction) or in a migration (test scaffolding in
+      # production schema is how a test-only backdoor ships).
+      - name: Start Supabase and apply migrations
+        run: |
+          supabase start
+          supabase db reset
+
+      # Behavioural, not metadata. policies_are() would pass whether the
+      # anonymous policy is RESTRICTIVE or permissive — and the permissive form
+      # allows anonymous room creation while looking completely correct, because
+      # a permissive policy ORs with the one beside it. Only attempting the write
+      # and observing the outcome can tell them apart (AR-TEST-5, TESTING.md §7).
+      - name: RLS behaviour (pgTAP)
+        run: supabase test db
 
   # Deploy is scaffolded but inert: it no-ops until the Cloudflare secrets
   # exist, so CI gates today without blocking on account setup. Add
@@ -115,7 +140,9 @@ jobs:
   # turn it on — no code change required. (AR-DEPLOY-2: push to main deploys;
   # PRs get previews.)
   deploy:
-    needs: verify
+    # BOTH gates, not just the fast one: a red RLS suite must not ship. Naming
+    # only `verify` here would have made the database job advisory.
+    needs: [verify, database]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10
