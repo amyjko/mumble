@@ -2,6 +2,7 @@
 	import { untrack } from 'svelte';
 	import type { StoredIdentity } from '$lib/model/types';
 	import { MemoryRoomStore } from '$lib/store/memory-store.svelte';
+	import type { RoomStore } from '$lib/store/room-store';
 	import { AVATAR_SIZE, newParticipant } from '$lib/model/avatar';
 	import { SyncClient } from '$lib/store/sync-client.svelte';
 	import { Viewport } from '$lib/canvas/viewport.svelte';
@@ -53,13 +54,24 @@
 		 * trusted by the server, which reads its own membership row.
 		 */
 		isHost?: boolean | undefined;
+		/**
+		 * The backend, INJECTED (AR-SYNC-3).
+		 *
+		 * This component used to construct `MemoryRoomStore` itself, which broke
+		 * room-store.ts's own rule that no consumer may name a backend — and made
+		 * the stub impossible to swap without editing the canvas. The route
+		 * supplies `SupabaseRoomStore`; anything that wants the stub passes it.
+		 *
+		 * Constructing it here was also what made the store a `$derived` on
+		 * IDENTITY: it took `identity.id`, so the store and its Realtime channel
+		 * were rebuilt every time anonymous sign-in, the join RPC, or a roamed
+		 * profile landed. Ownership of the lifetime belongs with whoever knows
+		 * the room, not with whoever knows the actor.
+		 */
+		store: RoomStore;
 	}
 
-	let { room, identity = $bindable(EMPTY_IDENTITY), isHost = false }: Props = $props();
-
-	// Derived on `room` so in-app navigation between rooms rebuilds the
-	// store instead of silently keeping the old room's channel.
-	const store = $derived(new MemoryRoomStore(room, identity.id, isHost));
+	let { room, identity = $bindable(EMPTY_IDENTITY), isHost = false, store }: Props = $props();
 	const sync = $derived(new SyncClient(store));
 	const viewport = new Viewport();
 
@@ -79,18 +91,21 @@
 		const current = store;
 		// Join: upsert self at the last known location, else the default spot;
 		// the store resolves collisions to the nearest legal position (AR-CTRL-4's
-		// shape). The participants read MUST be untracked: this effect may depend
-		// only on which store exists (i.e. the room), because the commit below
-		// writes participants — a tracked read here is a self-retriggering loop,
-		// and each re-run's cleanup would dispose the live store's channel.
+		// shape). The participants read MUST be untracked, because the commit
+		// below writes participants and a tracked read here is a
+		// self-retriggering loop.
 		const existing = untrack(() => current.state.participants[identity.id]);
 		void sync.commit({
 			kind: 'upsert_participant',
 			participant: newParticipant(identity, { existing })
 		});
-		return () => {
-			current.dispose();
-		};
+		// NO cleanup disposing the store. This component does not own it any
+		// more — the route builds it per room and disposes it. Disposing here
+		// closed the Realtime channel of a LIVE store every time `identity`
+		// changed, which it does moments after mount when the roamed profile
+		// lands: the page then looked fine and silently received no broadcast
+		// again, which is how a second tab ended up never seeing the first's
+		// edits.
 	});
 
 	const count = $derived(Object.keys(store.state.participants).length);
@@ -519,7 +534,10 @@
 	<BottomBar {store} {sync} {identity} {viewport} />
 	<!-- Teaches Shift-to-snap at the only moment it matters: mid-gesture. -->
 	<HintBar />
-	{#if import.meta.env.DEV}
+	<!-- Stub-only: the panel injects latency and forces rejections, levers that
+	     do not exist against the real backend. Dead controls would be worse
+	     than an absent panel. -->
+	{#if import.meta.env.DEV && store instanceof MemoryRoomStore}
 		<DevPanel {store} {sync} />
 	{/if}
 </main>

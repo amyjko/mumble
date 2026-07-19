@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { createRoomDirectly } from './support/auth';
 
 /**
  * The landing page. Its job is to make one claim and offer one action, so
@@ -36,6 +37,11 @@ test('a room link still works without passing through the landing page', async (
 	// The whole promise of the footer line: someone handed a link never sees
 	// any of this. Moving the form to /new must not have put a step in front
 	// of people who were invited.
+	// The room has to exist now — an invite link points at a REAL room, and a
+	// name that was never created is legitimately a 404. Created out-of-band so
+	// this visitor stays the invited stranger the test is about.
+	await createRoomDirectly('lci');
+
 	await page.goto('/hey/lci');
 	await expect(page.getByText('No such room')).toHaveCount(0);
 	await expect(page.getByRole('textbox', { name: 'Your name' })).toBeVisible();

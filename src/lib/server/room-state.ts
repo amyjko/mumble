@@ -85,8 +85,12 @@ export async function saveRoomState(
 ): Promise<number> {
 	const { data, error } = await db.rpc('save_room_state', {
 		p_room_id: roomId,
-		p_expected_version: expectedVersion,
-		p_diff: plainJson(diff)
+		p_diff: plainJson(diff),
+		// OMITTED when unguarded, rather than passed as null: the argument has a
+		// SQL default, and the generated types mark defaulted arguments optional,
+		// so this is the one spelling that needs neither a type assertion nor a
+		// sentinel value.
+		...(expectedVersion === null ? {} : { p_expected_version: expectedVersion })
 	});
 	if (error !== null) {
 		// PT409 is raised by the CAS when the version moved under us.

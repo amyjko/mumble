@@ -10,7 +10,7 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "wrangler types --check && vite build",
-		"preview": "wrangler dev .svelte-kit/cloudflare/_worker.js --port 4173",
+		"preview": "wrangler dev .svelte-kit/cloudflare/_worker.js --port ${MUMBLE_E2E_PORT:-4173}",
 		"prepare": "svelte-kit sync && wrangler types || echo ''",
 		"gen": "wrangler types",
 		"check": "pnpm run lint && pnpm run check:ts && pnpm run check:svelte",

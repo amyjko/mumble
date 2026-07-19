@@ -14,8 +14,13 @@ export const ssr = false;
  * shared module rather than a second copy of the pattern. A reserved name 404s
  * exactly like a malformed one: from outside, an unclaimable name and a
  * nonexistent room are the same thing.
+ *
+ * `data` is +page.server.ts's return value, and forwarding `roomId` is NOT
+ * optional bookkeeping: when a universal load and a server load both exist, the
+ * page receives only what THIS one returns. Dropping it would leave the canvas
+ * with no room id and no error to explain why.
  */
-export const load: PageLoad = ({ params }) => {
+export const load: PageLoad = ({ params, data }) => {
 	if (!isValidRoomName(params.room)) error(404, 'No such room');
-	return { room: canonicalRoomName(params.room) };
+	return { room: canonicalRoomName(params.room), roomId: data.roomId };
 };

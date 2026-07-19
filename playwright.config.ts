@@ -21,6 +21,20 @@ try {
 
 const ci = process.env.CI === 'true' || process.env.CI === '1';
 
+/**
+ * The preview port, overridable.
+ *
+ * 4173 is Vite's default, so it is exactly the port every OTHER project on this
+ * machine also wants. `reuseExistingServer: false` means a collision is refused
+ * rather than silently served — which is the right behaviour and cost real time
+ * to diagnose anyway, because a request to a neighbour's app on the same port
+ * answers with THAT app's 404 and reads as a bug in this one.
+ *
+ * Set MUMBLE_E2E_PORT to run alongside another project. `pnpm run preview`
+ * reads the same variable, so the two cannot drift.
+ */
+const port = Number(process.env.MUMBLE_E2E_PORT ?? 4173);
+
 export default defineConfig({
 	// Checks the local stack BEFORE any test runs, so an unhealthy environment
 	// reports itself in one line instead of as 60 failing assertions.
@@ -34,7 +48,7 @@ export default defineConfig({
 		// pnpm, not npm: the project is pnpm-only (packageManager pins 11.13.1)
 		// and npm's runner happened to work by accident.
 		command: 'pnpm run build && pnpm run preview',
-		port: 4173,
+		port,
 		// A cold `wrangler types` + `vite build` + workerd start comfortably
 		// exceeds Playwright's 60s default on a CI runner.
 		timeout: 180_000,

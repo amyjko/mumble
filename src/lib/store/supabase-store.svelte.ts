@@ -1,3 +1,4 @@
+import { untrack } from 'svelte';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import type { EphemeralMessage, Mutation, RoomState } from '$lib/model/types';
 import type { RoomStore } from './room-store';
@@ -72,6 +73,8 @@ export class SupabaseRoomStore implements RoomStore {
 	 */
 	private actorId = '';
 	private isHost = false;
+	/** Tail of the in-flight commit chain; see `commit`. */
+	private queue: Promise<void> = Promise.resolve();
 
 	constructor(roomId: string, roomName: string) {
 		this.roomId = roomId;
@@ -176,13 +179,56 @@ export class SupabaseRoomStore implements RoomStore {
 		// Only once the actor is known. Before that (the moment between mount and
 		// sign-in) the server is the sole judge, which is correct anyway.
 		if (this.actorId !== '') {
-			applyMutation(this.state, parsed.data, { actorId: this.actorId, isHost: this.isHost });
+			// untrack, for the reason MemoryRoomStore.commit spells out and this
+			// store did not honour: with no latency this runs SYNCHRONOUSLY inside
+			// whatever effect triggered the commit, and applyMutation both reads
+			// state (permission and collision checks) and writes it — so the
+			// caller's effect ends up depending on the very state it mutates.
+			//
+			// That is an infinite loop, and it was one: Room's join effect commits
+			// upsert_participant, so a second tab died with
+			// effect_update_depth_exceeded before it ever processed a broadcast.
+			// The stub's comment calls this a guarantee the seam makes "for every
+			// store implementation" — it was implemented in exactly one of them,
+			// which is why the rule now appears in both.
+			untrack(() => {
+				applyMutation(this.state, parsed.data, { actorId: this.actorId, isHost: this.isHost });
+			});
 		}
 
+		/*
+		 * One request at a time, per store.
+		 *
+		 * Typing fires a mutation per keystroke, and sending them concurrently
+		 * makes a client RACE ITSELF: every guarded write carries the version it
+		 * read, so the second keystroke's request is already stale when it
+		 * arrives, and with a bounded retry most of them are simply dropped.
+		 * Measured before this queue: `pressSequentially('Alice writes. ')` —
+		 * fourteen keystrokes — reached a peer as "A".
+		 *
+		 * The local apply above stays synchronous and unqueued, so typing still
+		 * feels instant; only the network half is ordered. Ordering it is also
+		 * the honest thing for a log like `post_message`, where arrival order is
+		 * the message order.
+		 */
+		const send = this.queue.then(
+			() => this.send(parsed.data),
+			() => this.send(parsed.data)
+		);
+		// The queue must not reject, or one failed commit would poison every
+		// commit after it. The REAL outcome still reaches this caller via `send`.
+		this.queue = send.then(
+			() => undefined,
+			() => undefined
+		);
+		return send;
+	}
+
+	private async send(mutation: Mutation): Promise<void> {
 		const response = await fetch(`/api/rooms/${this.roomName}/mutate`, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(parsed.data)
+			body: JSON.stringify(mutation)
 		});
 
 		if (!response.ok) {

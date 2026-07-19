@@ -160,49 +160,34 @@ test('keyboard: an avatar can be resized, rotated and reshaped without a pointer
  * was changing around them.
  */
 test('announcements: another person adding an object is announced', async ({ browser }) => {
-	// ONE context, two identities. Separate contexts would be the natural way
-	// to model two people, but the stub syncs over BroadcastChannel and
-	// localStorage, neither of which crosses a context — so nothing would
-	// reach the other page. Instead both pages share a context (so sync works)
-	// and the second is given its own identity directly, which is what makes
-	// it a different participant.
+	// TWO CONTEXTS — two genuinely different people.
+	//
+	// This used to be one context with a second identity written straight into
+	// localStorage, because the stub synced over BroadcastChannel and
+	// localStorage and neither crosses a context. That constraint is gone: the
+	// server syncs across contexts, and a context is now exactly one
+	// authenticated session. Keeping the old device would silently test the
+	// opposite of what it claims — both pages would share one auth user, so
+	// "Bo's" note would carry Amy's creator id and Amy would correctly stay
+	// silent about her own change.
 	const room = roomName('ann');
-	const context = await browser.newContext();
-	const pa = await context.newPage();
-	const pb = await context.newPage();
+	const ctxA = await browser.newContext();
+	const ctxB = await browser.newContext();
+	const pa = await ctxA.newPage();
+	const pb = await ctxB.newPage();
 
 	await joinRoom(pa, room, 'Amy');
-
-	// Bo's identity is installed BEFORE the first navigation, not set-then-
-	// reloaded. The reload version raced: between B's first load and the
-	// reload, B was briefly Amy — and a note created in that window has A's own
-	// creator id, so A correctly stays silent about its "own" change and the
-	// test fails. Deterministic now: B is never anyone but Bo.
-	await pb.addInitScript(() => {
-		localStorage.setItem(
-			'mumble:identity',
-			JSON.stringify({
-				id: '22222222-2222-4222-8222-222222222222',
-				name: 'Bo',
-				emoji: '\u{1F419}'
-			})
-		);
-	});
-	await pb.goto(`/hey/${room}`);
-	await expect(pb.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await joinRoom(pb, room, 'Bo');
 
 	// Bo adds a note; Amy's live region must say so.
 	//
-	// Asserted WITHOUT the name, deliberately. The store has no central
-	// authority and resolves concurrent snapshots last-writer-wins — its own
-	// documented limitation — so Bo's participant record can be clobbered by a
-	// snapshot from Amy that predates it, even while Bo's note survives. The
-	// announcement then correctly degrades to "Someone added a note". Pinning
-	// the name here would be asserting against a known stub behavior rather
-	// than against this feature, and would fail intermittently for a reason
-	// that has nothing to do with announcements.
+	// Asserted WITHOUT the name: the announcement degrades to "Someone" if
+	// Amy's snapshot has not yet caught Bo's participant record, and pinning
+	// the name would be asserting against sync timing rather than against this
+	// feature.
 	await pb.getByRole('button', { name: '+ note' }).click();
 	await expect(pa.locator('.sr-only[aria-live]')).toContainText(/added a note/i, { timeout: 10_000 });
 
-	await context.close();
+	await ctxA.close();
+	await ctxB.close();
 });

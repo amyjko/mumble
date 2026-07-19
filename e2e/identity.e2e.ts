@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { joinRoom, roomName } from './support/join';
+import { createRoomDirectly } from './support/auth';
 
 /**
  * Identity (UX-ID-1, UX-AV-3). Joining may be anonymous — no account — but a
@@ -8,7 +9,12 @@ import { joinRoom, roomName } from './support/join';
  */
 
 test('a room cannot be entered without a name', async ({ page }) => {
-	await page.goto(`/hey/${roomName('id')}`);
+	// Navigated directly rather than through joinRoom, because joinRoom ANSWERS
+	// the prompt and the prompt is what this test is about. So the room is
+	// created here instead.
+	const room = roomName('id');
+	await createRoomDirectly(room);
+	await page.goto(`/hey/${room}`);
 
 	// The prompt blocks entry, and Join stays disabled until a name is typed.
 	const join = page.getByRole('button', { name: 'Join' });

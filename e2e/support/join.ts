@@ -1,4 +1,5 @@
 import { expect, type Page } from '@playwright/test';
+import { createRoomDirectly } from './auth';
 
 /**
  * Enter a room, answering the join prompt if it appears.
@@ -13,6 +14,17 @@ import { expect, type Page } from '@playwright/test';
  * rule that is going to keep changing.
  */
 export async function joinRoom(page: Page, room: string, name = 'Tester'): Promise<void> {
+	// The room has to EXIST now. On the stub, visiting a URL conjured a room in
+	// localStorage; against Postgres the route 404s one that was never created.
+	//
+	// Created out-of-band rather than through /new on purpose: going through the
+	// UI would make this browser an account holder AND the room's host, which is
+	// the opposite of the case these tests cover (UX-ROOM-11 — joining needs no
+	// account). This way the browser stays an anonymous GUEST and the guest path
+	// keeps its coverage. Idempotent, so the second page of a two-page test can
+	// call it for the same room.
+	await createRoomDirectly(room);
+
 	await page.goto(`/hey/${room}`);
 
 	const nameField = page.getByRole('textbox', { name: 'Your name' });

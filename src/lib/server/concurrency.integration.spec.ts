@@ -78,8 +78,8 @@ beforeEach(async () => {
 async function save(expected: number | null, diff: Json): Promise<string | null> {
 	const { error } = await db.rpc('save_room_state', {
 		p_room_id: roomId,
-		p_expected_version: expected,
-		p_diff: diff
+		p_diff: diff,
+		...(expected === null ? {} : { p_expected_version: expected })
 	});
 	return error?.code ?? null;
 }
@@ -258,7 +258,6 @@ describe('a write cannot reach into another room', () => {
 		const attack = { ...victim, payload: { text: 'PWNED', doc: '' } };
 		await db.rpc('save_room_state', {
 			p_room_id: other?.id ?? '',
-			p_expected_version: null,
 			p_diff: { ...emptyDiff(), objects: { upsert: [attack], remove: [] } }
 		});
 

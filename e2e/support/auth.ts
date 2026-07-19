@@ -1,4 +1,5 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '../../src/lib/database.types';
 import { expect, test, type Page } from '@playwright/test';
 
 /**
@@ -26,10 +27,10 @@ const secret = process.env['SUPABASE_SECRET_KEY'] ?? '';
  * that survived, and it invalidated two full-suite measurements before I
  * noticed I was testing against a degraded stack rather than my changes.
  */
-let admin: ReturnType<typeof createClient> | null = null;
-function adminClient(): ReturnType<typeof createClient> {
+let admin: SupabaseClient<Database> | null = null;
+function adminClient(): SupabaseClient<Database> {
 	if (admin === null) {
-		admin = createClient(url, secret, { auth: { autoRefreshToken: false, persistSession: false } });
+		admin = createClient<Database>(url, secret, { auth: { autoRefreshToken: false, persistSession: false } });
 	}
 	return admin;
 }
@@ -153,6 +154,17 @@ export async function createRoomDirectly(room: string, owner?: string): Promise<
 		const email = testEmail('owner');
 		const { data } = await admin.auth.admin.createUser({ email, email_confirm: true });
 		ownerId = data.user?.id ?? '';
+	}
+
+	// Idempotent: two-page tests join the SAME room from two contexts, and the
+	// second call must not fail on the unique name. Checked first rather than
+	// upserted, so an existing room keeps its original owner — re-owning a room
+	// mid-test would silently change who is host.
+	const existing = await admin.from('rooms').select('id').eq('name', room).maybeSingle();
+	if (existing.data !== null) {
+		const found: unknown = existing.data.id;
+		if (typeof found !== 'string') throw new Error(`room ${room} returned no id`);
+		return found;
 	}
 
 	const { data, error } = await admin.from('rooms').insert({ name: room, owner_id: ownerId }).select('id').single();
