@@ -36,13 +36,29 @@ export default defineConfig({
 				}
 			},
 
+			/*
+			 * Integration: needs the local Supabase stack running. NOT in the
+			 * default run — `pnpm test:unit` must stay offline and fast, and a
+			 * developer without Docker should not see a wall of red. Run with
+			 * `pnpm test:integration`; CI runs it in the database job where the
+			 * stack is already up.
+			 */
+			{
+				extends: './vite.config.ts',
+				test: {
+					name: 'integration',
+					environment: 'node',
+					include: ['src/**/*.integration.spec.ts']
+				}
+			},
+
 			{
 				extends: './vite.config.ts',
 				test: {
 					name: 'server',
 					environment: 'node',
 					include: ['src/**/*.{test,spec}.{js,ts}'],
-					exclude: ['src/**/*.svelte.{test,spec}.{js,ts}']
+					exclude: ['src/**/*.svelte.{test,spec}.{js,ts}', 'src/**/*.integration.spec.ts']
 				}
 			}
 		]

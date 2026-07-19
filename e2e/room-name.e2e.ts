@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { joinRoom, roomName } from './support/join';
+import { signInAsAccount } from './support/auth';
 
 /**
  * Room names (UX-ROOM-9/10). The pattern used to exist in two places with each
@@ -32,8 +33,9 @@ test('a well-formed name still resolves', async ({ page }) => {
 });
 
 test('the naming form explains WHY a name is rejected', async ({ page }) => {
-	// The form moved off the landing page to /new, where account creation will
-	// intercept once auth exists.
+	// /new is behind the account gate now (AR-AUTH-7), so reaching the form at
+	// all requires a session — which is the point of the guard.
+	await signInAsAccount(page);
 	await page.goto('/new');
 	const field = page.getByRole('textbox', { name: 'Room name' });
 	const go = page.getByRole('button', { name: 'go' });
@@ -52,6 +54,7 @@ test('the naming form explains WHY a name is rejected', async ({ page }) => {
 });
 
 test('case-insensitive: LCI reaches the same room as lci', async ({ page }) => {
+	await signInAsAccount(page);
 	await page.goto('/new');
 	await page.getByRole('textbox', { name: 'Room name' }).fill('LCI');
 	await page.getByRole('button', { name: 'go' }).click();

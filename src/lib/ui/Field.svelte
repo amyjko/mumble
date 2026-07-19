@@ -19,6 +19,16 @@
 		/** Marks the control as object content so a drag doesn't start on it. */
 		editableTarget?: boolean | undefined;
 		rows?: number | undefined;
+		/**
+		 * Form-submission and input-mode props, added for the sign-in form.
+		 * `name` matters most: without it a native form submits nothing, and
+		 * the login action works before hydration precisely so it does not
+		 * depend on JavaScript having loaded.
+		 */
+		type?: 'text' | 'email' | undefined;
+		name?: string | undefined;
+		autocomplete?: 'email' | 'off' | undefined;
+		required?: boolean | undefined;
 		onkeydown?: ((event: KeyboardEvent) => void) | undefined;
 		/**
 		 * Fired on blur with the CURRENT VALUE, not the event. Handing back a
@@ -38,6 +48,10 @@
 		labelHidden = false,
 		editableTarget = false,
 		rows,
+		type = 'text',
+		name,
+		autocomplete,
+		required = false,
 		onkeydown,
 		oncommit,
 		onpointerdown
@@ -63,6 +77,10 @@
 	{:else}
 		<input
 			bind:value
+			{type}
+			{name}
+			{autocomplete}
+			{required}
 			{placeholder}
 			{onkeydown}
 			onblur={handleBlur}

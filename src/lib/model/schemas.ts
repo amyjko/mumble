@@ -438,6 +438,31 @@ export const envelopeSchema = z.discriminatedUnion('t', [
 	z.object({ v: z.literal(1), t: z.literal('hello') })
 ]);
 
+/**
+ * The verified JWT's claims (AR-AUTH-1/2/4).
+ *
+ * `safeGetClaims()` returns `Record<string, unknown>` — honest, since a JWT is
+ * whatever the issuer put in it, but unusable under this project's rules: every
+ * consumer would narrow `claims['sub']` by hand, and `as` is banned. Parsing at
+ * the boundary once is what makes `claims.is_anonymous` a boolean everywhere
+ * else.
+ *
+ * `is_anonymous` is the claim AR-AUTH-2's whole permission model turns on. It
+ * defaults to FALSE-ON-ABSENT deliberately: a token without the claim is not
+ * an anonymous token, and treating a missing claim as "anonymous" would deny
+ * permanent users. The SQL side takes the opposite care for the same reason —
+ * `is false` rather than `= false`, because a missing claim there is NULL.
+ */
+/** The email OTP types Supabase accepts on the confirm route. */
+export const emailOtpTypeSchema = z.enum(['email', 'magiclink', 'signup', 'recovery', 'invite', 'email_change']);
+
+export const claimsSchema = z.object({
+	sub: z.uuid(),
+	role: z.string().optional(),
+	email: z.string().optional(),
+	is_anonymous: z.boolean().default(false)
+});
+
 /** localStorage shapes (per-browser identity echoing UX-ID-5). */
 export const storedIdentitySchema = z.object({
 	id: z.uuid(),

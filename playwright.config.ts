@@ -1,4 +1,23 @@
 import { defineConfig, devices } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+
+/**
+ * Load .env for the test PROCESS, not the app.
+ *
+ * The app gets these through SvelteKit's $env at build time; the helpers in
+ * e2e/support run in plain Node and need them in process.env. Parsed by hand
+ * rather than adding dotenv for four lines — and deliberately non-fatal, so a
+ * checkout without a local stack still runs the tests that do not need one.
+ */
+try {
+	for (const line of readFileSync('.env', 'utf8').split('\n')) {
+		const eq = line.indexOf('=');
+		if (eq <= 0 || line.startsWith('#')) continue;
+		process.env[line.slice(0, eq).trim()] ??= line.slice(eq + 1).trim();
+	}
+} catch {
+	// No .env: the auth helpers will explain themselves when used.
+}
 
 const ci = process.env.CI === 'true' || process.env.CI === '1';
 

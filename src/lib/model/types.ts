@@ -19,7 +19,8 @@ import type {
 	mutationSchema,
 	ephemeralSchema,
 	envelopeSchema,
-	storedIdentitySchema
+	storedIdentitySchema,
+	claimsSchema
 } from './schemas';
 
 /** Boundary-crossing types are inferred from schemas — no drift possible. */
@@ -44,6 +45,7 @@ export type Mutation = z.infer<typeof mutationSchema>;
 export type EphemeralMessage = z.infer<typeof ephemeralSchema>;
 export type Envelope = z.infer<typeof envelopeSchema>;
 export type StoredIdentity = z.infer<typeof storedIdentitySchema>;
+export type Claims = z.infer<typeof claimsSchema>;
 
 /** Purely-internal types: never cross a boundary, so plain TS is fine. */
 

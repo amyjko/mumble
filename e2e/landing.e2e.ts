@@ -17,8 +17,10 @@ test('the page leads with its claim and one prominent action', async ({ page }) 
 	const cta = page.getByRole('link', { name: 'Make a room' });
 	await expect(cta).toBeVisible();
 	await cta.click();
-	await expect(page).toHaveURL(/\/new$/);
-	await expect(page.getByRole('textbox', { name: 'Room name' })).toBeVisible();
+	// Signed out, the one action leads to the account gate rather than the
+	// form — AR-AUTH-7's interception, which is exactly why /new is its own
+	// route. The signed-in path is covered in room-name.e2e.ts.
+	await expect(page).toHaveURL(/\/login/);
 });
 
 test('the features are a list, not four paragraphs pretending to be one', async ({ page }) => {
