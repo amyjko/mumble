@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom } from './support/join';
+import { joinRoom, roomName } from './support/join';
 
 /**
  * Scale-to-fullscreen (UX-CANVAS-4): per-viewer view state — opens an overlay,
@@ -7,7 +7,7 @@ import { joinRoom } from './support/join';
  * peer is unaffected).
  */
 test('fullscreen: overlay opens, Escape closes, nothing is mutated', async ({ browser }) => {
-	const room = `fs-${Date.now().toString(36)}`;
+	const room = roomName('fs');
 	const context = await browser.newContext();
 	const a = await context.newPage();
 	const b = await context.newPage();

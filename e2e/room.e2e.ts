@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom } from './support/join';
+import { joinRoom, roomName } from './support/join';
 
 /**
  * The page-level guard (AR-TEST-9's first slice): runs against the BUILT
@@ -11,7 +11,7 @@ import { joinRoom } from './support/join';
  */
 
 test('two pages share a room: create in A, see in B, no page errors', async ({ browser }) => {
-	const room = `e2e-${Date.now().toString(36)}`;
+	const room = roomName('e2e');
 	const context = await browser.newContext();
 	const errors: string[] = [];
 

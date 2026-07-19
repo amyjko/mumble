@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom } from './support/join';
+import { joinRoom, roomName } from './support/join';
 
 /**
  * Resize + rotate (UX-OBJ-1). Driven by keyboard for determinism (the pointer
@@ -7,7 +7,7 @@ import { joinRoom } from './support/join';
  * in resize.spec.ts). Alt+arrows resize; [ and ] rotate.
  */
 test('resize: Alt+Arrow grows a focused object, synced', async ({ browser }) => {
-	const room = `rz-${Date.now().toString(36)}`;
+	const room = roomName('rz');
 	const context = await browser.newContext();
 	const a = await context.newPage();
 	const b = await context.newPage();
@@ -34,7 +34,7 @@ test('resize: Alt+Arrow grows a focused object, synced', async ({ browser }) => 
 });
 
 test('rotate: [ and ] keys rotate a focused object', async ({ page }) => {
-	await joinRoom(page, `rot-${Date.now().toString(36)}`);
+	await joinRoom(page, roomName('rot'));
 	await page.getByRole('button', { name: '+ note' }).click();
 	const frame = page.locator('.frame');
 	await frame.focus();

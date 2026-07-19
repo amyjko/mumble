@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom } from './support/join';
+import { joinRoom, roomName } from './support/join';
 
 /** Configurations (UX-ROOM-3..6): save a layout, change it, switch back restores. */
 test('config: save layout, move object, switch back restores position', async ({ page }) => {
-	await joinRoom(page, `cfg-${Date.now().toString(36)}`);
+	await joinRoom(page, roomName('cfg'));
 	await page.getByRole('button', { name: '+ note' }).click();
 	const frame = page.locator('.frame');
 	const worldX = () => frame.evaluate((el) => (el instanceof HTMLElement ? el.style.transform : ''));

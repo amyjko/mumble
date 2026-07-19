@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { hydrated, joinRoom } from './support/join';
+import { hydrated, joinRoom, roomName } from './support/join';
 
 /**
  * UX-A11Y-1's automatable half (AR-STYLE-3): axe scans in BOTH themes, plus
@@ -28,7 +28,7 @@ for (const theme of ['light', 'dark'] as const) {
 		await page.goto('/new');
 		await expectNoViolations(page);
 
-		await joinRoom(page, `axe-${theme}-${Date.now().toString(36)}`);
+		await joinRoom(page, roomName(`axe-${theme}`));
 		await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
 		await page.getByRole('button', { name: '+ note' }).click();
 		await expect(page.locator('textarea.note')).toHaveCount(1);
@@ -37,7 +37,7 @@ for (const theme of ['light', 'dark'] as const) {
 }
 
 test('keyboard journey: create, move (solver-constrained), edit, delete', async ({ page }) => {
-	await joinRoom(page, `kbd-${Date.now().toString(36)}`);
+	await joinRoom(page, roomName('kbd'));
 
 	// Create from the keyboard.
 	await page.getByRole('button', { name: '+ note' }).focus();
@@ -67,7 +67,7 @@ test('keyboard journey: create, move (solver-constrained), edit, delete', async 
 });
 
 test('auto-fit toggle receives clicks and refits (regression: canvas capture)', async ({ page }) => {
-	await joinRoom(page, `fit-${Date.now().toString(36)}`);
+	await joinRoom(page, roomName('fit'));
 	const canvas = page.getByRole('application', { name: 'Room canvas' });
 	await expect(canvas).toBeVisible();
 	// The camera controls moved into the single bottom toolbar (BottomBar).
@@ -92,7 +92,7 @@ test('auto-fit toggle receives clicks and refits (regression: canvas capture)', 
 });
 
 test('tabbing to an off-screen object scrolls it into view', async ({ page }) => {
-	await joinRoom(page, `reveal-${Date.now().toString(36)}`);
+	await joinRoom(page, roomName('reveal'));
 	const canvas = page.getByRole('application', { name: 'Room canvas' });
 	await expect(canvas).toBeVisible();
 	// Two notes, then zoom in so they can't both be on screen.
@@ -132,7 +132,7 @@ test('theme persists across reload and applies pre-paint', async ({ page }) => {
  * pointer-only — exactly the gap the requirement forbids.
  */
 test('keyboard: an avatar can be resized, rotated and reshaped without a pointer', async ({ page }) => {
-	await joinRoom(page, `kbdav-${Date.now().toString(36)}`);
+	await joinRoom(page, roomName('kbdav'));
 	const avatar = page.locator('.avatar');
 	await avatar.focus();
 
@@ -166,7 +166,7 @@ test('announcements: another person adding an object is announced', async ({ bro
 	// reach the other page. Instead both pages share a context (so sync works)
 	// and the second is given its own identity directly, which is what makes
 	// it a different participant.
-	const room = `ann-${Date.now().toString(36)}`;
+	const room = roomName('ann');
 	const context = await browser.newContext();
 	const pa = await context.newPage();
 	const pb = await context.newPage();

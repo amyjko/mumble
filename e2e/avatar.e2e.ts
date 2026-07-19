@@ -7,7 +7,7 @@ import { joinRoom, roomName } from './support/join';
  * circle for no principled reason.
  */
 test('avatar: resize and reshape your own, and it syncs', async ({ browser }) => {
-	const room = `avatar-${Date.now().toString(36)}`;
+	const room = roomName('avatar');
 	const context = await browser.newContext();
 	const a = await context.newPage();
 	const b = await context.newPage();
@@ -60,7 +60,7 @@ test('avatar: resize and reshape your own, and it syncs', async ({ browser }) =>
  * last, which made rapid reacting feel broken.
  */
 test('avatar: multiple reactions float at once', async ({ page }) => {
-	const room = `avatar-react-${Date.now().toString(36)}`;
+	const room = roomName('avatar-react');
 	await joinRoom(page, room);
 
 	await page.getByRole('button', { name: 'Celebrate' }).click();
@@ -72,7 +72,7 @@ test('avatar: multiple reactions float at once', async ({ page }) => {
 
 /** Persistent states must be legible across the room (UX-AV-5). */
 test('avatar: raised hand and away are prominent badges', async ({ page }) => {
-	const room = `avatar-badge-${Date.now().toString(36)}`;
+	const room = roomName('avatar-badge');
 	await joinRoom(page, room);
 
 	// The room has to be CONTENDED for a raised hand to exist at all: raising
@@ -98,7 +98,7 @@ test('avatar: raised hand and away are prominent badges', async ({ page }) => {
 
 /** Every emoji renders in the vendored Noto face, not the system set. */
 test('avatar: emoji use the emoji font everywhere', async ({ page }) => {
-	const room = `avatar-font-${Date.now().toString(36)}`;
+	const room = roomName('avatar-font');
 	await joinRoom(page, room);
 	await page.getByRole('button', { name: 'Celebrate' }).click();
 

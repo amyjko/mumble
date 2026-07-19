@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom } from './support/join';
+import { joinRoom, roomName } from './support/join';
 
 /** Chat object (UX-OBJ-3): a message posted in one page appears in another. */
 test('chat: a message posted by A is retained and seen by B', async ({ browser }) => {
-	const room = `chat-${Date.now().toString(36)}`;
+	const room = roomName('chat');
 	const context = await browser.newContext();
 	const a = await context.newPage();
 	const b = await context.newPage();

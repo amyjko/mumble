@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom } from './support/join';
+import { joinRoom, roomName } from './support/join';
 
 /**
  * Fixes for bugs found by auditing DESIGN.md against the code rather than
@@ -12,7 +12,7 @@ import { joinRoom } from './support/join';
  * deleting a timer heard "Delete note", then "Note deleted" (UX-A11Y-3).
  */
 test('a11y: delete names the object type, not always "note"', async ({ page }) => {
-	const room = `noun-${Date.now().toString(36)}`;
+	const room = roomName('noun');
 	await joinRoom(page, room);
 
 	await page.getByRole('button', { name: '+ timer' }).click();
@@ -31,7 +31,7 @@ test('a11y: delete names the object type, not always "note"', async ({ page }) =
  * when resize landed; this one was missed.
  */
 test('auto-fit frames a resized avatar instead of cropping it', async ({ page }) => {
-	const room = `fit-${Date.now().toString(36)}`;
+	const room = roomName('fit');
 	await joinRoom(page, room);
 	const canvas = page.getByRole('application', { name: 'Room canvas' });
 	await expect(canvas).toBeVisible();
@@ -88,7 +88,7 @@ test('auto-fit frames a resized avatar instead of cropping it', async ({ page })
  * saved it can do nothing. It used to be offered anyway and silently no-op.
  */
 test('reset is disabled until a layout is saved', async ({ page }) => {
-	const room = `reset-${Date.now().toString(36)}`;
+	const room = roomName('reset');
 	await joinRoom(page, room);
 
 	await page.getByRole('button', { name: /layouts/ }).click();

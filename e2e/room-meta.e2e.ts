@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom } from './support/join';
+import { joinRoom, roomName } from './support/join';
 
 /** Room title (UX-ROOM-2) syncs; rename (UX-ROOM-10) navigates carrying state. */
 test('title syncs to peers; rename navigates and carries state', async ({ browser }) => {
-	const room = `meta-${Date.now().toString(36)}`;
+	const room = roomName('meta');
 	const context = await browser.newContext();
 	const a = await context.newPage();
 	const b = await context.newPage();

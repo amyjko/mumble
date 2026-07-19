@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom } from './support/join';
+import { joinRoom, roomName } from './support/join';
 
 /**
  * Concurrent note editing (UX-OBJ-2 / AR-SYNC-4). This is the test the whole
@@ -7,7 +7,7 @@ import { joinRoom } from './support/join';
  * whoever finished second silently erased the other person's work.
  */
 test('crdt: two tabs typing in one note keep BOTH contributions', async ({ browser }) => {
-	const room = `crdt-${Date.now().toString(36)}`;
+	const room = roomName('crdt');
 	const context = await browser.newContext();
 	const a = await context.newPage();
 	const b = await context.newPage();
@@ -50,7 +50,7 @@ test('crdt: two tabs typing in one note keep BOTH contributions', async ({ brows
  * next keystroke would land in the wrong place mid-sentence.
  */
 test('crdt: a remote insert does not strand your caret', async ({ browser }) => {
-	const room = `caret-${Date.now().toString(36)}`;
+	const room = roomName('caret');
 	const context = await browser.newContext();
 	const a = await context.newPage();
 	const b = await context.newPage();

@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom } from './support/join';
+import { cameraSettled, joinRoom, roomName } from './support/join';
 
 /** Drawings (UX-OBJ-11): draw mode captures a stroke into a synced drawing object. */
 test('drawing: a stroke drawn in A becomes a drawing and syncs to B', async ({ browser }) => {
-	const room = `draw-${Date.now().toString(36)}`;
+	const room = roomName('draw');
 	const context = await browser.newContext();
 	const a = await context.newPage();
 	const b = await context.newPage();
@@ -51,12 +51,17 @@ test('drawing: a stroke drawn in A becomes a drawing and syncs to B', async ({ b
  * thing it is about.
  */
 test('drawing: a stroke can start on top of an object', async ({ page }) => {
-	const room = `over-${Date.now().toString(36)}`;
+	const room = roomName('over');
 	await joinRoom(page, room);
 
 	await page.getByRole('button', { name: '+ note' }).click();
 	const frame = page.locator('.frame');
 	await expect(frame).toHaveCount(1);
+	// Adding the note re-runs auto-fit, which animates the camera. Measuring
+	// mid-animation aims the stroke at where the note USED to be — it wins that
+	// race most of the time, which is how it survived as an occasional failure
+	// under full-suite load while passing every isolated run.
+	await cameraSettled(page);
 	const note = await frame.boundingBox();
 	expect(note).not.toBeNull();
 	if (note === null) return;

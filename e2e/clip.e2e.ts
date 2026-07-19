@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom } from './support/join';
+import { joinRoom, roomName } from './support/join';
 
 /**
  * The clip lives on the inner .clip layer, not .frame: clip-path clips
@@ -9,7 +9,7 @@ import { joinRoom } from './support/join';
 
 /** Clip shapes (UX-OBJ-7): cycling reaches ellipse/polygon (a real clip-path). */
 test('clip: cycling an object shape applies a clip-path and syncs', async ({ browser }) => {
-	const room = `clip-${Date.now().toString(36)}`;
+	const room = roomName('clip');
 	const context = await browser.newContext();
 	const a = await context.newPage();
 	const b = await context.newPage();
@@ -48,7 +48,7 @@ test('clip: cycling an object shape applies a clip-path and syncs', async ({ bro
  * cardinal points looked correct even when it was broken.
  */
 test('clip: the sticker border follows the silhouette all the way around', async ({ page }) => {
-	const room = `clipborder-${Date.now().toString(36)}`;
+	const room = roomName('clipborder');
 	await joinRoom(page, room);
 	await page.getByRole('button', { name: '+ note' }).click();
 	await page.locator('.frame').hover();
@@ -92,7 +92,7 @@ test('clip: the sticker border follows the silhouette all the way around', async
  * Every shape in the cycle must stay pointer-operable.
  */
 test('clip: controls stay reachable in every shape (no trapped object)', async ({ page }) => {
-	const room = `cliptrap-${Date.now().toString(36)}`;
+	const room = roomName('cliptrap');
 	await joinRoom(page, room);
 	await page.getByRole('button', { name: '+ note' }).click();
 

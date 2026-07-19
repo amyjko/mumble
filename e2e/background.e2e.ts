@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom } from './support/join';
+import { joinRoom, roomName } from './support/join';
 
 /** Canvas background (UX-CANVAS-5): shared room state, applied to the canvas. */
 test('background: a preset chosen in A applies and syncs to B', async ({ browser }) => {
-	const room = `bg-${Date.now().toString(36)}`;
+	const room = roomName('bg');
 	const context = await browser.newContext();
 	const a = await context.newPage();
 	const b = await context.newPage();

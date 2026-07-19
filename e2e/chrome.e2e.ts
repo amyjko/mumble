@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom } from './support/join';
+import { joinRoom, roomName } from './support/join';
 
 /**
  * Floating chrome behavior. The menus were <details> elements with no
@@ -11,7 +11,7 @@ import { joinRoom } from './support/join';
  */
 
 test('chrome: only one menu is open at a time', async ({ page }) => {
-	const room = `chrome-${Date.now().toString(36)}`;
+	const room = roomName('chrome');
 	await joinRoom(page, room);
 
 	const configs = page.locator('#config-menu');
@@ -28,7 +28,7 @@ test('chrome: only one menu is open at a time', async ({ page }) => {
 });
 
 test('chrome: clicking outside dismisses the open menu', async ({ page }) => {
-	const room = `chrome-out-${Date.now().toString(36)}`;
+	const room = roomName('chrome-out');
 	await joinRoom(page, room);
 
 	const background = page.locator('#bg-menu');
@@ -41,7 +41,7 @@ test('chrome: clicking outside dismisses the open menu', async ({ page }) => {
 });
 
 test('chrome: Escape dismisses the open menu', async ({ page }) => {
-	const room = `chrome-esc-${Date.now().toString(36)}`;
+	const room = roomName('chrome-esc');
 	await joinRoom(page, room);
 
 	const configs = page.locator('#config-menu');
@@ -59,7 +59,7 @@ test('chrome: Escape dismisses the open menu', async ({ page }) => {
  * entirely, and inerts the rest of the page as a bonus.
  */
 test('chrome: a maximized object covers the toolbar and holds focus', async ({ page }) => {
-	const room = `chrome-fs-${Date.now().toString(36)}`;
+	const room = roomName('chrome-fs');
 	await joinRoom(page, room);
 	await page.getByRole('button', { name: '+ note' }).click();
 	await page.locator('.frame').hover();
@@ -113,7 +113,7 @@ test('chrome: a maximized object covers the toolbar and holds focus', async ({ p
  * stay inside the viewport and wrap instead.
  */
 test('chrome: the toolbar stays within a narrow viewport', async ({ page }) => {
-	const room = `chrome-narrow-${Date.now().toString(36)}`;
+	const room = roomName('chrome-narrow');
 	await page.setViewportSize({ width: 560, height: 800 });
 	await joinRoom(page, room);
 

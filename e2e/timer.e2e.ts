@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom } from './support/join';
+import { joinRoom, roomName } from './support/join';
 
 /**
  * Timer object (UX-OBJ-4): created pointer-free, ticks, and shows the SAME
@@ -7,7 +7,7 @@ import { joinRoom } from './support/join';
  * clocks.
  */
 test('timer: create, start, ticks, and syncs running state to a peer', async ({ browser }) => {
-	const room = `timer-${Date.now().toString(36)}`;
+	const room = roomName('timer');
 	const context = await browser.newContext();
 	const a = await context.newPage();
 	const b = await context.newPage();
