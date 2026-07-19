@@ -28,6 +28,7 @@ export interface RoomScalars {
 	title: string;
 	description: string;
 	create_permission: RoomState['create_permission'];
+	admission: RoomState['admission'];
 	border_default: number;
 	capacity: RoomState['capacity'];
 	video_holders: readonly string[];
@@ -91,6 +92,7 @@ function scalars(state: RoomState): RoomScalars {
 		title: state.title,
 		description: state.description,
 		create_permission: state.create_permission,
+		admission: state.admission,
 		border_default: state.border_default,
 		capacity: state.capacity,
 		video_holders: state.video_holders,

@@ -1,10 +1,8 @@
 import {
-	DEFAULT_BORDER_WIDTH,
 	envelopeSchema,
 	mutationSchema,
 	parseJson,
-	roomStateSchema
-} from '$lib/model/schemas';
+	roomStateSchema, freshRoomState } from '$lib/model/schemas';
 import { StoreRejection } from '$lib/model/types';
 import type {
 	EphemeralMessage,
@@ -16,14 +14,13 @@ import { applyMutation } from '$lib/model/rules';
 
 /** Modelled network latency for the dev panel (AR-SYNC-2's revert path). */
 import { docFromEncoded, mergeEncoded, noteText } from '$lib/model/ydoc';
-import { freshStage } from '$lib/model/stage';
 import type { RoomStore } from './room-store';
 
 /** Modelled network latency for the dev panel (AR-SYNC-2's revert path). */
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 function freshState(): RoomState {
-	return { objects: {}, participants: {}, background: '', title: '', description: '', create_permission: 'all', border_default: DEFAULT_BORDER_WIDTH, ...freshStage(), transport: 'p2p', participant_locations: {}, placers: [], configurations: {}, active_config: null };
+	return freshRoomState();
 }
 
 // Defined in the model (model/avatar.ts); re-exported so the many canvas

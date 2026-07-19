@@ -180,7 +180,7 @@ describe('the compare-and-swap', () => {
 			const code = await save(guarded ? from.version : null, {
 				...emptyDiff(),
 				room: {
-					background: '', title: '', description: '', create_permission: 'all',
+					background: '', title: '', description: '', create_permission: 'all', admission: 'open',
 					border_default: 10,
 					capacity: { max_participants: 20, max_av: 4, max_audio: 8 },
 					video_holders: holders, audio_holders: [], queue: [],
@@ -226,7 +226,7 @@ describe('the compare-and-swap', () => {
 		// order-significant whole-array replacements, so losing this would let
 		// both hold one slot and silently break max_av (AR-MEDIA-1).
 		const scalars = (holder: string) => ({
-			background: '', title: '', description: '', create_permission: 'all',
+			background: '', title: '', description: '', create_permission: 'all', admission: 'open',
 			border_default: 10,
 			capacity: { max_participants: 20, max_av: 1, max_audio: 8 },
 			video_holders: [holder], audio_holders: [], queue: [],

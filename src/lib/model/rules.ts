@@ -78,8 +78,13 @@ export interface ApplyOutcome {
  * The stage slice, lifted out of room state and put back. Every stage case
  * below is then ONE call into the pure module — which is what AR-TEST-4
  * means by the capacity/queue rules staying extractable.
+ *
+ * Exported because the admission route asks the SAME question at the door
+ * ("would admitting this guest exceed max_participants?", UX-STAGE-11) and a
+ * second copy of the projection there is exactly how the door and the canvas
+ * would come to disagree about what "full" means.
  */
-function stage(state: RoomState): StageState {
+export function stage(state: RoomState): StageState {
 	return {
 		capacity: state.capacity,
 		video_holders: state.video_holders,
@@ -228,6 +233,13 @@ export function applyMutation(state: RoomState, m: Mutation, ctx: RuleContext): 
 		case 'set_room_create_permission': {
 			requireHostForRoom(ctx);
 			state.create_permission = m.value;
+			break;
+		}
+		case 'set_room_admission': {
+			// Host-only, like every other room setting. It changes a room scalar,
+			// so it takes the room-wide guard for free (server/guard.ts).
+			requireHostForRoom(ctx);
+			state.admission = m.value;
 			break;
 		}
 		case 'set_hidden': {

@@ -3,7 +3,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import type { EphemeralMessage, Mutation, RoomState } from '$lib/model/types';
 import type { RoomStore } from './room-store';
 import { StoreRejection } from '$lib/model/types';
-import { ephemeralSchema, roomStateSchema, mutationSchema } from '$lib/model/schemas';
+import { ephemeralSchema, roomStateSchema, mutationSchema, freshRoomState } from '$lib/model/schemas';
 import { applyMutation } from '$lib/model/rules';
 import { z } from 'zod';
 import { supabaseBrowser } from '$lib/auth/browser-client';
@@ -14,8 +14,6 @@ const z_version = z.object({ version: z.number() });
 const z_ok = z.object({ version: z.number() });
 const z_error = z.object({ message: z.string() });
 import { docFromEncoded, mergeEncoded, noteText } from '$lib/model/ydoc';
-import { freshStage } from '$lib/model/stage';
-import { DEFAULT_BORDER_WIDTH } from '$lib/model/schemas';
 
 /**
  * The seam's SECOND implementation (AR-TRANSPORT-10's idiom, room-store.ts).
@@ -31,22 +29,9 @@ import { DEFAULT_BORDER_WIDTH } from '$lib/model/schemas';
  */
 
 function emptyState(): RoomState {
-	return {
-		objects: {},
-		participants: {},
-		background: '',
-		title: '',
-		description: '',
-		create_permission: 'all',
-		border_default: DEFAULT_BORDER_WIDTH,
-		...freshStage(),
-		transport: 'p2p',
-		participant_locations: {},
-		placers: [],
-		configurations: {},
-		active_config: null
-	};
+	return freshRoomState();
 }
+
 
 export class SupabaseRoomStore implements RoomStore {
 	state = $state<RoomState>(emptyState());

@@ -2,8 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { needsGuard } from './guard';
 import { diffRoomState } from '$lib/model/diff';
 import { applyMutation } from '$lib/model/rules';
-import { freshStage } from '$lib/model/stage';
-import { DEFAULT_BORDER_WIDTH } from '$lib/model/schemas';
+import { freshRoomState } from '$lib/model/schemas';
 import { newParticipant } from '$lib/model/avatar';
 import { newNote } from '$lib/model/create';
 import { encodedFromText } from '$lib/model/ydoc';
@@ -30,24 +29,7 @@ function diffOf(state: RoomState, mutate: (s: RoomState) => void) {
 	return diffRoomState(before, state);
 }
 
-/** A fresh room, built from the same pieces the store's own empty state uses. */
-function freshRoomState(): RoomState {
-	return {
-		objects: {},
-		participants: {},
-		background: '',
-		title: '',
-		description: '',
-		create_permission: 'all',
-		border_default: DEFAULT_BORDER_WIDTH,
-		...freshStage(),
-		transport: 'p2p',
-		participant_locations: {},
-		placers: [],
-		configurations: {},
-		active_config: null
-	};
-}
+
 
 function roomWithHost(): RoomState {
 	const state = freshRoomState();

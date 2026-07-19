@@ -278,6 +278,7 @@ export type Database = {
       room_state: {
         Row: {
           active_config: string | null
+          admission: string
           audio_holders: string[]
           background: string
           border_default: number
@@ -296,6 +297,7 @@ export type Database = {
         }
         Insert: {
           active_config?: string | null
+          admission?: string
           audio_holders?: string[]
           background?: string
           border_default?: number
@@ -314,6 +316,7 @@ export type Database = {
         }
         Update: {
           active_config?: string | null
+          admission?: string
           audio_holders?: string[]
           background?: string
           border_default?: number
@@ -377,10 +380,11 @@ export type Database = {
       is_host: { Args: { target_room: string }; Returns: boolean }
       is_member: { Args: { target_room: string }; Returns: boolean }
       join_room: {
-        Args: { p_name: string }
+        Args: { p_hello?: string; p_name: string }
         Returns: {
           out_is_host: boolean
           out_room_id: string
+          out_status: string
         }[]
       }
       save_room_state: {

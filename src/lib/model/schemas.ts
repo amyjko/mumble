@@ -288,6 +288,16 @@ export const roomStateSchema = z.object({
 	 */
 	create_permission: z.enum(['all', 'host']).default('all'),
 	/**
+	 * Whether the door is guarded (UX-ID-3).
+	 *
+	 * 'open' lets anyone with the link in, which is the common case and the
+	 * default. 'ask' holds arrivals in `pending` until a host admits them,
+	 * reviewing their name and hello message (UX-ID-2). A room setting rather
+	 * than a global rule: an invite link to a room whose host is offline must
+	 * still work, or UX-ROOM-1's "always open" stops being true at night.
+	 */
+	admission: z.enum(['open', 'ask']).default('open'),
+	/**
 	 * The stage (AR-CTRL-2). Holder lists are EXPLICIT, never derived — they
 	 * are the authorization fact UX-STAGE-9 renders and UX-STAGE-6 enforces.
 	 * `capacity` mirrors the active configuration's numbers (UX-STAGE-1).
@@ -318,6 +328,20 @@ export const roomStateSchema = z.object({
 });
 
 /**
+ * A brand-new room, built FROM the schema rather than beside it.
+ *
+ * Five places used to hand-write this literal — both stores, two specs, and a
+ * test fixture — so every new room scalar had to be added five times, and the
+ * fifth was the one that broke the build. Only `objects` and `participants`
+ * are passed in, because they are the two fields with no meaningful default;
+ * everything else comes from the schema's own `.default()`, which means a
+ * scalar added there is picked up here for free and cannot drift.
+ */
+export function freshRoomState(): z.infer<typeof roomStateSchema> {
+	return roomStateSchema.parse({ objects: {}, participants: {} });
+}
+
+/**
  * Mutations — the seam's vocabulary. These same schemas later validate the
  * bodies of AR-SYNC-3's server routes; the stub and the real backend speak
  * one language.
@@ -346,6 +370,7 @@ export const mutationSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('set_room_border'), width: z.number().nonnegative().max(40) }),
 	// The room-level half of UX-OBJ-9.
 	z.object({ kind: z.literal('set_room_create_permission'), value: z.enum(['all', 'host']) }),
+	z.object({ kind: z.literal('set_room_admission'), value: z.enum(['open', 'ask']) }),
 	z.object({ kind: z.literal('delete_object'), id: z.uuid() }),
 	z.object({ kind: z.literal('upsert_participant'), participant: participantSchema }),
 	z.object({
