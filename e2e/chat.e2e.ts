@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom, roomName } from './support/join';
+import { SYNC, joinRoom, roomName } from './support/join';
 
 /** Chat object (UX-OBJ-3): a message posted in one page appears in another. */
 test('chat: a message posted by A is retained and seen by B', async ({ browser }) => {
@@ -15,7 +15,8 @@ test('chat: a message posted by A is retained and seen by B', async ({ browser }
 	await expect(a.locator('.chat .text')).toHaveText('hello room');
 
 	await joinRoom(b, room);
-	await expect(b.locator('.chat .text')).toHaveText('hello room');
+	// Cross-client: B is observing what A wrote, so this spans the round trip.
+	await expect(b.locator('.chat .text')).toHaveText('hello room', { timeout: SYNC });
 
 	await context.close();
 });

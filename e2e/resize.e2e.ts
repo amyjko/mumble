@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom, roomName } from './support/join';
+import { SYNC, joinRoom, roomName } from './support/join';
 
 /**
  * Resize + rotate (UX-OBJ-1). Driven by keyboard for determinism (the pointer
@@ -28,7 +28,7 @@ test('resize: Alt+Arrow grows a focused object, synced', async ({ browser }) => 
 	await joinRoom(b, room);
 	const frameB = b.locator('.frame');
 	await expect(frameB).toHaveCount(1);
-	await expect.poll(async () => worldWidth(frameB)).toBeGreaterThan(before);
+	await expect.poll(async () => worldWidth(frameB), { timeout: SYNC }).toBeGreaterThan(before);
 
 	await context.close();
 });

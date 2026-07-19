@@ -91,6 +91,17 @@ export class SupabaseRoomStore implements RoomStore {
 	 * starved peer updates completely while anyone was typing.
 	 */
 	ready = $state(false);
+	/**
+	 * Commits sent but not yet confirmed.
+	 *
+	 * Exposed so a test can wait for writes to LAND rather than sleep and hope.
+	 * Several E2E tests used a fixed `waitForTimeout` as a stand-in for "the
+	 * commit has been persisted", which was a fair bet against an in-memory
+	 * store and is a coin toss against a network — and a lost toss there does
+	 * not merely fail late, it writes the wrong value and fails permanently.
+	 * Mirrored onto the document by the room page, next to `data-hydrated`.
+	 */
+	pending = $state(0);
 
 	constructor(roomId: string, roomName: string) {
 		this.roomId = roomId;
@@ -304,6 +315,15 @@ export class SupabaseRoomStore implements RoomStore {
 	}
 
 	private async send(mutation: Mutation): Promise<void> {
+		this.pending += 1;
+		try {
+			await this.post(mutation);
+		} finally {
+			this.pending -= 1;
+		}
+	}
+
+	private async post(mutation: Mutation): Promise<void> {
 		const response = await fetch(`/api/rooms/${this.roomName}/mutate`, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },

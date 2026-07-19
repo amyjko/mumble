@@ -126,10 +126,27 @@ compromise. Re-measured after the change: 0 lost of 20.
 
 ### Still open
 
-- **E2E flakiness.** 83/85 serially, 82-83 with two workers, with a rotating
-  failure set. These are peer-sync assertions written against an instant
-  in-memory store that now cross a network. Deliberately NOT hidden behind
-  retries or a worker cap: the timeouts want raising on purpose.
+- **E2E flakiness — cause NOT yet identified.** 1-4 of 85 fail per run with a
+  rotating set. Three things were measured and each refuted a hypothesis:
+  widening the 18 cross-client assertions to a 10s budget changed the rate not
+  at all; raising Playwright's global `expect` timeout to the same value changed
+  it not at all (so that raise was reverted rather than kept as an unsupported
+  change); and the database is entirely healthy during a failing run — 20
+  connections, 2 active, nothing waiting or idle-in-transaction. Worker count
+  does not correlate cleanly either: 4 workers produced FEWER failures than 2,
+  and a serial run is usually but not always green.
+
+  Three genuine races were found and fixed structurally along the way (a hover
+  landing on an auto-fit-animating frame, a non-atomic z-index sample, and four
+  fixed `waitForTimeout` sleeps standing in for network writes). They are worth
+  having on their own and are not the whole story.
+
+  **Leading hypothesis, untested:** the remaining failures cluster on tests with
+  CONCURRENT writers — two tabs typing into one note, two pages raising hands,
+  a layout switch racing a debounced move. `edit_note` is guarded ROOM-wide, so
+  two tabs typing conflict continuously and lose edits once the bounded retry
+  is exhausted. If that is it, per-object versions fix it and no test-level
+  patch would have. Re-measure after that lands before spending more here.
 - **Admission** (UX-ID-3 / AR-CTRL-5) remains deferred by agreement.
 - Avatar name/emoji now roam with the profile; the id roams too.
 

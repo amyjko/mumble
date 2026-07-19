@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom, roomName } from './support/join';
+import { SYNC, joinRoom, roomName } from './support/join';
 
 /**
  * Concurrent note editing (UX-OBJ-2 / AR-SYNC-4). This is the test the whole
@@ -22,7 +22,7 @@ test('crdt: two tabs typing in one note keep BOTH contributions', async ({ brows
 	// B opens the same room and sees Alice's text.
 	await joinRoom(b, room);
 	const editorB = b.getByRole('textbox', { name: 'Note text (markdown)' });
-	await expect(editorB).toHaveValue(/Alice writes\./);
+	await expect(editorB).toHaveValue(/Alice writes\./, { timeout: SYNC });
 
 	// Both type, neither having blurred. Under the old model the second blur
 	// would have overwritten the first writer entirely.
@@ -31,7 +31,7 @@ test('crdt: two tabs typing in one note keep BOTH contributions', async ({ brows
 	await editorB.pressSequentially('Bob adds.');
 
 	await expect
-		.poll(async () => editorA.inputValue())
+		.poll(async () => editorA.inputValue(), { timeout: SYNC })
 		.toContain('Bob adds.');
 
 	const finalA = await editorA.inputValue();
@@ -64,7 +64,7 @@ test('crdt: a remote insert does not strand your caret', async ({ browser }) => 
 
 	await joinRoom(b, room);
 	const editorB = b.getByRole('textbox', { name: 'Note text (markdown)' });
-	await expect(editorB).toHaveValue('END');
+	await expect(editorB).toHaveValue('END', { timeout: SYNC });
 
 	// A parks its caret at the very end and holds it there.
 	await editorA.click();
@@ -74,12 +74,12 @@ test('crdt: a remote insert does not strand your caret', async ({ browser }) => 
 	await editorB.click();
 	await editorB.press('Home');
 	await editorB.pressSequentially('START ');
-	await expect.poll(async () => editorA.inputValue()).toContain('START ');
+	await expect.poll(async () => editorA.inputValue(), { timeout: SYNC }).toContain('START ');
 
 	// A keeps typing: its characters must still land at the end, not be
 	// stranded six characters earlier where the old offset used to point.
 	await editorA.pressSequentially('!');
-	await expect.poll(async () => editorA.inputValue()).toMatch(/END!$/);
+	await expect.poll(async () => editorA.inputValue(), { timeout: SYNC }).toMatch(/END!$/);
 
 	await context.close();
 });

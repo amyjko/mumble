@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom, roomName } from './support/join';
+import { SYNC, cameraSettled, joinRoom, roomName } from './support/join';
 
 /**
  * The clip lives on the inner .clip layer, not .frame: clip-path clips
@@ -33,7 +33,10 @@ test('clip: cycling an object shape applies a clip-path and syncs', async ({ bro
 	const frameB = b.locator('.frame');
 	await expect(frameB).toHaveCount(1);
 	await expect
-		.poll(async () => frameB.locator('.clip').evaluate((el) => getComputedStyle(el).clipPath))
+		.poll(
+			async () => frameB.locator('.clip').evaluate((el) => getComputedStyle(el).clipPath),
+			{ timeout: SYNC }
+		)
 		.toContain('ellipse');
 
 	await context.close();
@@ -95,6 +98,14 @@ test('clip: controls stay reachable in every shape (no trapped object)', async (
 	const room = roomName('cliptrap');
 	await joinRoom(page, room);
 	await page.getByRole('button', { name: '+ note' }).click();
+
+	// Creating content re-runs auto-fit, which ANIMATES the world for ~300ms.
+	// Hovering during that aims at a moving target: the hover lands beside the
+	// frame, the shape button never appears, and the click below times out —
+	// which reads as "the control is clipped away", the very bug this test is
+	// about. A longer timeout cannot help, because the pointer is already in
+	// the wrong place by then.
+	await cameraSettled(page);
 
 	const frame = page.locator('.frame');
 	await frame.hover();

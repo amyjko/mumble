@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom, roomName } from './support/join';
+import { cameraSettled, joinRoom, roomName, settled } from './support/join';
 
 /**
  * Fixes for bugs found by auditing DESIGN.md against the code rather than
@@ -51,12 +51,14 @@ test('auto-fit frames a resized avatar instead of cropping it', async ({ page })
 	await page.mouse.down();
 	await page.mouse.move(grip.x + 220, grip.y + 220, { steps: 12 });
 	await page.mouse.up();
-	await page.waitForTimeout(300);
+	// The resize commits on drop; wait for the write, not a guess.
+	await settled(page);
 
 	// Re-engage auto-fit ('0' is the canvas shortcut) and let it settle.
 	await canvas.focus();
 	await page.keyboard.press('0');
-	await page.waitForTimeout(500);
+	// Auto-fit ANIMATES; wait for the camera rather than a fixed sleep.
+	await cameraSettled(page);
 
 	// Assert CENTERING, not merely "on screen". fitAll caps scale at 1, so a
 	// lone avatar is never zoomed — only centered — and an undersized bounds

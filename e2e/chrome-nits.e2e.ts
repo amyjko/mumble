@@ -73,7 +73,6 @@ test('objects can be sent behind and brought in front (UX-OBJ-11)', async ({ pag
 	await page.getByRole('button', { name: '+ timer' }).click();
 
 	const first = page.locator('.frame').first();
-	const second = page.locator('.frame').nth(1);
 
 	/**
 	 * Relative order of the two frames, with the pointer parked away from both.
@@ -85,9 +84,15 @@ test('objects can be sent behind and brought in front (UX-OBJ-11)', async ({ pag
 	 */
 	const firstIsAbove = async (): Promise<boolean | null> => {
 		await page.mouse.move(2, 2);
-		const z = async (loc: typeof first): Promise<number> =>
-			Number(await loc.evaluate((el) => (el instanceof HTMLElement ? el.style.zIndex : '0')));
-		const [a, b] = [await z(first), await z(second)];
+		// BOTH samples in one evaluate, so they describe the same moment. Read
+		// sequentially they did not: the hover could settle between the two
+		// reads, giving a settled z beside a stale one — a mixed pair that
+		// passes the guard below and answers the question wrongly. That is a
+		// race no timeout fixes, because each individual read was valid.
+		const [a, b] = await page.locator('.frame').evaluateAll((els) =>
+			els.slice(0, 2).map((el) => Number(el instanceof HTMLElement ? el.style.zIndex : '0'))
+		);
+		if (a === undefined || b === undefined) return null;
 		// Either frame still showing RAISED_Z means the hover has not settled.
 		// Return null and let expect.poll retry — recursing here would either
 		// spin without bound or, worse, invert the answer.

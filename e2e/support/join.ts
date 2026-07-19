@@ -45,6 +45,31 @@ export async function joinRoom(page: Page, room: string, name = 'Tester'): Promi
 	await expect(canvas).toBeVisible();
 }
 
+/**
+ * How long a change may take to reach ANOTHER client.
+ *
+ * Playwright's default assertion budget is 5s, which was ample when the store
+ * was in-memory and a peer saw a change in the same tick. A cross-client
+ * assertion now spans a write to Postgres, a Realtime broadcast, and the
+ * receiver's re-read — the broadcast carries a version, not the state
+ * (supabase-store.svelte.ts), so it is two hops, not one. 5s is a thin margin
+ * for that, and this is the honest budget for it.
+ *
+ * What this is NOT: a fix for the suite's remaining flakiness under parallel
+ * workers. That was the hypothesis, and measurement refuted it — widening these
+ * assertions changed the failure rate not at all, and raising Playwright's
+ * global `expect` timeout to the same value changed it not at all either, so
+ * that global raise was reverted rather than left in as a change nothing
+ * supports. The residual flakiness is documented as unexplained rather than
+ * papered over; see the notes in CONTROL-PLANE.md.
+ *
+ * Named rather than written inline, because `{ timeout: 10_000 }` scattered
+ * through the specs reads as superstition. It applies ONLY where one page
+ * observes what another did; a same-page assertion needing ten seconds is a
+ * bug, and giving it this budget would hide one.
+ */
+export const SYNC = 10_000;
+
 /** A room name unique to this test run. */
 export function roomName(prefix: string): string {
 	return `${prefix}-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e4).toString(36)}`;
@@ -76,6 +101,23 @@ export async function cameraSettled(page: Page): Promise<void> {
 			{ intervals: [100, 100, 100, 100, 100, 100] }
 		)
 		.toBe(true);
+}
+
+/**
+ * Wait until every commit has been confirmed by the server.
+ *
+ * The counterpart to `cameraSettled` for WRITES. Tests used to approximate
+ * this with `waitForTimeout(400)`, which was a reasonable bet when a commit was
+ * a synchronous localStorage write and is a coin toss now that it is a network
+ * round trip. Losing that toss is not a slow failure: the debounced commit
+ * lands AFTER the assertion that depended on it, so the wrong value is already
+ * written and no amount of extra timeout recovers it.
+ *
+ * Reads `data-syncing`, set by the room page from the store's in-flight count,
+ * exactly as `data-hydrated` is set by the layout.
+ */
+export async function settled(page: Page): Promise<void> {
+	await expect(page.locator('html')).toHaveAttribute('data-syncing', 'false', { timeout: SYNC });
 }
 
 /**

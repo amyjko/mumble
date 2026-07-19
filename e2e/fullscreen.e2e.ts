@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom, roomName } from './support/join';
+import { SYNC, joinRoom, roomName } from './support/join';
 
 /**
  * Scale-to-fullscreen (UX-CANVAS-4): per-viewer view state — opens an overlay,
@@ -15,7 +15,7 @@ test('fullscreen: overlay opens, Escape closes, nothing is mutated', async ({ br
 	await joinRoom(a, room);
 	await a.getByRole('button', { name: '+ note' }).click();
 	await joinRoom(b, room);
-	await expect(b.locator('.frame')).toHaveCount(1);
+	await expect(b.locator('.frame')).toHaveCount(1, { timeout: SYNC });
 
 	// Fill the screen with the note.
 	await a.getByRole('button', { name: 'Fill screen with this object' }).click();

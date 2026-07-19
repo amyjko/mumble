@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom, roomName } from './support/join';
+import { SYNC, joinRoom, roomName, settled } from './support/join';
 import { hostRoom } from './support/auth';
 
 /**
@@ -38,7 +38,10 @@ test('avatar: resize and reshape your own, and it syncs', async ({ browser }) =>
 	// Shape is participant state, so a peer sees it.
 	await joinRoom(b, room);
 	await expect
-		.poll(async () => b.locator('.avatar .skin').first().evaluate((el) => getComputedStyle(el).clipPath))
+		.poll(
+			async () => b.locator('.avatar .skin').first().evaluate((el) => getComputedStyle(el).clipPath),
+			{ timeout: SYNC }
+		)
 		.toContain('ellipse');
 
 	await context.close();
@@ -85,6 +88,11 @@ test('avatar: raised hand and away are prominent badges', async ({ page }) => {
 		await page.getByRole('textbox', { name: field }).blur();
 	}
 	await page.keyboard.press('Escape');
+	// Both slot edits are room-state WRITES. Clicking before they land leaves a
+	// slot free, so raising a hand promotes into it instead of queueing — and
+	// the badge this test is about never appears. That failure is committed
+	// before the assertion runs, so no timeout recovers it.
+	await settled(page);
 
 	await page.getByRole('button', { name: 'Raise hand to queue' }).click();
 	const hand = page.getByRole('img', { name: 'hand raised' });

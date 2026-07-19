@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom, roomName } from './support/join';
+import { SYNC, joinRoom, roomName } from './support/join';
 import { hostRoom } from './support/auth';
 
 /**
@@ -38,7 +38,7 @@ test('raise hand is the queue entry, and syncs to peers', async ({ browser }) =>
 	// b JOINS — it must not try to create a room that already exists. (It is a
 	// host too, by membership: same browser context, same account.)
 	await joinRoom(b, room);
-	await expect(b.locator('.avatar.raised')).toHaveCount(1);
+	await expect(b.locator('.avatar.raised')).toHaveCount(1, { timeout: SYNC });
 
 	await context.close();
 });

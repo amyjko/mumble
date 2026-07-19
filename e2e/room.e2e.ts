@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom, roomName } from './support/join';
+import { SYNC, joinRoom, roomName } from './support/join';
 
 /**
  * The page-level guard (AR-TEST-9's first slice): runs against the BUILT
@@ -34,12 +34,12 @@ test('two pages share a room: create in A, see in B, no page errors', async ({ b
 	// BroadcastChannel sync, not just localStorage hydration.
 	await pageA.getByRole('application', { name: 'Room canvas' }).dblclick({ position: { x: 400, y: 400 } });
 	await expect(pageA.locator('textarea.note')).toHaveCount(1);
-	await expect(pageB.locator('textarea.note')).toHaveCount(1);
+	await expect(pageB.locator('textarea.note')).toHaveCount(1, { timeout: SYNC });
 
 	// Text syncs on blur-commit.
 	await pageA.locator('textarea.note').fill('hello from A');
 	await pageA.getByRole('application', { name: 'Room canvas' }).click({ position: { x: 40, y: 500 } });
-	await expect(pageB.locator('textarea.note')).toHaveValue('hello from A');
+	await expect(pageB.locator('textarea.note')).toHaveValue('hello from A', { timeout: SYNC });
 
 	// The whole session produced zero uncaught errors — the loop/crash guard.
 	expect(errors).toEqual([]);

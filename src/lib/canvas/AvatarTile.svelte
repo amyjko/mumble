@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Participant, Point, SolverShape, Transform } from '$lib/model/types';
+	import { createDeferredCommit } from './deferred.svelte';
 	import type { RoomStore } from '$lib/store/room-store';
 	import type { SyncClient } from '$lib/store/sync-client.svelte';
 	import type { Viewport } from './viewport.svelte';
@@ -144,7 +145,7 @@
 
 	/** Keyboard movement (UX-A11Y-2): same solver, debounced commit. */
 	let keyboardPosition: Point | null = null;
-	let keyboardCommitTimer: ReturnType<typeof setTimeout> | null = null;
+	const keyboardCommit = createDeferredCommit();
 
 	function onKeyDown(event: KeyboardEvent): void {
 		if (event.target !== event.currentTarget) return;
@@ -202,8 +203,7 @@
 		const moving: SolverShape = { ...shapeOfParticipant(participant), x: from.x, y: from.y };
 		keyboardPosition = resolveDrag(moving, { x: from.x + dx, y: from.y + dy }, obstacles());
 		sync.participantOverlays.set(participant.id, keyboardPosition);
-		if (keyboardCommitTimer !== null) clearTimeout(keyboardCommitTimer);
-		keyboardCommitTimer = setTimeout(() => {
+		keyboardCommit.schedule(() => {
 			if (keyboardPosition !== null) {
 				void sync.commit(
 					{ kind: 'move_participant', id: participant.id, location: keyboardPosition },
@@ -211,7 +211,7 @@
 				);
 			}
 			keyboardPosition = null;
-		}, 250);
+		});
 	}
 </script>
 

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom, roomName } from './support/join';
+import { SYNC, joinRoom, roomName } from './support/join';
 
 /**
  * Timer object (UX-OBJ-4): created pointer-free, ticks, and shows the SAME
@@ -24,8 +24,8 @@ test('timer: create, start, ticks, and syncs running state to a peer', async ({ 
 
 	// A second viewer sees the timer, running (Pause shown = it's running).
 	await joinRoom(b, room);
-	await expect(b.locator('.timer .readout')).toBeVisible();
-	await expect(b.getByRole('button', { name: 'Pause' })).toBeVisible();
+	await expect(b.locator('.timer .readout')).toBeVisible({ timeout: SYNC });
+	await expect(b.getByRole('button', { name: 'Pause' })).toBeVisible({ timeout: SYNC });
 
 	await context.close();
 });

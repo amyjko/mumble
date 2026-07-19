@@ -9,6 +9,7 @@
 	import { supabaseBrowser } from '$lib/auth/browser-client';
 	import Room from '$lib/canvas/Room.svelte';
 	import { SupabaseRoomStore } from '$lib/store/supabase-store.svelte';
+	import { deferredWork } from '$lib/canvas/deferred.svelte';
 
 	/**
 	 * The identity gate. UX-ID-1: joining may be anonymous — no account
@@ -115,6 +116,22 @@
 	 * optimistic apply and lets the server be the sole judge — correct, just
 	 * less responsive for the moment it lasts.
 	 */
+	/**
+	 * Mirror in-flight writes onto the document, beside `data-hydrated`.
+	 *
+	 * Same reasoning as that attribute: tests need one honest signal for "the
+	 * app has finished doing the thing", and inventing a per-test proxy for it
+	 * is how fixed sleeps get written. This one says "no commit is in flight",
+	 * which is what a test waiting on a write actually means.
+	 */
+	$effect(() => {
+		// Scheduled-but-unissued commits count too: during a debounce window the
+		// store has nothing in flight, so watching it alone would report
+		// "settled" for a write that has not been sent yet.
+		const busy = (store?.pending ?? 0) + deferredWork.outstanding;
+		document.documentElement.dataset['syncing'] = busy > 0 ? 'true' : 'false';
+	});
+
 	// Also `.pre`, and for the same ordering reason: the roamed profile lands
 	// after mount, and Room re-commits when it does.
 	$effect.pre(() => {

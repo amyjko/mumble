@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { roomName } from './support/join';
+import { SYNC, roomName } from './support/join';
 import { hostRoom, signInAsAccount, testEmail } from './support/auth';
 
 /**
@@ -46,7 +46,7 @@ test('a name chosen on one machine appears on another', async ({ browser }) => {
 	await b.goto(`/hey/${room}`);
 
 	// No join prompt, because the identity is known — that IS the requirement.
-	await expect(b.getByRole('button', { name: /Ada Lovelace/ })).toBeVisible();
+	await expect(b.getByRole('button', { name: /Ada Lovelace/ })).toBeVisible({ timeout: SYNC });
 	await second.close();
 });
 

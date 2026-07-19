@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { CanvasObject, Permission, Point, SolverShape, StoredIdentity, Transform } from '$lib/model/types';
+	import { createDeferredCommit } from './deferred.svelte';
 	import type { RoomStore } from '$lib/store/room-store';
 	import type { SyncClient } from '$lib/store/sync-client.svelte';
 	import type { Viewport } from './viewport.svelte';
@@ -173,7 +174,7 @@
 	 * are debounced so a held key is one mutation, not fifty.
 	 */
 	let keyboardPosition: Point | null = null;
-	let keyboardCommitTimer: ReturnType<typeof setTimeout> | null = null;
+	const keyboardCommit = createDeferredCommit();
 
 	function onKeyDown(event: KeyboardEvent): void {
 		if (event.target !== event.currentTarget) return;
@@ -223,11 +224,10 @@
 		const from = keyboardPosition ?? { x: effective.x, y: effective.y };
 		keyboardPosition = resolvePosition({ x: from.x + move.x, y: from.y + move.y }, from);
 		showAt(keyboardPosition);
-		if (keyboardCommitTimer !== null) clearTimeout(keyboardCommitTimer);
-		keyboardCommitTimer = setTimeout(() => {
+		keyboardCommit.schedule(() => {
 			if (keyboardPosition !== null) commitMove(keyboardPosition);
 			keyboardPosition = null;
-		}, 250);
+		});
 	}
 
 	function onDelete(): void {

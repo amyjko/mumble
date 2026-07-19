@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { cameraSettled, joinRoom, roomName } from './support/join';
+import { cameraSettled, joinRoom, roomName, settled } from './support/join';
 import { hostRoom } from './support/auth';
 
 /**
@@ -134,8 +134,10 @@ test('placement: you return to where you were, per configuration', async ({ page
 	const avatar = page.locator('.avatar');
 	await avatar.focus();
 	for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowRight');
-	// The keyboard move commits on a debounce; let it land.
-	await page.waitForTimeout(400);
+	// The keyboard move commits on a debounce; wait for it to LAND rather than
+	// guess how long that takes — the reload below would otherwise read state
+	// the server never received.
+	await settled(page);
 	const moved = await avatar.evaluate((el) => (el instanceof HTMLElement ? el.style.transform : ''));
 
 	await page.reload();

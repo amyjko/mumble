@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom, roomName } from './support/join';
+import { SYNC, joinRoom, roomName } from './support/join';
 import { hostRoom } from './support/auth';
 
 /** Room title (UX-ROOM-2) syncs; rename (UX-ROOM-10) navigates carrying state. */
@@ -22,7 +22,7 @@ test('title syncs to peers; rename navigates and carries state', async ({ browse
 
 	// B sees the title.
 	await joinRoom(b, room);
-	await expect(b.getByText('Design Sync')).toBeVisible();
+	await expect(b.getByText('Design Sync')).toBeVisible({ timeout: SYNC });
 
 	// Rename → new URL, and the note came along.
 	const newName = `${room}-2`;

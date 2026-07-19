@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { cameraSettled, joinRoom, roomName } from './support/join';
+import { SYNC, cameraSettled, joinRoom, roomName } from './support/join';
 
 /** Drawings (UX-OBJ-11): draw mode captures a stroke into a synced drawing object. */
 test('drawing: a stroke drawn in A becomes a drawing and syncs to B', async ({ browser }) => {
@@ -23,7 +23,7 @@ test('drawing: a stroke drawn in A becomes a drawing and syncs to B', async ({ b
 	// A drawing object (svg path) now exists and syncs to B.
 	await expect(a.locator('.drawing path')).toHaveCount(1);
 	await joinRoom(b, room);
-	await expect(b.locator('.drawing path')).toHaveCount(1);
+	await expect(b.locator('.drawing path')).toHaveCount(1, { timeout: SYNC });
 
 	await context.close();
 });

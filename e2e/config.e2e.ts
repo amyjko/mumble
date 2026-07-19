@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom, roomName } from './support/join';
+import { joinRoom, roomName, settled } from './support/join';
 
 /** Configurations (UX-ROOM-3..6): save a layout, change it, switch back restores. */
 test('config: save layout, move object, switch back restores position', async ({ page }) => {
@@ -17,9 +17,12 @@ test('config: save layout, move object, switch back restores position', async ({
 	// Move the note far away.
 	await frame.focus();
 	for (let i = 0; i < 8; i++) await page.keyboard.press('ArrowRight');
-	// Let the debounced keyboard-move commit land before switching (else its
-	// late commit would clobber the restore).
-	await page.waitForTimeout(400);
+	// The debounced keyboard-move commit MUST land before switching: a late
+	// one clobbers the restore, so losing this race writes the wrong value and
+	// the assertion below then fails permanently rather than slowly. A fixed
+	// sleep was a fair bet against localStorage and is a coin toss against a
+	// network round trip.
+	await settled(page);
 	await expect.poll(worldX).not.toBe(saved);
 
 	// The configs popover is still open — switch back to the saved config.
