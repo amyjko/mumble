@@ -2,6 +2,7 @@ import { json, error, type RequestHandler } from '@sveltejs/kit';
 import { mutationSchema } from '$lib/model/schemas';
 import { StoreRejection } from '$lib/model/types';
 import { applyMutation } from '$lib/model/rules';
+import { diffRoomState } from '$lib/model/diff';
 import { parseClaims } from '$lib/auth/claims';
 import { supabaseAdmin } from '$lib/server/supabase-admin';
 import { loadRoomState, saveRoomState, VersionConflict } from '$lib/server/room-state';
@@ -55,6 +56,12 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 		const room_state = await loadRoomState(db, room.data.id);
 		if (room_state === null) error(404, 'No such room');
 
+		// The engine mutates in place, so the "before" has to be captured now.
+		// structuredClone rather than a JSON round trip: it preserves the shape
+		// exactly, and the diff does a real recursive compare so it does not
+		// care about key order either way.
+		const before = structuredClone(room_state.state);
+
 		try {
 			applyMutation(room_state.state, parsed.data, ctx);
 		} catch (rejection) {
@@ -67,8 +74,13 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 			throw rejection;
 		}
 
+		// Only what changed. Writing the whole room per mutation is what
+		// exhausted the connection pool (see model/diff.ts).
+		const diff = diffRoomState(before, room_state.state);
+		if (diff.empty) return json({ ok: true, version: room_state.version });
+
 		try {
-			const version = await saveRoomState(db, room.data.id, room_state.version, room_state.state);
+			const version = await saveRoomState(db, room.data.id, room_state.version, diff);
 			return json({ ok: true, version });
 		} catch (conflict) {
 			// Someone committed between our read and our write. Re-read and

@@ -381,7 +381,7 @@ export type Database = {
         }[]
       }
       save_room_state: {
-        Args: { p_expected_version: number; p_room_id: string; p_state: Json }
+        Args: { p_diff: Json; p_expected_version: number; p_room_id: string }
         Returns: number
       }
     }

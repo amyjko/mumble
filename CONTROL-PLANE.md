@@ -89,9 +89,37 @@ change plus test fallout, and the fallout is the part to plan for:
   the real backend those levers do not exist, so it should be absent rather than
   showing dead controls.
 
-### THE blocker, found on the second attempt (2026-07-19)
+### THE blocker, found on the THIRD attempt (2026-07-19)
 
-`save_room_state` writes the ENTIRE room on every mutation — every object,
+**The version CAS is room-wide, and that is too coarse.** `rooms.version` is a
+single counter, so ANY two concurrent mutations conflict — even ones touching
+unrelated objects. Combined with optimistic local apply, two tabs in one room
+conflict constantly; each conflict retries up to three times; each retry is a
+full `get_room_state` plus a `save`. Request volume multiplies until PostgREST's
+pool (10 connections) saturates and the gateway starts timing out.
+
+Measured, so this is not a guess: `save_room_state` and `get_room_state` are
+**3–6ms each** in isolation on a clean stack. The SQL is not slow. The volume is.
+
+This is the same mistake as the whole-room write, one level up: too coarse a
+unit of change. The options, in the order I would try them:
+
+1. **Do not CAS at all for independent rows.** Objects, participants and
+   configurations are keyed and independent; last-writer-wins per ROW is what
+   the stub already does and what UX-PERM-4's revert story assumes. Reserve the
+   version for genuinely room-wide state (capacity, holders, queue, active
+   config), which changes rarely.
+2. Failing that, per-row versions, so a conflict means "someone else edited THIS
+   object", which is a fact worth surfacing rather than a retry storm.
+3. Do not retry on conflict at all — surface it as UX-PERM-4's revert. Cheapest,
+   and arguably the most honest, but it makes concurrent editing feel worse.
+
+Incremental writes (below) were necessary and are now in place; they were not
+sufficient.
+
+### The second attempt's blocker (fixed)
+
+`save_room_state` used to write the ENTIRE room on every mutation — every object,
 participant and configuration, in one plpgsql transaction — for each keystroke
 and each drag commit. Each call holds a database connection for the duration.
 PostgREST's pool (10 by default) saturates almost at once, and every request
@@ -102,17 +130,10 @@ That is the "correctness before cleverness" choice made in Phase 5a, and it does
 not survive contact with traffic. Raising the pool size would hide it locally
 and reproduce it in production, where the cost is O(room) writes per keystroke.
 
-**The switchover is blocked on incremental writes**, not on the store, the
-route, the fan-out, or the tests. What it needs:
-
-- a diff between the prior and next `RoomState` — the route already has both, so
-  this is a pure function over two values, testable with no database at all;
-- `save_room_state` taking that diff (changed rows and deleted ids) rather than
-  the whole document, keeping the version CAS and the in-transaction broadcast;
-- the same treatment for `edit_note`, which is the highest-frequency mutation
-  and today rewrites every object row to append to one Yjs document.
-
-Until then the UI stays on the stub, which works.
+**DONE.** `model/diff.ts` computes changed rows and deleted ids as a pure
+function (mutation-tested; regressing it to "everything changed" fails four
+tests), `save_room_state` takes that diff, and the route snapshots before
+applying. This was necessary and did not turn out to be sufficient — see above.
 
 ### Also learned
 

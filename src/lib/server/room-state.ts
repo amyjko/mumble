@@ -3,6 +3,7 @@ import type { Database, Json } from '$lib/database.types';
 import type { RoomState } from '$lib/model/types';
 import { z } from 'zod';
 import { roomStateSchema } from '$lib/model/schemas';
+import type { RoomStateDiff } from '$lib/model/diff';
 
 /**
  * The RPC's envelope. Parsed rather than asserted: `rpc()` returns Json, and
@@ -20,7 +21,7 @@ const envelopeSchema = z.object({ version: z.number(), state: z.unknown() });
  * serialisation intact, and sending one produces something the function cannot
  * read, silently.
  */
-function plainJson(value: RoomState): Json {
+function plainJson(value: RoomStateDiff): Json {
 	const copy: unknown = JSON.parse(JSON.stringify(value));
 	// Validated against the generated `Json` shape rather than cast into it.
 	const json: z.ZodType<Json> = z.lazy(() =>
@@ -75,12 +76,12 @@ export async function saveRoomState(
 	db: SupabaseClient<Database>,
 	roomId: string,
 	expectedVersion: number,
-	state: RoomState
+	diff: RoomStateDiff
 ): Promise<number> {
 	const { data, error } = await db.rpc('save_room_state', {
 		p_room_id: roomId,
 		p_expected_version: expectedVersion,
-		p_state: plainJson(state)
+		p_diff: plainJson(diff)
 	});
 	if (error !== null) {
 		// 40001 is serialization_failure, raised by the CAS when the version
