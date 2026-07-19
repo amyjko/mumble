@@ -10,15 +10,15 @@
 	import ObjectContent from '$lib/objects/ObjectContent.svelte';
 	import { displayMs, formatMs } from '$lib/model/timer';
 	import { clipPathCss, nextClip } from '$lib/model/clip';
+	import { minSizeFor } from './resize';
 	import {
-		resizeTransform,
-		rotationForPointer,
-		snapRotation,
-		snapTo,
-		minSizeFor,
-		type ResizeHandle
-	} from './resize';
-	import { hint, SNAP_HINT } from './hint.svelte';
+		arrowDelta,
+		createDragGesture,
+		createHandleGesture,
+		isReshapeKey,
+		resizeByKey,
+		rotateByKey
+	} from './gesture.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import { stopPointer } from '$lib/ui/events';
 	import { RAISED_Z } from './layers';
@@ -92,7 +92,6 @@
 	);
 
 	let frameEl = $state<HTMLElement | null>(null);
-	let dragging = $state(false);
 
 	/**
 	 * Hover/focus raises the object above everything else in the world so its
@@ -102,30 +101,26 @@
 	 * version would silently do nothing.
 	 */
 	let raised = $state(false);
-	let pointerStart: Point = { x: 0, y: 0 };
-	let objectStart: Point = { x: 0, y: 0 };
-	let lastResolved: Point = { x: 0, y: 0 };
-	let lastEphemeralAt = 0;
 
 	function isEditableTarget(target: EventTarget | null): boolean {
 		return target instanceof HTMLElement && target.closest('[data-editable]') !== null;
 	}
 
-	/** Move to a solver-constrained position: shared by pointer AND keyboard. */
-	function moveTo(desired: Point, from: Point): Point {
-		// An exempt object (a drawing) is not blocked BY anything either — being
-		// invisible to others but still stopped by them would be an incoherent
-		// half-rule.
+	/**
+	 * Solver-constrained position, shared by pointer AND keyboard.
+	 *
+	 * An exempt object (a drawing) is not blocked BY anything either — being
+	 * invisible to others but still stopped by them would be an incoherent
+	 * half-rule.
+	 */
+	function resolvePosition(desired: Point, from: Point): Point {
 		const moving: SolverShape = { ...shapeOfObject(object), x: from.x, y: from.y };
-		const resolved = participatesInCollision(object) ? resolveDrag(moving, desired, obstacles()) : desired;
-		const next: Transform = { ...object.transform, x: resolved.x, y: resolved.y };
-		sync.objectOverlays.set(object.id, next);
-		const now = performance.now();
-		if (now - lastEphemeralAt > 50) {
-			lastEphemeralAt = now;
-			store.sendEphemeral({ kind: 'drag_object', id: object.id, transform: next });
-		}
-		return resolved;
+		return participatesInCollision(object) ? resolveDrag(moving, desired, obstacles()) : desired;
+	}
+
+	/** Preview + broadcast, for the keyboard path (the drag gesture does its own). */
+	function showAt(position: Point): void {
+		sync.objectOverlays.set(object.id, { ...object.transform, x: position.x, y: position.y });
 	}
 
 	function commitMove(position: Point): void {
@@ -137,86 +132,38 @@
 		void sync.commit({ kind: 'move_object', id: object.id, transform: next }, object.id);
 	}
 
-	// Resize / rotate via handles. Both preview through the overlay and commit
-	// move_object on release, so the solver validates the final transform (an
-	// overlapping result reverts, UX-PERM-4). NOTE: resize/rotate math works on
-	// world axes and ignores rotation — a prototype approximation; true
-	// rotated-handle resize and rotated-shape collision are deferred.
-	let handleKind = $state<ResizeHandle | 'rotate' | null>(null);
-	const zeroT: Transform = { x: 0, y: 0, width: 0, height: 0, rotation: 0, z: 0 };
-	let handleStart: Transform = zeroT;
-	let handlePointer: Point = { x: 0, y: 0 };
-	let handleLast: Transform = zeroT;
+	// Resize / rotate preview through the overlay and commit move_object on
+	// release, so the solver validates the final transform (an overlapping
+	// result reverts, UX-PERM-4). The math works on world axes and ignores
+	// rotation — a ratified approximation, see resize.ts.
 
-	function onHandleMove(event: PointerEvent): void {
-		if (handleKind === null) return;
-		const world = viewport.toWorld({ x: event.clientX, y: event.clientY });
-		if (handleKind === 'rotate') {
-			const center = { x: handleStart.x + handleStart.width / 2, y: handleStart.y + handleStart.height / 2 };
-			handleLast = { ...handleStart, rotation: snapRotation(rotationForPointer(center, world), { precise: event.shiftKey }) };
-		} else {
-			handleLast = resizeTransform(
-				handleStart,
-				handleKind,
-				world.x - handlePointer.x,
-				world.y - handlePointer.y,
-				{ precise: event.shiftKey },
-				minSizeFor(object.type)
-			);
+	const handles = createHandleGesture({
+		viewport: () => viewport,
+		start: () => ({ ...effective }),
+		min: () => minSizeFor(object.type),
+		preview: (next) => {
+			sync.objectOverlays.set(object.id, next);
+		},
+		commit: (next) => {
+			commitTransform(next);
 		}
-		sync.objectOverlays.set(object.id, handleLast);
-	}
+	});
 
-	function onHandleUp(): void {
-		window.removeEventListener('pointermove', onHandleMove);
-		hint.clear();
-		if (handleKind === null) return;
-		handleKind = null;
-		commitTransform(handleLast);
-	}
-
-	// Window listeners rather than pointer capture on the handle: reliable under
-	// both real and synthetic (test) pointer streams.
-	function onHandleDown(kind: ResizeHandle | 'rotate', event: PointerEvent): void {
-		event.stopPropagation();
-		handleKind = kind;
-		handleStart = { ...effective };
-		handleLast = handleStart;
-		handlePointer = viewport.toWorld({ x: event.clientX, y: event.clientY });
-		hint.show(SNAP_HINT);
-		window.addEventListener('pointermove', onHandleMove);
-		window.addEventListener('pointerup', onHandleUp, { once: true });
-	}
-
-	function onPointerDown(event: PointerEvent): void {
-		if (!editable || isEditableTarget(event.target)) return;
-		event.stopPropagation();
-		dragging = true;
-		hint.show(SNAP_HINT);
-		pointerStart = viewport.toWorld({ x: event.clientX, y: event.clientY });
-		objectStart = { x: effective.x, y: effective.y };
-		lastResolved = objectStart;
-		if (event.currentTarget instanceof HTMLElement) {
-			event.currentTarget.setPointerCapture(event.pointerId);
-		}
-	}
-
-	function onPointerMove(event: PointerEvent): void {
-		if (!dragging) return;
-		const world = viewport.toWorld({ x: event.clientX, y: event.clientY });
-		const desired = {
-			x: snapTo(objectStart.x + (world.x - pointerStart.x), { precise: event.shiftKey }),
-			y: snapTo(objectStart.y + (world.y - pointerStart.y), { precise: event.shiftKey })
-		};
-		lastResolved = moveTo(desired, lastResolved);
-	}
-
-	function onPointerUp(): void {
-		hint.clear();
-		if (!dragging) return;
-		dragging = false;
-		commitMove(lastResolved);
-	}
+	const drag = createDragGesture({
+		viewport: () => viewport,
+		enabled: () => editable,
+		origin: () => ({ x: effective.x, y: effective.y }),
+		resolve: resolvePosition,
+		preview: showAt,
+		broadcast: (at) => {
+			store.sendEphemeral({
+				kind: 'drag_object',
+				id: object.id,
+				transform: { ...object.transform, x: at.x, y: at.y }
+			});
+		},
+		commit: commitMove
+	});
 
 	/**
 	 * Keyboard movement (UX-A11Y-2): arrows move through the SAME solver as
@@ -247,58 +194,33 @@
 			event.preventDefault();
 			return;
 		}
-		if ((event.key === 'c' || event.key === 'C') && editable) {
+		if (isReshapeKey(event) && editable) {
 			cycleShape();
 			event.preventDefault();
 			return;
 		}
 		if (!editable) return;
-		if (event.key === '[' || event.key === ']') {
-			const delta = event.key === '[' ? -15 : 15;
-			commitTransform({ ...object.transform, rotation: snapRotation(object.transform.rotation + delta, { precise: false }) });
+		const rotation = rotateByKey(object.transform.rotation, event);
+		if (rotation !== null) {
+			commitTransform({ ...object.transform, rotation });
 			event.preventDefault();
 			return;
 		}
-		if (event.altKey && event.key.startsWith('Arrow')) {
-			const g = 16;
-			const t = object.transform;
-			// Same per-type floor the pointer path uses, rather than a second
-			// hard-coded 40 that could drift away from it.
-			const min = minSizeFor(object.type);
-			const grow =
-				event.key === 'ArrowRight'
-					? { width: t.width + g }
-					: event.key === 'ArrowLeft'
-						? { width: Math.max(min.width, t.width - g) }
-						: event.key === 'ArrowDown'
-							? { height: t.height + g }
-							: { height: Math.max(min.height, t.height - g) };
-			commitTransform({ ...t, ...grow });
+		if (event.altKey) {
+			// The same per-type floor the pointer path uses, rather than a second
+			// hard-coded number that could drift away from it.
+			const size = resizeByKey(object.transform, event, minSizeFor(object.type));
+			if (size === null) return;
+			commitTransform({ ...object.transform, ...size });
 			event.preventDefault();
 			return;
 		}
-		const step = event.shiftKey ? 1 : 16;
-		let dx = 0;
-		let dy = 0;
-		switch (event.key) {
-			case 'ArrowLeft':
-				dx = -step;
-				break;
-			case 'ArrowRight':
-				dx = step;
-				break;
-			case 'ArrowUp':
-				dy = -step;
-				break;
-			case 'ArrowDown':
-				dy = step;
-				break;
-			default:
-				return;
-		}
+		const move = arrowDelta(event);
+		if (move === null) return;
 		event.preventDefault();
 		const from = keyboardPosition ?? { x: effective.x, y: effective.y };
-		keyboardPosition = moveTo({ x: from.x + dx, y: from.y + dy }, from);
+		keyboardPosition = resolvePosition({ x: from.x + move.x, y: from.y + move.y }, from);
+		showAt(keyboardPosition);
 		if (keyboardCommitTimer !== null) clearTimeout(keyboardCommitTimer);
 		keyboardCommitTimer = setTimeout(() => {
 			if (keyboardPosition !== null) commitMove(keyboardPosition);
@@ -403,7 +325,7 @@
 <div
 	bind:this={frameEl}
 	class="frame"
-	class:dragging
+	class:dragging={drag.dragging}
 	class:locked={!editable}
 	class:bare={object.type === 'drawing'}
 	class:ghost={object.hidden}
@@ -428,10 +350,14 @@
 	onfocusout={() => {
 		raised = false;
 	}}
-	onpointerdown={onPointerDown}
-	onpointermove={onPointerMove}
-	onpointerup={onPointerUp}
-	onpointercancel={onPointerUp}
+	onpointerdown={(event) => {
+		// A press inside the note's textarea is text editing, not a drag.
+		if (isEditableTarget(event.target)) return;
+		drag.onPointerDown(event);
+	}}
+	onpointermove={drag.onPointerMove}
+	onpointerup={drag.onPointerUp}
+	onpointercancel={drag.onPointerUp}
 	onkeydown={onKeyDown}
 	onfocus={onFocus}
 >
@@ -480,7 +406,7 @@
 		style:clip-path={clipPath ?? 'none'}
 	></div>
 	{#if editable}
-		<TransformHandles {onHandleDown} subject="object" />
+		<TransformHandles onHandleDown={handles.onHandleDown} subject="object" />
 		<!--
 			One ROW below the frame, not four hand-placed offsets from centre.
 			Each control used to compute its own translate() as a multiple of the

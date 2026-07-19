@@ -11,8 +11,14 @@
 	import Button from '$lib/ui/Button.svelte';
 	import TransformHandles from './TransformHandles.svelte';
 	import { clipPathCss, nextClip } from '$lib/model/clip';
-	import { resizeTransform, rotationForPointer, snapRotation, type ResizeHandle } from './resize';
-	import { hint, SNAP_HINT } from './hint.svelte';
+	import {
+		arrowDelta,
+		createDragGesture,
+		createHandleGesture,
+		isReshapeKey,
+		resizeByKey,
+		rotateByKey
+	} from './gesture.svelte';
 	import { stopPointer } from '$lib/ui/events';
 
 	/** Avatars stay recognisably people: smaller than this and the face is gone. */
@@ -42,48 +48,30 @@
 	/** Placement is shared state (UX-AV-2); in-flight drags overlay it. */
 	const effective = $derived(sync.participantOverlays.get(participant.id) ?? participant.location);
 
-	let dragging = $state(false);
-	let pointerStart: Point = { x: 0, y: 0 };
-	let tileStart: Point = { x: 0, y: 0 };
-	let lastResolved: Point = { x: 0, y: 0 };
-	let lastEphemeralAt = 0;
-
-	function onPointerDown(event: PointerEvent): void {
-		event.stopPropagation();
-		dragging = true;
-		pointerStart = viewport.toWorld({ x: event.clientX, y: event.clientY });
-		tileStart = { ...effective };
-		lastResolved = tileStart;
-		if (event.currentTarget instanceof HTMLElement) {
-			event.currentTarget.setPointerCapture(event.pointerId);
+	/**
+	 * Drag through the shared gesture (gesture.svelte.ts), which is what gives
+	 * avatars grid snapping — they silently lacked it when snapping became the
+	 * default, because only the object copy of this code called snapTo.
+	 */
+	const drag = createDragGesture({
+		viewport: () => viewport,
+		origin: () => effective,
+		resolve: (desired, from) =>
+			resolveDrag(
+				{ ...shapeOfParticipant(participant), x: from.x, y: from.y },
+				desired,
+				obstacles()
+			),
+		preview: (at) => {
+			sync.participantOverlays.set(participant.id, at);
+		},
+		broadcast: (at) => {
+			store.sendEphemeral({ kind: 'drag_participant', id: participant.id, location: at });
+		},
+		commit: (at) => {
+			void sync.commit({ kind: 'move_participant', id: participant.id, location: at }, participant.id);
 		}
-	}
-
-	function onPointerMove(event: PointerEvent): void {
-		if (!dragging) return;
-		const world = viewport.toWorld({ x: event.clientX, y: event.clientY });
-		const desired = {
-			x: tileStart.x + (world.x - pointerStart.x),
-			y: tileStart.y + (world.y - pointerStart.y)
-		};
-		const moving: SolverShape = { ...shapeOfParticipant(participant), x: lastResolved.x, y: lastResolved.y };
-		lastResolved = resolveDrag(moving, desired, obstacles());
-		sync.participantOverlays.set(participant.id, lastResolved);
-		const now = performance.now();
-		if (now - lastEphemeralAt > 50) {
-			lastEphemeralAt = now;
-			store.sendEphemeral({ kind: 'drag_participant', id: participant.id, location: lastResolved });
-		}
-	}
-
-	function onPointerUp(): void {
-		if (!dragging) return;
-		dragging = false;
-		void sync.commit(
-			{ kind: 'move_participant', id: participant.id, location: lastResolved },
-			participant.id
-		);
-	}
+	});
 
 	/**
 	 * Every reaction currently floating above this participant (UX-AV-4). The
@@ -116,62 +104,29 @@
 	const clipPath = $derived(clipPathCss(participant.clip));
 	const outerRadius = $derived(participant.clip.shape === 'circle' ? '50%' : participant.clip.shape === 'rounded' ? `${String(participant.clip.radius)}px` : '0');
 
-	let handleKind = $state<ResizeHandle | 'rotate' | null>(null);
-	let handleStart: Transform = { x: 0, y: 0, width: 0, height: 0, rotation: 0, z: 0 };
-	let handlePointer: Point = { x: 0, y: 0 };
-	let handleLast: Transform = handleStart;
-
-	function onHandleMove(event: PointerEvent): void {
-		if (handleKind === null) return;
-		const world = viewport.toWorld({ x: event.clientX, y: event.clientY });
-		if (handleKind === 'rotate') {
-			const center = { x: handleStart.x + handleStart.width / 2, y: handleStart.y + handleStart.height / 2 };
-			handleLast = { ...handleStart, rotation: snapRotation(rotationForPointer(center, world), { precise: event.shiftKey }) };
-		} else {
-			handleLast = resizeTransform(
-				handleStart,
-				handleKind,
-				world.x - handlePointer.x,
-				world.y - handlePointer.y,
-				{ precise: event.shiftKey },
-				{ width: MIN_AVATAR, height: MIN_AVATAR }
-			);
-		}
-		liveTransform = handleLast;
-	}
-
-	function onHandleUp(): void {
-		window.removeEventListener('pointermove', onHandleMove);
-		hint.clear();
-		if (handleKind === null) return;
-		handleKind = null;
-		void sync.commit({
-			kind: 'size_participant',
-			id: participant.id,
-			location: { x: handleLast.x, y: handleLast.y },
-			size: { width: handleLast.width, height: handleLast.height },
-			rotation: handleLast.rotation
-		});
-		liveTransform = null;
-	}
-
-	function onHandleDown(kind: ResizeHandle | 'rotate', event: PointerEvent): void {
-		event.stopPropagation();
-		handleKind = kind;
-		handleStart = {
+	const handles = createHandleGesture({
+		viewport: () => viewport,
+		start: () => ({
 			x: effective.x,
 			y: effective.y,
 			width: participant.size.width,
 			height: participant.size.height,
 			rotation: participant.rotation,
 			z: 0
-		};
-		handleLast = handleStart;
-		handlePointer = viewport.toWorld({ x: event.clientX, y: event.clientY });
-		hint.show(SNAP_HINT);
-		window.addEventListener('pointermove', onHandleMove);
-		window.addEventListener('pointerup', onHandleUp, { once: true });
-	}
+		}),
+		min: () => ({ width: MIN_AVATAR, height: MIN_AVATAR }),
+		preview: (next) => (liveTransform = next),
+		commit: (next) => {
+			liveTransform = null;
+			void sync.commit({
+				kind: 'size_participant',
+				id: participant.id,
+				location: { x: next.x, y: next.y },
+				size: { width: next.width, height: next.height },
+				rotation: next.rotation
+			});
+		}
+	});
 
 	/** In-flight resize preview; falls back to committed state between gestures. */
 	let liveTransform = $state<Transform | null>(null);
@@ -202,23 +157,12 @@
 		 * the requirement forbids. Same keys as ObjectFrame, so there is one
 		 * vocabulary to learn rather than two.
 		 */
-		if (isSelf && event.altKey && event.key.startsWith('Arrow')) {
-			const g = 16;
-			const min = MIN_AVATAR;
-			const size = {
-				width:
-					event.key === 'ArrowRight'
-						? participant.size.width + g
-						: event.key === 'ArrowLeft'
-							? Math.max(min, participant.size.width - g)
-							: participant.size.width,
-				height:
-					event.key === 'ArrowDown'
-						? participant.size.height + g
-						: event.key === 'ArrowUp'
-							? Math.max(min, participant.size.height - g)
-							: participant.size.height
-			};
+		if (isSelf && event.altKey) {
+			const size = resizeByKey(participant.size, event, {
+				width: MIN_AVATAR,
+				height: MIN_AVATAR
+			});
+			if (size === null) return;
 			event.preventDefault();
 			void sync.commit({
 				kind: 'size_participant',
@@ -229,43 +173,30 @@
 			});
 			return;
 		}
-		if (isSelf && (event.key === '[' || event.key === ']')) {
-			event.preventDefault();
-			const delta = event.key === '[' ? -15 : 15;
-			void sync.commit({
-				kind: 'size_participant',
-				id: participant.id,
-				location: { x: effective.x, y: effective.y },
-				size: participant.size,
-				rotation: snapRotation(participant.rotation + delta, { precise: false })
-			});
-			return;
-		}
-		if (isSelf && (event.key === 'c' || event.key === 'C')) {
-			event.preventDefault();
-			cycleAvatarShape();
-			return;
+		if (isSelf) {
+			const rotation = rotateByKey(participant.rotation, event);
+			if (rotation !== null) {
+				event.preventDefault();
+				void sync.commit({
+					kind: 'size_participant',
+					id: participant.id,
+					location: { x: effective.x, y: effective.y },
+					size: participant.size,
+					rotation
+				});
+				return;
+			}
+			if (isReshapeKey(event)) {
+				event.preventDefault();
+				cycleAvatarShape();
+				return;
+			}
 		}
 
-		const step = event.shiftKey ? 1 : 16;
-		let dx = 0;
-		let dy = 0;
-		switch (event.key) {
-			case 'ArrowLeft':
-				dx = -step;
-				break;
-			case 'ArrowRight':
-				dx = step;
-				break;
-			case 'ArrowUp':
-				dy = -step;
-				break;
-			case 'ArrowDown':
-				dy = step;
-				break;
-			default:
-				return;
-		}
+		const move = arrowDelta(event);
+		if (move === null) return;
+		const dx = move.x;
+		const dy = move.y;
 		event.preventDefault();
 		const from = keyboardPosition ?? { ...effective };
 		const moving: SolverShape = { ...shapeOfParticipant(participant), x: from.x, y: from.y };
@@ -294,7 +225,7 @@
 	style:z-index={AVATAR_Z}
 	role="group"
 	aria-label={isSelf ? `${participant.name} (you)` : participant.name}
-	class:dragging
+	class:dragging={drag.dragging}
 	class:fake={participant.fake}
 	class:away={participant.away}
 	class:self={isSelf}
@@ -306,10 +237,10 @@
 	style:width="{shown.width}px"
 	style:height="{shown.height}px"
 	style:transform="translate({shown.x}px, {shown.y}px) rotate({shown.rotation}deg)"
-	onpointerdown={onPointerDown}
-	onpointermove={onPointerMove}
-	onpointerup={onPointerUp}
-	onpointercancel={onPointerUp}
+	onpointerdown={drag.onPointerDown}
+	onpointermove={drag.onPointerMove}
+	onpointerup={drag.onPointerUp}
+	onpointercancel={drag.onPointerUp}
 	onkeydown={onKeyDown}
 	onfocus={() => {
 		viewport.ensureVisible({ x: shown.x, y: shown.y, width: shown.width, height: shown.height });
@@ -344,7 +275,7 @@
 	{/if}
 
 	{#if isSelf}
-		<TransformHandles {onHandleDown} subject="avatar" />
+		<TransformHandles onHandleDown={handles.onHandleDown} subject="avatar" />
 		<span class="shape-control">
 			<Button
 				variant="chrome"
