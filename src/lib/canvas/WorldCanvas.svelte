@@ -3,6 +3,7 @@
 	import type { RoomStore } from '$lib/store/room-store';
 	import { SyncClient } from '$lib/store/sync-client.svelte';
 	import { Viewport } from './viewport.svelte';
+	import { gridFor } from './grid';
 	import {
 		shapeOfObject,
 		shapeOfParticipant,
@@ -154,25 +155,8 @@
 		viewport.fit(bounds);
 	});
 
-	/**
-	 * The dot grid lives in world space: position/scale track the camera so
-	 * dots stay glued to world coordinates, with level-of-detail doubling so
-	 * effective spacing stays in ~14–56px at any zoom. Decorative (contrast
-	 * exemption logged in STYLE.md).
-	 */
-	const grid = $derived.by(() => {
-		let spacing = 24;
-		let px = spacing * viewport.camera.scale;
-		while (px < 14) {
-			spacing *= 2;
-			px = spacing * viewport.camera.scale;
-		}
-		while (px > 56) {
-			spacing /= 2;
-			px = spacing * viewport.camera.scale;
-		}
-		return { px, x: viewport.camera.x, y: viewport.camera.y };
-	});
+	/** The dot grid (UX-CANVAS-6); LOD math lives in grid.ts, property-tested. */
+	const grid = $derived(gridFor(viewport.camera));
 
 	/* Background pan (per-viewer — UX-CANVAS-2; never enters the store). */
 	let panning = $state(false);

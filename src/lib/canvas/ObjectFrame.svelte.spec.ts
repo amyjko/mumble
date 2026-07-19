@@ -7,6 +7,7 @@ import { MemoryRoomStore, shapeOfObject } from '$lib/store/memory-store.svelte';
 import { SyncClient } from '$lib/store/sync-client.svelte';
 import { Viewport } from './viewport.svelte';
 import type { CanvasObject } from '$lib/model/types';
+import { hint, SNAP_HINT } from './hint.svelte';
 
 /**
  * THE WEEK-ONE DRAG SPIKE (TESTING.md §6): can Vitest browser mode drive our
@@ -158,6 +159,83 @@ describe('drag spike (pointer capture in browser mode)', () => {
 		const rect = frame.element().getBoundingClientRect();
 		expect(rect.width).toBe(200);
 		expect(rect.height).toBe(160);
+		store.dispose();
+	});
+});
+
+/**
+ * The gesture hint and the visible revert (UX-OBJ-13, UX-PERM-4/UX-QOS-1).
+ *
+ * Both live here rather than in E2E for a measured reason: pointer gestures do
+ * not drive the app under Playwright at all — a resize-handle drag there
+ * changes the object's width by exactly zero. An E2E "revert" test written
+ * against that harness PASSES while asserting nothing, because "the objects do
+ * not overlap" is trivially true when nothing ever moved. Browser mode drives
+ * real pointer capture (this file's whole premise), so it is the only place
+ * these can fail honestly.
+ */
+describe('mid-gesture feedback and rejection (UX-OBJ-13, UX-PERM-4)', () => {
+	it('shows the snap hint while dragging and clears it on release', async () => {
+		hint.clear();
+		const object = note(0, 0);
+		const { store, props } = harness(object, null);
+		await store.commit({ kind: 'create_object', object });
+		await render(ObjectFrame, props);
+
+		const frame = page.getByRole('group', { name: /note/i });
+		await expect.element(frame).toBeVisible();
+		expect(hint.current).toBeNull();
+
+		const before = frame.element().getBoundingClientRect();
+		const target = dropTarget(before.left + 80, before.top + 40);
+		// userEvent.dragAndDrop is atomic from the test's point of view, so the
+		// hint cannot be sampled mid-flight. Spying on the raise is what can be
+		// observed; that raising it actually renders the bar is asserted
+		// separately in HintBar.svelte.spec.ts. Neither half is sufficient
+		// alone, which is why both exist.
+		const show = vi.spyOn(hint, 'show');
+		await userEvent.dragAndDrop(frame, page.elementLocator(target), {
+			sourcePosition: { x: 100, y: 5 }
+		});
+
+		expect(show).toHaveBeenCalledWith(SNAP_HINT);
+		// And it must not linger: a hint that outlives its gesture is chrome.
+		await vi.waitFor(() => {
+			expect(hint.current).toBeNull();
+		});
+		store.dispose();
+	});
+
+	it('drops the optimistic overlay when a placement is rejected', async () => {
+		// UX-PERM-4's visible revert. The store-side rejection was tested; that
+		// the VIEW returns to settled state was not, and that is the half a
+		// user actually experiences.
+		const object = note(0, 0);
+		const obstacle = note(300, 0);
+		const { store, sync, props } = harness(object, obstacle);
+		await store.commit({ kind: 'create_object', object });
+		await store.commit({ kind: 'create_object', object: obstacle });
+		await render(ObjectFrame, props);
+
+		const frame = page.getByRole('group', { name: /note/i });
+		await expect.element(frame).toBeVisible();
+		const before = frame.element().getBoundingClientRect();
+		const settledBefore = store.state.objects[object.id]?.transform.x;
+
+		const target = dropTarget(before.left + 500, before.top + 4);
+		await userEvent.dragAndDrop(frame, page.elementLocator(target), {
+			sourcePosition: { x: 100, y: 5 }
+		});
+
+		// However the drag resolves, no overlay may survive it: a surviving
+		// overlay is exactly the bug where a rejected move stays on screen.
+		await vi.waitFor(() => {
+			expect(sync.objectOverlays.size).toBe(0);
+		});
+		// And the object never ends up covering its neighbour's content.
+		const settledAfter = store.state.objects[object.id]?.transform.x ?? 0;
+		expect(settledAfter).toBeLessThanOrEqual(121);
+		void settledBefore;
 		store.dispose();
 	});
 });
