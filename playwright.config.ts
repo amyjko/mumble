@@ -22,6 +22,9 @@ try {
 const ci = process.env.CI === 'true' || process.env.CI === '1';
 
 export default defineConfig({
+	// Checks the local stack BEFORE any test runs, so an unhealthy environment
+	// reports itself in one line instead of as 60 failing assertions.
+	globalSetup: './e2e/support/global-setup.ts',
 	webServer: {
 		// The BUILT worker under wrangler dev, never `vite dev` (AR-TEST-9 /
 		// AR-DEPLOY-4): this is the only place the production runtime gets
