@@ -47,3 +47,18 @@ export const AWAY_EMOJI = '💤';
 export const VIDEO_EMOJI = '\u{1F3A5}';
 export const MIC_EMOJI = '\u{1F3A4}';
 export const MUTED_EMOJI = '\u{1F507}';
+
+/**
+ * Glyphs for the "add" controls. Data, not markup, so every render goes
+ * through <Emoji> and therefore --font-emoji — enforced by no-raw-emoji.spec.
+ *
+ * A "+ note" button says what it does but gives the eye nothing to aim at; in
+ * a row of four the words are the only thing distinguishing them.
+ */
+export const ADD_EMOJI = {
+	note: '\u{1F4DD}',
+	timer: '\u{23F1}\u{FE0F}',
+	chat: '\u{1F4AC}',
+	drawing: '\u{270F}\u{FE0F}',
+	placer: '\u{1F4CD}'
+} as const;

@@ -39,6 +39,24 @@ export class Viewport {
 		this.camera = zoomAt(this.camera, screenPoint, factor);
 	}
 
+	/**
+	 * Back to 1:1 about the viewport centre (UX-CANVAS-3).
+	 *
+	 * Auto-fit is content-relative, so a room with one small note zooms in far
+	 * enough that text is huge, and a sprawling one zooms out past readable.
+	 * There was no way back to the size everything was DESIGNED at except
+	 * nudging +/- until the readout said 100%.
+	 *
+	 * Disengages auto-fit, like every other manual camera move: leaving it on
+	 * would let the next content change immediately undo the reset.
+	 */
+	resetZoom(): void {
+		this.autoZoom = false;
+		this.markAnimated();
+		const centre = { x: this.size.width / 2, y: this.size.height / 2 };
+		this.camera = zoomAt(this.camera, centre, 1 / this.camera.scale);
+	}
+
 	/** Recomputed on content change while autoZoom holds (UX-CANVAS-3). */
 	fit(content: readonly Bounds[]): void {
 		this.markAnimated();

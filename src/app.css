@@ -108,6 +108,9 @@
 	   the root context and chrome had to bid 10000 to stay on top. */
 	--z-canvas: 0;
 	--z-chrome: 10;
+	/* Above all chrome: a tooltip explaining a control must never be covered
+	   by neighbouring chrome, which is exactly where controls cluster. */
+	--z-tooltip: 60;
 	--z-popover: 20;
 	--z-overlay: 30;
 }

@@ -35,11 +35,15 @@ export function newNote(creatorId: string, center: Point, maxZ: number, border =
 /** A paused 5-minute countdown by default — a sensible starting shape. */
 export function newTimer(creatorId: string, center: Point, maxZ: number, border = DEFAULT_BORDER_WIDTH): CanvasObject {
 	const now = nowIso();
+	// 240x210, not 180x120: the old default was SMALLER than the timer's own
+	// minimum (190x170), so every timer was born too small for its readout,
+	// mode switch, and adjust row, and had to be resized before use.
+	// create-sizes.spec.ts now fails if any default drops below its minimum.
 	const transform = {
-		x: center.x - 90,
-		y: center.y - 60,
-		width: 180,
-		height: 120,
+		x: center.x - 120,
+		y: center.y - 105,
+		width: 240,
+		height: 210,
 		rotation: 0,
 		z: maxZ + 1
 	};

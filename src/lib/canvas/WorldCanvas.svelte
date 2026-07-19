@@ -363,13 +363,7 @@
 		{/if}
 	</div>
 
-	<!-- Camera cluster: auto-fit is a visible MODE, not a hidden state. -->
-	<div class="camera-cluster">
-		<span class="zoom" aria-label="Zoom level">{Math.round(viewport.camera.scale * 100)}%</span>
-		<Button pressed={viewport.autoZoom} onclick={() => (viewport.autoZoom = !viewport.autoZoom)}>
-			⤢ auto-fit {viewport.autoZoom ? 'on' : 'off'}
-		</Button>
-	</div>
+	<!-- Camera controls live in the single bottom toolbar (BottomBar) now. -->
 
 	<!--
 		Fullscreen (UX-CANVAS-4): per-viewer, mutates nothing shared.
@@ -412,6 +406,10 @@
 		   had to bid 10000 to stay on top. Isolated, chrome needs only --z-chrome. */
 		isolation: isolate;
 		/* Dragging the background pans the camera, so say so (UX-CANVAS-1). */
+		/* grab/grabbing is the CANVAS gesture: you seize the surface and pull
+		   it. Objects use `move`, so the pointer says which of the two will
+		   happen before you press — there was no cue at all when both used
+		   grab. */
 		cursor: grab;
 	}
 	.canvas:active {
@@ -452,25 +450,6 @@
 		top: 0;
 		overflow: visible;
 		pointer-events: none;
-	}
-	.camera-cluster {
-		position: absolute;
-		right: var(--space-3);
-		bottom: var(--space-3);
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		padding: var(--space-1) var(--space-2);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
-		background: var(--surface);
-		box-shadow: var(--shadow-1);
-	}
-	.zoom {
-		font-size: var(--text-sm);
-		color: var(--text-muted);
-		min-width: 40px;
-		text-align: right;
 	}
 	.fullscreen {
 		/* The top layer handles stacking; a z-index here would be meaningless. */

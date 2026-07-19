@@ -1,9 +1,9 @@
 /**
  * The modifier hint shown at the bottom of the screen during a gesture.
  *
- * Shift-to-snap was undiscoverable: nothing anywhere said it existed. A hint
- * that appears exactly while you are dragging, resizing, or rotating teaches
- * it at the only moment it is useful.
+ * Snapping is the default and Shift steps out of the grid — but nothing else
+ * says so. A hint that appears exactly while you are dragging, resizing, or
+ * rotating teaches it at the only moment it is useful.
  *
  * Deliberately NOT an aria-live region. It would fire on every gesture start
  * and machine-gun a screen reader with something that is purely a pointer
@@ -25,4 +25,4 @@ class HintState {
 export const hint = new HintState();
 
 /** The one gesture hint we have, so its wording stays consistent. */
-export const SNAP_HINT = 'Hold Shift to snap';
+export const SNAP_HINT = 'Hold Shift for precise placement';

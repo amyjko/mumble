@@ -37,7 +37,7 @@ test('visibility: a configuration remembers what was hidden', async ({ page }) =
 	await expect(page.locator('.frame')).toHaveCount(1);
 
 	// Save a configuration with the note visible.
-	await page.getByRole('button', { name: /configs/ }).click();
+	await page.getByRole('button', { name: /layouts/ }).click();
 	await page.getByRole('textbox', { name: 'Configuration name' }).fill('Shown');
 	await page.getByRole('button', { name: 'save', exact: true }).click();
 	await page.keyboard.press('Escape');
@@ -46,7 +46,7 @@ test('visibility: a configuration remembers what was hidden', async ({ page }) =
 	await page.locator('.frame').hover();
 	await page.getByRole('button', { name: 'Hide object from others' }).click();
 	await expect(page.locator('.frame.ghost')).toHaveCount(1);
-	await page.getByRole('button', { name: /configs/ }).click();
+	await page.getByRole('button', { name: /layouts/ }).click();
 	await page.getByRole('textbox', { name: 'Configuration name' }).fill('Concealed');
 	await page.getByRole('button', { name: 'save', exact: true }).click();
 

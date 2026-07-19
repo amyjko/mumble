@@ -126,14 +126,14 @@
 		const world = viewport.toWorld({ x: event.clientX, y: event.clientY });
 		if (handleKind === 'rotate') {
 			const center = { x: handleStart.x + handleStart.width / 2, y: handleStart.y + handleStart.height / 2 };
-			handleLast = { ...handleStart, rotation: snapRotation(rotationForPointer(center, world), event.shiftKey) };
+			handleLast = { ...handleStart, rotation: snapRotation(rotationForPointer(center, world), { precise: event.shiftKey }) };
 		} else {
 			handleLast = resizeTransform(
 				handleStart,
 				handleKind,
 				world.x - handlePointer.x,
 				world.y - handlePointer.y,
-				event.shiftKey,
+				{ precise: event.shiftKey },
 				{ width: MIN_AVATAR, height: MIN_AVATAR }
 			);
 		}
@@ -237,7 +237,7 @@
 				id: participant.id,
 				location: { x: effective.x, y: effective.y },
 				size: participant.size,
-				rotation: snapRotation(participant.rotation + delta, true)
+				rotation: snapRotation(participant.rotation + delta, { precise: false })
 			});
 			return;
 		}
@@ -374,7 +374,9 @@
 		justify-content: center;
 		gap: var(--space-0);
 
-		cursor: grab;
+		/* `move`, not `grab`: the canvas beneath uses grab for panning, and
+		   identical cursors gave no cue which gesture a press would start. */
+		cursor: move;
 		touch-action: none;
 		user-select: none;
 		outline: none;

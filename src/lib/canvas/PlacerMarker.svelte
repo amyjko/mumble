@@ -113,14 +113,14 @@
 		const world = viewport.toWorld({ x: event.clientX, y: event.clientY });
 		if (handleKind === 'rotate') {
 			const degrees = rotationForPointer(handleStart, world);
-			handleLast = { ...handleStart, rotation: snapRotation(degrees, event.shiftKey) };
+			handleLast = { ...handleStart, rotation: snapRotation(degrees, { precise: event.shiftKey }) };
 		} else {
 			handleLast = resizeTransform(
 				handleStart,
 				handleKind,
 				world.x - handlePointer.x,
 				world.y - handlePointer.y,
-				event.shiftKey,
+				{ precise: event.shiftKey },
 				{ width: MIN_PLACER, height: MIN_PLACER }
 			);
 		}
@@ -322,7 +322,9 @@
 		/* Resting below avatars (1000): this marks where people go, it is not a
 		   person. Raised above them on hover/focus so its controls stay
 		   reachable even when someone is standing in it. */
-		cursor: grab;
+		/* `move`, not `grab`: the canvas beneath uses grab for panning, and
+		   identical cursors gave no cue which gesture a press would start. */
+		cursor: move;
 		touch-action: none;
 	}
 	.placer.dragging {

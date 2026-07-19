@@ -65,7 +65,8 @@ test('auto-fit toggle receives clicks and refits (regression: canvas capture)', 
 	await joinRoom(page, `fit-${Date.now().toString(36)}`);
 	const canvas = page.getByRole('application', { name: 'Room canvas' });
 	await expect(canvas).toBeVisible();
-	const toggle = page.getByRole('button', { name: /auto-fit/ });
+	// The camera controls moved into the single bottom toolbar (BottomBar).
+	const toggle = page.getByRole('button', { name: /Auto-fit/ });
 	await expect(toggle).toHaveAttribute('aria-pressed', 'true');
 
 	// Manual pan disengages the mode (UX-CANVAS-3) and the toggle SHOWS it.
@@ -75,9 +76,9 @@ test('auto-fit toggle receives clicks and refits (regression: canvas capture)', 
 	await page.mouse.up();
 	await expect(toggle).toHaveAttribute('aria-pressed', 'false');
 
-	// Clicking the toggle must actually work (it sits INSIDE the canvas; a
-	// missing target-check once let the canvas capture the pointer and
-	// swallow this click) — and re-engaging refits the camera.
+	// Clicking the toggle must actually work — a missing target-check once let
+	// the canvas capture the pointer and swallow this click — and re-engaging
+	// refits the camera.
 	const world = page.locator('.world');
 	const before = await world.evaluate((el) => el.style.transform);
 	await toggle.click();

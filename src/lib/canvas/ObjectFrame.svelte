@@ -153,14 +153,14 @@
 		const world = viewport.toWorld({ x: event.clientX, y: event.clientY });
 		if (handleKind === 'rotate') {
 			const center = { x: handleStart.x + handleStart.width / 2, y: handleStart.y + handleStart.height / 2 };
-			handleLast = { ...handleStart, rotation: snapRotation(rotationForPointer(center, world), event.shiftKey) };
+			handleLast = { ...handleStart, rotation: snapRotation(rotationForPointer(center, world), { precise: event.shiftKey }) };
 		} else {
 			handleLast = resizeTransform(
 				handleStart,
 				handleKind,
 				world.x - handlePointer.x,
 				world.y - handlePointer.y,
-				event.shiftKey,
+				{ precise: event.shiftKey },
 				minSizeFor(object.type)
 			);
 		}
@@ -205,8 +205,8 @@
 		if (!dragging) return;
 		const world = viewport.toWorld({ x: event.clientX, y: event.clientY });
 		const desired = {
-			x: snapTo(objectStart.x + (world.x - pointerStart.x), event.shiftKey),
-			y: snapTo(objectStart.y + (world.y - pointerStart.y), event.shiftKey)
+			x: snapTo(objectStart.x + (world.x - pointerStart.x), { precise: event.shiftKey }),
+			y: snapTo(objectStart.y + (world.y - pointerStart.y), { precise: event.shiftKey })
 		};
 		lastResolved = moveTo(desired, lastResolved);
 	}
@@ -255,7 +255,7 @@
 		if (!editable) return;
 		if (event.key === '[' || event.key === ']') {
 			const delta = event.key === '[' ? -15 : 15;
-			commitTransform({ ...object.transform, rotation: snapRotation(object.transform.rotation + delta, true) });
+			commitTransform({ ...object.transform, rotation: snapRotation(object.transform.rotation + delta, { precise: false }) });
 			event.preventDefault();
 			return;
 		}
@@ -353,6 +353,26 @@
 	function toggleHidden(): void {
 		void sync.commit({ kind: 'set_hidden', id: object.id, hidden: !object.hidden });
 		sync.announce(object.hidden ? 'Object shown' : 'Object hidden from others');
+	}
+
+	/**
+	 * Depth controls (UX-OBJ-11): drawings may sit above OR below content.
+	 *
+	 * z existed in the schema and was only ever assigned at creation, so
+	 * stacking was strictly the order things were made in — a drawing made
+	 * before a note could never be moved on top of it, and one made after could
+	 * never be tucked behind. Two buttons is the whole feature.
+	 */
+	function sendToBack(): void {
+		const lowest = Math.min(...Object.values(store.state.objects).map((o) => o.transform.z));
+		commitTransform({ ...effective, z: lowest - 1 });
+		sync.announce(`${label} sent to back`);
+	}
+
+	function bringToFront(): void {
+		const highest = Math.max(...Object.values(store.state.objects).map((o) => o.transform.z));
+		commitTransform({ ...effective, z: highest + 1 });
+		sync.announce(`${label} brought to front`);
 	}
 
 	function cycleShape(): void {
@@ -461,8 +481,32 @@
 	></div>
 	{#if editable}
 		<TransformHandles {onHandleDown} subject="object" />
+		<!--
+			One ROW below the frame, not four hand-placed offsets from centre.
+			Each control used to compute its own translate() as a multiple of the
+			control height; adding a fifth and sixth meant recomputing all of them,
+			and any mistake silently overlaps two buttons so aiming at one hits the
+			other. A flex row cannot overlap.
+		-->
+		<div class="chrome chrome-row">
 		{#if isCreator}
-			<span class="chrome permission">
+			<span class="group">
+				<Button
+					variant="chrome"
+					shape="icon"
+					label="Send {label} behind other content"
+					onpointerdown={stopPointer}
+					onclick={sendToBack}>⤓</Button
+				>
+				<Button
+					variant="chrome"
+					shape="icon"
+					label="Bring {label} in front of other content"
+					onpointerdown={stopPointer}
+					onclick={bringToFront}>⤒</Button
+				>
+			</span>
+			<span class="group">
 				<Button
 					variant="chrome"
 					shape="icon"
@@ -473,7 +517,7 @@
 				>
 			</span>
 		{/if}
-		<span class="chrome visibility">
+		<span class="group">
 			<Button
 				variant="chrome"
 				shape="icon"
@@ -484,7 +528,7 @@
 			>
 		</span>
 		{#if object.type !== 'drawing'}
-			<span class="chrome border">
+			<span class="group">
 				<Button
 					variant="chrome"
 					shape="icon"
@@ -497,7 +541,7 @@
 		{#if object.type !== 'drawing'}
 			<!-- Drawings have no sticker border, so a clip edge on one is invisible
 			     and the control is meaningless — hidden rather than ambiguous. -->
-			<span class="chrome shape">
+			<span class="group">
 				<Button
 					variant="chrome"
 					shape="icon"
@@ -507,6 +551,7 @@
 				>
 			</span>
 		{/if}
+		</div>
 	{/if}
 	<span class="chrome fullscreen">
 		<Button
@@ -536,7 +581,9 @@
 	.frame {
 		position: absolute;
 		box-sizing: border-box;
-		cursor: grab;
+		/* `move`, not `grab`: the canvas beneath uses grab for panning, and
+		   identical cursors gave no cue which gesture a press would start. */
+		cursor: move;
 		touch-action: none;
 		user-select: none;
 		outline: none; /* replaced by the .ring layer */
@@ -607,12 +654,6 @@
 	 * the silhouette of a round object — placed like the others it covered the
 	 * sticker edge and the content beneath it.
 	 */
-	.chrome.visibility {
-		top: 100%;
-		margin-top: var(--space-1);
-		left: 50%;
-		translate: -50% 0;
-	}
 	/*
 	 * A hidden object is still fully interactive for its creator — this is a
 	 * reversible layout state, not a disabled one — so the ghosting is purely
@@ -630,30 +671,28 @@
 		pointer-events: none;
 	}
 	/*
-	 * BELOW the object, beside the visibility toggle — not in a corner. All
-	 * four corners are already spoken for (fullscreen, delete, shape, and the
-	 * resize grips), and putting this at bottom-right made it swallow the `se`
-	 * handle's clicks. Same lesson as the visibility badge covering a round
-	 * object's silhouette: the frame's edges are crowded, so new chrome goes
-	 * outside it.
+	 * BELOW the object, never in a corner. All four corners are spoken for
+	 * (fullscreen, delete, and the resize grips), and chrome at bottom-right
+	 * swallowed the `se` handle's clicks. Same lesson as the visibility badge
+	 * covering a round object's silhouette: the frame's edges are crowded, so
+	 * new chrome goes outside it.
 	 */
-	.chrome.permission {
+	.chrome-row {
 		top: 100%;
-		margin-top: var(--space-1);
+		/* Padding, not margin: it bridges the gap so travelling from the frame
+		   to these controls never leaves the hover region. */
+		padding-top: var(--space-1);
 		left: 50%;
-		translate: calc(-50% - var(--control-height) - var(--space-1)) 0;
+		translate: -50% 0;
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+	}
+	.chrome-row .group {
+		display: flex;
+		gap: var(--space-1);
 	}
 	/* Beside the shape control, both outside the frame's crowded corners. */
-	.chrome.border {
-		top: 100%;
-		margin-top: var(--space-1);
-		left: 50%;
-		translate: calc(-50% + var(--control-height) + var(--space-1)) 0;
-	}
-	.chrome.shape {
-		bottom: calc(-1 * var(--space-3));
-		left: calc(-1 * var(--space-3));
-	}
 	/*
 	 * Reveal keeps the BROADER :focus-within condition on purpose — tabbing to
 	 * a handle must not hide the handle you just reached. Only the selection

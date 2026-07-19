@@ -4,6 +4,7 @@
 	import favicon from '$lib/assets/favicon.svg';
 	import ThemeToggle from '$lib/ui/ThemeToggle.svelte';
 	import type { LayoutProps } from './$types';
+	import { page } from '$app/state';
 
 	let { children }: LayoutProps = $props();
 </script>
@@ -13,4 +14,10 @@
 </svelte:head>
 
 {@render children()}
-<ThemeToggle />
+<!--
+	A room carries the theme control inside its own bottom toolbar, so the
+	floating one would be a second copy of the same control two inches away.
+-->
+{#if !(page.route.id ?? '').startsWith('/hey/')}
+	<ThemeToggle />
+{/if}

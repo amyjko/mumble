@@ -11,7 +11,7 @@
 	import { resolve } from '$app/paths';
 	import WorldCanvas from '$lib/canvas/WorldCanvas.svelte';
 	import DevPanel from '$lib/dev/DevPanel.svelte';
-	import EmoteBar from '$lib/canvas/EmoteBar.svelte';
+	import BottomBar from '$lib/canvas/BottomBar.svelte';
 	import HintBar from '$lib/canvas/HintBar.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import Field from '$lib/ui/Field.svelte';
@@ -23,6 +23,7 @@
 	import { canDesignRoom } from '$lib/model/permissions';
 	import { counts as stageCounts, type Capacity, type StageState } from '$lib/model/stage';
 	import { AVATAR_EMOJI, saveIdentity } from '$lib/model/identity';
+	import { ADD_EMOJI } from '$lib/model/emotes';
 	import EmojiPicker from '$lib/ui/EmojiPicker.svelte';
 	import Emoji from '$lib/ui/Emoji.svelte';
 
@@ -397,15 +398,15 @@
 			{/if}
 		</div>
 	</Popover>
-	<Button disabled={!mayCreate} onclick={addNote}>+ note</Button>
-	<Button disabled={!mayCreate} onclick={addTimer}>+ timer</Button>
-	<Button disabled={!mayCreate} onclick={addChat}>+ chat</Button>
+	<Button disabled={!mayCreate} onclick={addNote}>+ <Emoji glyph={ADD_EMOJI.note} /> note</Button>
+	<Button disabled={!mayCreate} onclick={addTimer}>+ <Emoji glyph={ADD_EMOJI.timer} /> timer</Button>
+	<Button disabled={!mayCreate} onclick={addChat}>+ <Emoji glyph={ADD_EMOJI.chat} /> chat</Button>
 	<!-- A host tool, not content: placers say where NEWCOMERS land (UX-AV-2). -->
 	{#if canDesign}
-		<Button onclick={addPlacer}>+ newcomer spot</Button>
+		<Button onclick={addPlacer}>+ <Emoji glyph={ADD_EMOJI.placer} /> newcomer spot</Button>
 	{/if}
 
-	<Popover id="config-menu" label="configs" anchor="top-start">
+	<Popover id="config-menu" label="layouts" anchor="top-start">
 		<div class="menu">
 			{#each Object.values(store.state.configurations) as config (config.id)}
 				<div class="row">
@@ -510,9 +511,9 @@
 
 <main>
 	<WorldCanvas {store} {sync} {viewport} {identity} {drawMode} {drawColor} />
-	<!-- Emotes get their own bar rather than hiding behind avatar hover: one
-	     always-visible launcher that can only ever act on you (UX-AV-7). -->
-	<EmoteBar {store} {sync} {identity} />
+	<!-- ONE bottom toolbar: emotes, camera, and theme. Three separate floating
+	     clusters used to compete for this corner and overlap each other. -->
+	<BottomBar {store} {sync} {identity} {viewport} />
 	<!-- Teaches Shift-to-snap at the only moment it matters: mid-gesture. -->
 	<HintBar />
 	{#if import.meta.env.DEV}

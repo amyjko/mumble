@@ -33,6 +33,12 @@
 		disabled?: boolean | undefined;
 		/** Accessible name. Required when the content is a bare glyph. */
 		label?: string | undefined;
+		/**
+		 * Tooltip text. Defaults to `label`, so every control that already
+		 * names itself for assistive tech explains itself visually too.
+		 * Pass `null` for the rare control whose meaning is fully in its text.
+		 */
+		tooltip?: string | null | undefined;
 		title?: string | undefined;
 		type?: 'button' | 'submit' | undefined;
 		/** Wires this button to a Popover by id (see Popover.svelte). */
@@ -48,19 +54,86 @@
 		pressed,
 		disabled = false,
 		label,
+		tooltip,
 		title,
 		type = 'button',
 		popovertarget,
 		onclick,
 		onpointerdown
 	}: Props = $props();
+
+	/**
+	 * A bespoke tooltip rather than `title`.
+	 *
+	 * The native one appears only on hover, only after a delay a user cannot
+	 * predict, never on keyboard focus, and cannot be styled — so a
+	 * keyboard-only user got no explanation of any icon control in the product.
+	 * This one shows on hover AND focus, matches the design tokens, and is
+	 * clamped into the viewport.
+	 *
+	 * aria-hidden, deliberately: the text is the button's accessible NAME
+	 * already, so exposing it again makes a screen reader say it twice.
+	 */
+	const tipText = $derived(tooltip === null ? null : (tooltip ?? label ?? null));
+
+	let button = $state<HTMLButtonElement | null>(null);
+	let tip = $state<HTMLElement | null>(null);
+	let open = $state(false);
+	let position = $state({ x: 0, y: 0 });
+
+	const GAP = 6;
+	const EDGE = 8;
+
+	function place(): void {
+		if (button === null || tip === null) return;
+		const anchor = button.getBoundingClientRect();
+		const box = tip.getBoundingClientRect();
+		// Above by default; below when there is no room, so a control at the top
+		// of the window does not get a tooltip hanging off-screen.
+		const above = anchor.top - box.height - GAP;
+		const y = above >= EDGE ? above : anchor.bottom + GAP;
+		// Clamp horizontally: chrome sits at the very edges of the canvas, so a
+		// centred tooltip on an edge control would overflow every time.
+		const centred = anchor.left + anchor.width / 2 - box.width / 2;
+		const maxX = window.innerWidth - box.width - EDGE;
+		const x = Math.max(EDGE, Math.min(centred, Math.max(EDGE, maxX)));
+		position = { x, y };
+	}
+
+	function show(): void {
+		if (tipText === null || disabled) return;
+		open = true;
+	}
+
+	function hide(): void {
+		open = false;
+	}
+
+	// Measure AFTER the tip is in the DOM: its size depends on its text, so
+	// placing it from the anchor alone would mis-clamp every long label.
+	$effect(() => {
+		if (open) place();
+	});
+
+	function onKeyDown(event: KeyboardEvent): void {
+		// Escape dismisses without moving focus (WCAG 1.4.13).
+		if (event.key === 'Escape' && open) hide();
+	}
 </script>
 
+<svelte:window onkeydown={onKeyDown} onresize={hide} onscroll={hide} />
+
 <button
+	bind:this={button}
 	{type}
 	{disabled}
 	{popovertarget}
-	{onclick}
+	onclick={(event: MouseEvent) => {
+		// Dismiss on activation: the tooltip described what the button WOULD do,
+		// and leaving it up over a changed control describes the past.
+		hide();
+		onclick?.(event);
+	}}
 	{onpointerdown}
 	{title}
 	class="btn"
@@ -68,9 +141,38 @@
 	data-shape={shape}
 	aria-pressed={pressed}
 	aria-label={label}
+	onpointerenter={show}
+	onpointerleave={hide}
+	onfocusin={show}
+	onfocusout={hide}
 >{@render children()}</button>
+{#if open && tipText !== null}
+	<span
+		bind:this={tip}
+		class="tip"
+		aria-hidden="true"
+		style:left="{position.x}px"
+		style:top="{position.y}px">{tipText}</span
+	>
+{/if}
 
 <style>
+	.tip {
+		position: fixed;
+		z-index: var(--z-tooltip);
+		max-width: 22rem;
+		padding: var(--space-1) var(--space-2);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		background: var(--surface);
+		color: var(--text);
+		font-family: var(--font-ui);
+		font-size: var(--text-xs);
+		line-height: 1.3;
+		box-shadow: var(--shadow-1);
+		/* Never intercepts the gesture it is describing. */
+		pointer-events: none;
+	}
 	.btn {
 		display: inline-flex;
 		align-items: center;

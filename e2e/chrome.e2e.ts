@@ -17,7 +17,7 @@ test('chrome: only one menu is open at a time', async ({ page }) => {
 	const configs = page.locator('#config-menu');
 	const background = page.locator('#bg-menu');
 
-	await page.getByRole('button', { name: /configs/ }).click();
+	await page.getByRole('button', { name: /layouts/ }).click();
 	await expect(configs).toBeVisible();
 	await expect(background).toBeHidden();
 
@@ -45,7 +45,7 @@ test('chrome: Escape dismisses the open menu', async ({ page }) => {
 	await joinRoom(page, room);
 
 	const configs = page.locator('#config-menu');
-	await page.getByRole('button', { name: /configs/ }).click();
+	await page.getByRole('button', { name: /layouts/ }).click();
 	await expect(configs).toBeVisible();
 	await page.keyboard.press('Escape');
 	await expect(configs).toBeHidden();
@@ -125,7 +125,7 @@ test('chrome: the toolbar stays within a narrow viewport', async ({ page }) => {
 
 	// And its menu opens below the (now taller, wrapped) bar rather than
 	// underneath it — the reason the drop offset is measured, not fixed.
-	await page.getByRole('button', { name: /configs/ }).click();
+	await page.getByRole('button', { name: /layouts/ }).click();
 	const menu = page.locator('#config-menu');
 	await expect(menu).toBeVisible();
 	const geometry = await page.evaluate(() => {

@@ -15,10 +15,15 @@
 		pressed?: boolean | undefined;
 		disabled?: boolean | undefined;
 		label?: string | undefined;
+		tooltip?: string | null | undefined;
+		/** Inline style on a wrapper, so a test can park the button at a screen edge. */
+		wrapperStyle?: string | undefined;
 		onclick?: ((event: MouseEvent) => void) | undefined;
 	}
 
-	let { text, variant, shape, pressed, disabled, label, onclick }: Props = $props();
+	let { text, variant, shape, pressed, disabled, label, tooltip, wrapperStyle, onclick }: Props = $props();
 </script>
 
-<Button {variant} {shape} {pressed} {disabled} {label} {onclick}>{text}</Button>
+<div style={wrapperStyle}>
+	<Button {variant} {shape} {pressed} {disabled} {label} {tooltip} {onclick}>{text}</Button>
+</div>

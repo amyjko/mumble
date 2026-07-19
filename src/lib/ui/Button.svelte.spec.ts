@@ -52,3 +52,79 @@ describe('Button', () => {
 		expect(box.height).toBeGreaterThanOrEqual(24);
 	});
 });
+
+/**
+ * Tooltips (UX-A11Y / discoverability). The product is full of single-glyph
+ * chrome — ◇ ▣ ⤒ ⤓ ● ⛶ × — whose meaning lived only in an aria-label. Sighted
+ * pointer users got the native `title` after an unpredictable delay; keyboard
+ * users got nothing at all.
+ */
+describe('Button tooltip', () => {
+	it('appears on hover and on FOCUS, and names the control', async () => {
+		await render(ButtonHarness, { label: 'Delete note', text: '×' });
+		const button = page.getByRole('button', { name: 'Delete note' });
+
+		expect(document.querySelector('.tip')).toBeNull();
+
+		button.element().dispatchEvent(new PointerEvent('pointerenter', { bubbles: true }));
+		await vi.waitFor(() => {
+			expect(document.querySelector('.tip')?.textContent).toBe('Delete note');
+		});
+
+		button.element().dispatchEvent(new PointerEvent('pointerleave', { bubbles: true }));
+		await vi.waitFor(() => {
+			expect(document.querySelector('.tip')).toBeNull();
+		});
+
+		// Keyboard parity is the reason this exists rather than `title`.
+		button.element().dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+		await vi.waitFor(() => {
+			expect(document.querySelector('.tip')?.textContent).toBe('Delete note');
+		});
+	});
+
+	it('is hidden from assistive tech, because it repeats the accessible name', async () => {
+		await render(ButtonHarness, { label: 'Delete note', text: '×' });
+		const button = page.getByRole('button', { name: 'Delete note' });
+		button.element().dispatchEvent(new PointerEvent('pointerenter', { bubbles: true }));
+		await vi.waitFor(() => {
+			expect(document.querySelector('.tip')?.getAttribute('aria-hidden')).toBe('true');
+		});
+	});
+
+	it('keeps its 8px margin from the edge instead of being squeezed against it', async () => {
+		// Chrome clusters at the very edges of the canvas. Note what this does
+		// NOT assert: that the tooltip stays on screen. A fixed element with
+		// `left` set shrink-to-fits against the viewport, so it reflows narrower
+		// rather than overflowing — "right <= innerWidth" is true no matter what
+		// the placement code does, and a mutant that deleted the clamp passed
+		// that version of this test. The margin is what clamping actually buys:
+		// text that keeps its natural width instead of being crushed into a
+		// column at the edge.
+		await render(ButtonHarness, {
+			label: 'A deliberately long tooltip that would overflow the window edge',
+			text: '×',
+			wrapperStyle: 'position: fixed; right: 0; top: 50%;'
+		});
+		const button = page.getByRole('button', { name: /deliberately long/ });
+		button.element().dispatchEvent(new PointerEvent('pointerenter', { bubbles: true }));
+
+		await vi.waitFor(() => {
+			const tip = document.querySelector('.tip');
+			expect(tip).not.toBeNull();
+			const box = tip?.getBoundingClientRect();
+			expect(box).toBeDefined();
+			if (box === undefined) return;
+			expect(box.left).toBeGreaterThanOrEqual(8);
+			expect(box.right).toBeLessThanOrEqual(window.innerWidth - 8);
+		});
+	});
+
+	it('can be opted out of, for a control whose text already says everything', async () => {
+		await render(ButtonHarness, { label: 'Add note', text: '+ note', tooltip: null });
+		const button = page.getByRole('button', { name: 'Add note' });
+		button.element().dispatchEvent(new PointerEvent('pointerenter', { bubbles: true }));
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(document.querySelector('.tip')).toBeNull();
+	});
+});

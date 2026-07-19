@@ -91,7 +91,7 @@ test('reset is disabled until a configuration exists', async ({ page }) => {
 	const room = `reset-${Date.now().toString(36)}`;
 	await joinRoom(page, room);
 
-	await page.getByRole('button', { name: /configs/ }).click();
+	await page.getByRole('button', { name: /layouts/ }).click();
 	const reset = page.getByRole('button', { name: /reset layout/ });
 	await expect(reset).toBeDisabled();
 

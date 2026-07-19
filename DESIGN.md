@@ -486,6 +486,8 @@ The host is chosen on the same criterion as the media plane: **the free tier has
 
 **Canvas / front-end:**
 
+- **"Layout" now means two different things.** The UI calls a saved configuration a *layout* (2026-07-19, review), while `layoutSchema` is the per-object `{transform, hidden}` record INSIDE a configuration, and UX-ROOM-3 uses "layout" in that second sense. The user-facing rename was the right call — nobody outside the codebase says "configuration" — but the collision needs resolving before the internal name spreads further. Options: rename the internal record (`placement`? `objectState`?), or rename the concept throughout including DESIGN.md.
+
 - ~~`anchor` is specified but does not exist.~~ **Struck 2026-07-19**, the same way arbitrary path clips were (UX-OBJ-7). It was specified in three places and implemented in none — the `permission` trap again. Dropped rather than built: a drawing that should follow moved content gets moved by hand, which is a small cost against a feature that would have to define what happens when the target is deleted, hidden, resized, or rotated.
 
 - ~~Rotated-handle resize operates on world axes and ignores rotation.~~ **Accepted 2026-07-18 as intended behavior**, not a defect to fix. Rotated-shape COLLISION is exact (SAT/OBB); only the drag-to-resize math is world-axis, which is a UX approximation nobody has been bothered by. Documented in `canvas/resize.ts` so it stays a decision rather than reading as an oversight.

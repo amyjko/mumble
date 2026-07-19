@@ -43,19 +43,34 @@ export function minSizeFor(type: 'note' | 'timer' | 'chat' | 'drawing'): Size {
 }
 
 /**
- * Grid increment for Shift-snapping, matching the keyboard's coarse arrow step
- * so pointer and keyboard land on the same lattice.
- *
- * Shift means different things on the two input paths, deliberately: for a
- * POINTER gesture it snaps to this grid, while for keyboard arrows it means
- * the FINE 1px step. Each is unambiguous in its own context — there is no
- * "fine" notion while dragging, and no need for snapping when every arrow
- * press is already a fixed increment.
+ * Grid increment, matching the keyboard's coarse arrow step so pointer and
+ * keyboard land on the same lattice.
  */
 export const SNAP_GRID = 16;
 
-export function snapTo(value: number, snap: boolean): number {
-	return snap ? Math.round(value / SNAP_GRID) * SNAP_GRID : value;
+/**
+ * Gesture modifiers. An OBJECT rather than a bare boolean on purpose: snapping
+ * used to be opt-in via Shift and is now the default, and flipping a boolean
+ * at each call site would have compiled cleanly whether or not I found them
+ * all — a missed one silently keeps the old behaviour in one gesture. Changing
+ * the shape makes the compiler enumerate the call sites.
+ */
+export interface Modifiers {
+	/** Shift: step out of the grid for fine placement. */
+	precise: boolean;
+}
+
+/**
+ * Snap to the grid UNLESS precision is requested (Shift).
+ *
+ * Snapping is the default because alignment is what people want almost always,
+ * and shift-to-snap put the effort on the common case while leaving un-aligned
+ * layouts as the thing you got by not knowing about a modifier. Shift now
+ * means the same thing on both input paths — "smaller, more exact" — where it
+ * used to mean snap for the pointer and fine-step for the keyboard.
+ */
+export function snapTo(value: number, { precise }: Modifiers): number {
+	return precise ? value : Math.round(value / SNAP_GRID) * SNAP_GRID;
 }
 
 export type ResizeHandle = 'nw' | 'ne' | 'sw' | 'se';
@@ -65,7 +80,7 @@ export function resizeTransform(
 	handle: ResizeHandle,
 	dx: number,
 	dy: number,
-	snap = false,
+	modifiers: Modifiers,
 	min: Size = { width: MIN_SIZE, height: MIN_SIZE }
 ): Transform {
 	let x = start.x;
@@ -78,20 +93,20 @@ export function resizeTransform(
 	// Snap the SIZE, then derive the moving edge from it, so the anchored
 	// corner stays exactly put — snapping x/y afterwards would drift it.
 	if (handle === 'se') {
-		width = Math.max(min.width, snapTo(start.width + dx, snap));
-		height = Math.max(min.height, snapTo(start.height + dy, snap));
+		width = Math.max(min.width, snapTo(start.width + dx, modifiers));
+		height = Math.max(min.height, snapTo(start.height + dy, modifiers));
 	} else if (handle === 'sw') {
-		width = Math.max(min.width, snapTo(start.width - dx, snap));
-		height = Math.max(min.height, snapTo(start.height + dy, snap));
+		width = Math.max(min.width, snapTo(start.width - dx, modifiers));
+		height = Math.max(min.height, snapTo(start.height + dy, modifiers));
 		x = right - width;
 	} else if (handle === 'ne') {
-		width = Math.max(min.width, snapTo(start.width + dx, snap));
-		height = Math.max(min.height, snapTo(start.height - dy, snap));
+		width = Math.max(min.width, snapTo(start.width + dx, modifiers));
+		height = Math.max(min.height, snapTo(start.height - dy, modifiers));
 		y = bottom - height;
 	} else {
 		// nw
-		width = Math.max(min.width, snapTo(start.width - dx, snap));
-		height = Math.max(min.height, snapTo(start.height - dy, snap));
+		width = Math.max(min.width, snapTo(start.width - dx, modifiers));
+		height = Math.max(min.height, snapTo(start.height - dy, modifiers));
 		x = right - width;
 		y = bottom - height;
 	}
@@ -109,7 +124,7 @@ export function rotationForPointer(
 }
 
 /** Snap rotation to 15° increments when a modifier requests it. */
-export function snapRotation(deg: number, snap: boolean): number {
+export function snapRotation(deg: number, { precise }: Modifiers): number {
 	const wrapped = ((deg % 360) + 360) % 360;
-	return snap ? Math.round(wrapped / 15) * 15 : wrapped;
+	return precise ? wrapped : Math.round(wrapped / 15) * 15;
 }

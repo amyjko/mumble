@@ -30,7 +30,8 @@
 	 * which made it hard to find, unreachable on touch, and easy to mistake for
 	 * something you could do TO another person. A single fixed bar removes the
 	 * ambiguity structurally: there is one launcher, it is always visible, and
-	 * it can only ever act on you.
+	 * it can only ever act on you. It now sits inside the single bottom
+	 * toolbar (BottomBar) rather than floating on its own.
 	 *
 	 * Only the launcher lives here. Emotes still ANIMATE on your avatar — that
 	 * is how everyone knows who reacted.
@@ -137,23 +138,18 @@
 </div>
 
 <style>
+	/*
+	 * A GROUP, not a bar: BottomBar owns placement and the surface. This used
+	 * to position itself fixed at bottom-centre, where it overlapped the camera
+	 * cluster and the theme toggle — three floating clusters competing for one
+	 * corner of the screen.
+	 */
 	.emote-bar {
-		position: fixed;
-		bottom: var(--space-3);
-		left: 50%;
-		translate: -50% 0;
-		z-index: var(--z-chrome);
 		display: flex;
 		flex-wrap: wrap;
 		justify-content: center;
 		align-items: center;
 		gap: var(--space-1);
-		max-width: calc(100vw - 2 * var(--space-3));
-		padding: var(--space-1) var(--space-2);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
-		background: var(--surface);
-		box-shadow: var(--shadow-1);
 	}
 	.divider {
 		width: 1px;

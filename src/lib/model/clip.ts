@@ -3,7 +3,10 @@ import type { Clip } from './types';
 /** Named shapes the shape-cycle steps through (UX-OBJ-7). */
 export const CLIP_CYCLE: Clip[] = [
 	{ shape: 'rect' },
-	{ shape: 'rounded', radius: 8 },
+	// 24, not 8: at 8 the rounded step was visually identical to `rect`, so the
+	// cycle appeared to contain two rectangles and users toggled twice to get
+	// anywhere. A shape step that cannot be seen is a step that is not there.
+	{ shape: 'rounded', radius: 24 },
 	{ shape: 'circle' },
 	{ shape: 'ellipse' },
 	{ shape: 'polygon', points: hexagon() }
