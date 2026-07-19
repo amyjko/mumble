@@ -65,75 +65,73 @@ bypassed entirely.
 
 ## What is left
 
-**Phase 5b — the switchover.** Everything except pointing the canvas at it is
-DONE and tested: `SupabaseRoomStore`, `save_room_state` (one transaction for
-every table plus the version bump plus the broadcast), `get_room_state`, the CAS
-with bounded retry, and the `realtime.messages` channel-join policy.
+**Phase 5b — the switchover: DONE** (2026-07-19). The canvas reads and writes
+Postgres through `SupabaseRoomStore`. `Room.svelte` takes an injected store,
+`/hey/[room]` has a `+page.server.ts` that 404s an absent room and supplies its
+uuid, and `DevPanel` is gated on the stub.
 
-I attempted the switchover on 2026-07-19 and backed it out. It is a four-line
-change plus test fallout, and the fallout is the part to plan for:
+### THE blocker, and why three attempts missed it
 
-- `Room.svelte` must take an INJECTED store (it currently constructs
-  `MemoryRoomStore` itself, which violates room-store.ts's own rule that no
-  consumer may name a backend). The route supplies `SupabaseRoomStore`; tests
-  supply the stub.
-- `/hey/[room]` needs a `+page.server.ts` that 404s a room absent from Postgres.
-  `ssr = false` does NOT prevent this — that flag disables server RENDERING, not
-  server `load` — but `+page.ts` must forward the server data explicitly,
-  because when both loads exist the universal one's return value is what the
-  page receives.
-- Every E2E that joins a room then needs the room to EXIST, so `joinRoom` has to
-  create it, which needs an account. That is the bulk of the work: ~85 tests
-  change behaviour at once, and several assert guest-only UI.
-- The DevPanel is stub-only (it injects latency and forces rejections). Against
-  the real backend those levers do not exist, so it should be absent rather than
-  showing dead controls.
+**It was never write volume.** The version conflict raised SQLSTATE `40001`,
+which PostgREST treats as a TRANSIENT error and retries internally — but a CAS
+mismatch is deterministic, so the request stalled until the gateway killed it.
+Measured with nothing running concurrently: **60,007ms** for one stale write,
+returning "the upstream server is timing out". The same raise as `PT409` takes
+**7ms**.
 
-### THE blocker, found on the THIRD attempt (2026-07-19)
+Each conflict therefore pinned a pool connection for a full minute, and ten of
+them exhausted the 10-connection pool — after which every unrelated request
+failed with "Timed out acquiring connection from connection pool". That symptom
+was read three times as "we are writing too much", which is why the diff, the
+worker count and the CAS granularity were each changed in turn without fixing
+anything. The diff was worth having regardless; it was not the cause.
 
-**The version CAS is room-wide, and that is too coarse.** `rooms.version` is a
-single counter, so ANY two concurrent mutations conflict — even ones touching
-unrelated objects. Combined with optimistic local apply, two tabs in one room
-conflict constantly; each conflict retries up to three times; each retry is a
-full `get_room_state` plus a `save`. Request volume multiplies until PostgREST's
-pool (10 connections) saturates and the gateway starts timing out.
+Read this as a method note, not a war story: three diagnoses were inferred from
+a symptom and none was measured. The CAS had no test coverage anywhere — nothing
+in pgTAP, integration or e2e fired two overlapping requests — so the `40001`
+path had never once executed in a test. It now has 13 integration tests,
+including a mutation test that removes the guard and confirms a slot grab IS
+lost without it.
 
-Measured, so this is not a guess: `save_room_state` and `get_room_state` are
-**3–6ms each** in isolation on a clean stack. The SQL is not slow. The volume is.
+### The guard is conditional, and that was measured too
 
-This is the same mistake as the whole-room write, one level up: too coarse a
-unit of change. The options, in the order I would try them:
+Once conflicts were cheap enough to count, guarding everything turned out to be
+LOSSY rather than merely slow: twenty concurrent writers touching twenty
+DIFFERENT objects, each retrying three times as the route does, lost SEVENTEEN
+of their twenty writes, because one room-wide counter makes every writer
+invalidate every other. So `needsGuard` guards only writes that read what they
+overwrite — a room scalar changed (every stage, capacity, placer and layout
+write) or a merging mutation (`edit_note`, `post_message`). Everything else
+writes disjoint rows, where last-writer-wins is correct rather than a
+compromise. Re-measured after the change: 0 lost of 20.
 
-1. **Do not CAS at all for independent rows.** Objects, participants and
-   configurations are keyed and independent; last-writer-wins per ROW is what
-   the stub already does and what UX-PERM-4's revert story assumes. Reserve the
-   version for genuinely room-wide state (capacity, holders, queue, active
-   config), which changes rarely.
-2. Failing that, per-row versions, so a conflict means "someone else edited THIS
-   object", which is a fact worth surfacing rather than a retry storm.
-3. Do not retry on conflict at all — surface it as UX-PERM-4's revert. Cheapest,
-   and arguably the most honest, but it makes concurrent editing feel worse.
+### Found on the way, each by a test rather than by review
 
-Incremental writes (below) were necessary and are now in place; they were not
-sufficient.
+- **A cross-room write.** `room_objects.id` and `room_configurations.id` are
+  GLOBAL keys, so `on conflict (id) do update` matched rows in OTHER rooms and
+  the update list never included `room_id`: a write scoped to room B rewrote
+  room A's object and left it filed under room A. Reachable by any authenticated
+  member of any room. Conflict actions are now scoped to the same room.
+- **The seam's untrack guarantee lived in one store.** `applyMutation` reads and
+  writes state and runs synchronously inside the committing effect;
+  `MemoryRoomStore.commit` wraps it in `untrack` and calls that a guarantee "for
+  every store implementation". `SupabaseRoomStore` did not, so a second tab died
+  with `effect_update_depth_exceeded` before processing a single broadcast.
+- **Identity is two things.** The authenticated id (what the server reads from
+  the JWT) and the profile (name, emoji). Conflating them meant a visitor with
+  no roamed profile kept an older anonymous session's id, so self-checked
+  mutations were refused while others succeeded.
+- **Two data races** — a stale hydrate response overwriting newer local state,
+  and a commit re-hydrating on its own echo. Both read as rendering glitches.
 
-### The second attempt's blocker (fixed)
+### Still open
 
-`save_room_state` used to write the ENTIRE room on every mutation — every object,
-participant and configuration, in one plpgsql transaction — for each keystroke
-and each drag commit. Each call holds a database connection for the duration.
-PostgREST's pool (10 by default) saturates almost at once, and every request
-after that fails with *"Timed out acquiring connection from connection pool"*,
-which reads exactly like broken application code.
-
-That is the "correctness before cleverness" choice made in Phase 5a, and it does
-not survive contact with traffic. Raising the pool size would hide it locally
-and reproduce it in production, where the cost is O(room) writes per keystroke.
-
-**DONE.** `model/diff.ts` computes changed rows and deleted ids as a pure
-function (mutation-tested; regressing it to "everything changed" fails four
-tests), `save_room_state` takes that diff, and the route snapshots before
-applying. This was necessary and did not turn out to be sufficient — see above.
+- **E2E flakiness.** 83/85 serially, 82-83 with two workers, with a rotating
+  failure set. These are peer-sync assertions written against an instant
+  in-memory store that now cross a network. Deliberately NOT hidden behind
+  retries or a worker cap: the timeouts want raising on purpose.
+- **Admission** (UX-ID-3 / AR-CTRL-5) remains deferred by agreement.
+- Avatar name/emoji now roam with the profile; the id roams too.
 
 ### Also learned
 
