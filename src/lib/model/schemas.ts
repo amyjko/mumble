@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { isSafeBackground } from './background';
 import { EMOTE_NAMES } from './emotes';
+import { DEFAULT_CAPACITY } from './stage';
 
 /**
  * The single source of truth for every shape that crosses a boundary:
@@ -145,11 +146,19 @@ export const canvasObjectSchema = z.discriminatedUnion('type', [
 
 export const slotMediaSchema = z.enum(['video', 'audio']);
 
-/** UX-STAGE-1's three numbers. Publish caps may not exceed the room size. */
+/**
+ * UX-STAGE-1's three numbers. Publish caps may not exceed the room size.
+ *
+ * Defaults come from `DEFAULT_CAPACITY` rather than being retyped. They were
+ * written out four times — here, twice more as object-level defaults, and once
+ * in stage.ts — so changing the room default in one place gave a fresh room
+ * and a reloaded room different caps, surfacing as "the video limit changed
+ * when I refreshed". stage.ts imports nothing, so this direction is safe.
+ */
 export const capacitySchema = z.object({
-	max_participants: z.number().int().min(1).max(200).default(20),
-	max_av: z.number().int().min(0).max(200).default(4),
-	max_audio: z.number().int().min(0).max(200).default(8)
+	max_participants: z.number().int().min(1).max(200).default(DEFAULT_CAPACITY.max_participants),
+	max_av: z.number().int().min(0).max(200).default(DEFAULT_CAPACITY.max_av),
+	max_audio: z.number().int().min(0).max(200).default(DEFAULT_CAPACITY.max_audio)
 });
 
 export const participantSchema = z.object({
@@ -250,7 +259,7 @@ export const configSnapshotSchema = z.object({
 	 */
 	placers: z.array(placerSchema).default([]),
 	/** UX-STAGE-1: the numbers belong to the configuration, not the room. */
-	capacity: capacitySchema.default({ max_participants: 20, max_av: 4, max_audio: 8 }),
+	capacity: capacitySchema.default(DEFAULT_CAPACITY),
 	background: z.string(),
 	title: z.string(),
 	description: z.string()
@@ -285,7 +294,7 @@ export const roomStateSchema = z.object({
 	 * `transport` is carried inert at 'p2p': it is a V2 media-plane fact
 	 * (AR-TRANSPORT-6) parked here now so adding it later is not a migration.
 	 */
-	capacity: capacitySchema.default({ max_participants: 20, max_av: 4, max_audio: 8 }),
+	capacity: capacitySchema.default(DEFAULT_CAPACITY),
 	video_holders: z.array(z.uuid()).default([]),
 	audio_holders: z.array(z.uuid()).default([]),
 	queue: z.array(z.uuid()).default([]),

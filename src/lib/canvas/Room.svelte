@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import type { StoredIdentity } from '$lib/model/types';
-	import { MemoryRoomStore, AVATAR_SIZE } from '$lib/store/memory-store.svelte';
+	import { MemoryRoomStore } from '$lib/store/memory-store.svelte';
+	import { AVATAR_SIZE, newParticipant } from '$lib/model/avatar';
 	import { SyncClient } from '$lib/store/sync-client.svelte';
 	import { Viewport } from '$lib/canvas/viewport.svelte';
 	import { newNote, newTimer, newChat, maxZOf } from '$lib/model/create';
@@ -77,21 +78,7 @@
 		const existing = untrack(() => current.state.participants[identity.id]);
 		void sync.commit({
 			kind: 'upsert_participant',
-			participant: {
-				id: identity.id,
-				name: identity.name,
-				emoji: identity.emoji,
-				location: existing?.location ?? { x: 0, y: 0 },
-				// Carry the avatar's own size/shape across rejoins (UX-AV-1/9).
-				size: existing?.size ?? { width: AVATAR_SIZE, height: AVATAR_SIZE },
-				rotation: existing?.rotation ?? 0,
-				clip: existing?.clip ?? { shape: 'circle' },
-				fake: false,
-				away: existing?.away ?? false,
-				// You arrive silent and opt in by unmuting (UX-STAGE-10), which is
-				// also what keeps a rejoin from silently re-taking an audio slot.
-				muted: existing?.muted ?? true
-			}
+			participant: newParticipant(identity, { existing })
 		});
 		return () => {
 			current.dispose();

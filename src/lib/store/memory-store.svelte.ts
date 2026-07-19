@@ -15,13 +15,13 @@ import type {
 	Participant,
 	Placer,
 	Size,
-	RoomState,
-	Transform
+	RoomState
 } from '$lib/model/types';
 import { untrack } from 'svelte';
 import { canEdit } from '$lib/model/permissions';
 import { ellipsePoints, nearestLegal, placementLegal } from '$lib/canvas/geometry';
 import { locationKey } from '$lib/model/placement';
+import { AVATAR_BORDER } from '$lib/model/avatar';
 import { applyEncodedUpdate, docFromEncoded, encodeDoc, mergeEncoded, noteText } from '$lib/model/ydoc';
 import {
 	admits,
@@ -51,8 +51,9 @@ function freshState(): RoomState {
  */
 export const CHAT_LOG_LIMIT = 500;
 
-export const AVATAR_SIZE = 96;
-export const AVATAR_BORDER = 6;
+// Defined in the model (model/avatar.ts); re-exported so the many canvas
+// imports do not all have to move at once.
+export { AVATAR_SIZE, AVATAR_BORDER } from '$lib/model/avatar';
 
 /**
  * The stub backend. It deliberately models the seams the real backend will
@@ -391,8 +392,7 @@ export class MemoryRoomStore implements RoomStore {
 				break;
 			}
 			case 'move_participant': {
-				const existing = this.state.participants[m.id];
-				if (existing === undefined) throw new StoreRejection('invalid', 'Unknown participant');
+				const existing = this.requireParticipant(m.id);
 				const moved = { ...shapeOfParticipant(existing), x: m.location.x, y: m.location.y };
 				if (!placementLegal(moved, this.shapes(m.id))) {
 					throw new StoreRejection('overlap', 'That placement overlaps content');
@@ -415,8 +415,7 @@ export class MemoryRoomStore implements RoomStore {
 				// Resize/rotate an avatar (UX-AV-1). Revalidated against the same
 				// solver as a move: growing an avatar into a neighbor is exactly as
 				// illegal as dragging it there, and only the store sees both.
-				const existing = this.state.participants[m.id];
-				if (existing === undefined) throw new StoreRejection('invalid', 'Unknown participant');
+				const existing = this.requireParticipant(m.id);
 				this.requireSelf(m.id, 'You can only resize your own avatar');
 				const sized = {
 					...shapeOfParticipant(existing),
@@ -434,8 +433,7 @@ export class MemoryRoomStore implements RoomStore {
 				break;
 			}
 			case 'set_participant_clip': {
-				const existing = this.state.participants[m.id];
-				if (existing === undefined) throw new StoreRejection('invalid', 'Unknown participant');
+				const existing = this.requireParticipant(m.id);
 				this.requireSelf(m.id, 'You can only reshape your own avatar');
 				existing.clip = m.clip;
 				break;
@@ -518,9 +516,7 @@ export class MemoryRoomStore implements RoomStore {
 			case 'set_away': {
 				// UX-AV-7: emotes are self-initiated — you may only change your own.
 				this.requireSelf(m.id, 'You can only emote yourself');
-				const participant = this.state.participants[m.id];
-				if (participant === undefined) throw new StoreRejection('invalid', 'Unknown participant');
-				else participant.away = m.away;
+				this.requireParticipant(m.id).away = m.away;
 				break;
 			}
 			case 'set_clip': {
@@ -532,8 +528,7 @@ export class MemoryRoomStore implements RoomStore {
 			}
 			case 'set_identity': {
 				this.requireSelf(m.id, 'You can only change your own name');
-				const participant = this.state.participants[m.id];
-				if (participant === undefined) throw new StoreRejection('invalid', 'Unknown participant');
+				const participant = this.requireParticipant(m.id);
 				participant.name = m.name;
 				participant.emoji = m.emoji;
 				break;
@@ -838,18 +833,44 @@ export function participatesInCollision(object: CanvasObject): boolean {
 	return object.type !== 'drawing';
 }
 
-export function shapeOfObject(object: CanvasObject): SolverShape {
+/**
+ * The one place a SolverShape is built.
+ *
+ * The three public `shapeOf*` functions below were independent copies of this
+ * record — same nine fields, same order, differing only in where the numbers
+ * came from. `SolverShape` is the collider's contract, so adding a field meant
+ * editing three sites, and missing one would degrade collision for a single
+ * entity class. Collision bugs present as "it snapped back for no reason",
+ * which is the kind nobody files.
+ *
+ * The `circle`/`points` pair is the fragile part: they have to agree, and that
+ * invariant was restated three times.
+ */
+function solverShape(
+	id: string,
+	x: number,
+	y: number,
+	size: Size,
+	rotation: number,
+	clip: Clip,
+	border: number
+): SolverShape {
 	return {
-		id: object.id,
-		x: object.transform.x,
-		y: object.transform.y,
-		width: object.transform.width,
-		height: object.transform.height,
-		rotation: object.transform.rotation,
-		circle: object.clip.shape === 'circle',
-		points: outlinePoints(object.clip),
-		border: object.border.width
+		id,
+		x,
+		y,
+		width: size.width,
+		height: size.height,
+		rotation,
+		circle: clip.shape === 'circle',
+		points: outlinePoints(clip),
+		border
 	};
+}
+
+export function shapeOfObject(object: CanvasObject): SolverShape {
+	const t = object.transform;
+	return solverShape(object.id, t.x, t.y, t, t.rotation, object.clip, object.border.width);
 }
 
 /**
@@ -875,39 +896,24 @@ export function outlinePoints(clip: Clip): readonly { x: number; y: number }[] |
  * means the same thing here as it does between two avatars.
  */
 export function shapeOfPlacer(placer: Placer): SolverShape {
-	return {
-		id: placer.id,
-		x: placer.x,
-		y: placer.y,
-		width: placer.width,
-		height: placer.height,
-		rotation: placer.rotation,
-		circle: placer.clip.shape === 'circle',
-		points: outlinePoints(placer.clip),
-		border: AVATAR_BORDER
-	};
+	return solverShape(placer.id, placer.x, placer.y, placer, placer.rotation, placer.clip, AVATAR_BORDER);
 }
 
 export function shapeOfParticipant(participant: Participant): SolverShape {
 	// Reads the participant's own size and clip now that avatars are resizable
 	// and reshapeable (UX-AV-1) — using the AVATAR_SIZE constant here would
 	// have let a resized avatar collide as though it were still the default.
-	return {
-		id: participant.id,
-		x: participant.location.x,
-		y: participant.location.y,
-		width: participant.size.width,
-		height: participant.size.height,
-		rotation: participant.rotation,
-		circle: participant.clip.shape === 'circle',
-		points: outlinePoints(participant.clip),
-		border: AVATAR_BORDER
-	};
+	return solverShape(
+		participant.id,
+		participant.location.x,
+		participant.location.y,
+		participant.size,
+		participant.rotation,
+		participant.clip,
+		AVATAR_BORDER
+	);
 }
 
-export function transformFromShapeMove(transform: Transform, x: number, y: number): Transform {
-	return { ...transform, x, y };
-}
 
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
