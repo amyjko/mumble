@@ -34,6 +34,41 @@ export type Database = {
   }
   public: {
     Tables: {
+      participant_locations: {
+        Row: {
+          config_key: string
+          identity_id: string
+          room_id: string
+          updated_at: string
+          x: number
+          y: number
+        }
+        Insert: {
+          config_key: string
+          identity_id: string
+          room_id: string
+          updated_at?: string
+          x: number
+          y: number
+        }
+        Update: {
+          config_key?: string
+          identity_id?: string
+          room_id?: string
+          updated_at?: string
+          x?: number
+          y?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "participant_locations_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reserved_room_names: {
         Row: {
           name: string
@@ -45,6 +80,35 @@ export type Database = {
           name?: string
         }
         Relationships: []
+      }
+      room_configurations: {
+        Row: {
+          id: string
+          name: string
+          room_id: string
+          snapshot: Json
+        }
+        Insert: {
+          id: string
+          name: string
+          room_id: string
+          snapshot: Json
+        }
+        Update: {
+          id?: string
+          name?: string
+          room_id?: string
+          snapshot?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "room_configurations_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       room_members: {
         Row: {
@@ -79,6 +143,174 @@ export type Database = {
             foreignKeyName: "room_members_room_id_fkey"
             columns: ["room_id"]
             isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      room_objects: {
+        Row: {
+          border: Json
+          clip: Json
+          created_at: string
+          creator_id: string
+          hidden: boolean
+          id: string
+          payload: Json
+          permission: string
+          room_id: string
+          transform: Json
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          border: Json
+          clip: Json
+          created_at?: string
+          creator_id: string
+          hidden?: boolean
+          id: string
+          payload?: Json
+          permission?: string
+          room_id: string
+          transform: Json
+          type: string
+          updated_at?: string
+        }
+        Update: {
+          border?: Json
+          clip?: Json
+          created_at?: string
+          creator_id?: string
+          hidden?: boolean
+          id?: string
+          payload?: Json
+          permission?: string
+          room_id?: string
+          transform?: Json
+          type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "room_objects_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      room_participants: {
+        Row: {
+          away: boolean
+          clip: Json
+          emoji: string
+          fake: boolean
+          id: string
+          location: Json
+          muted: boolean
+          name: string
+          room_id: string
+          rotation: number
+          size: Json
+        }
+        Insert: {
+          away?: boolean
+          clip: Json
+          emoji: string
+          fake?: boolean
+          id: string
+          location: Json
+          muted?: boolean
+          name: string
+          room_id: string
+          rotation?: number
+          size: Json
+        }
+        Update: {
+          away?: boolean
+          clip?: Json
+          emoji?: string
+          fake?: boolean
+          id?: string
+          location?: Json
+          muted?: boolean
+          name?: string
+          room_id?: string
+          rotation?: number
+          size?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "room_participants_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      room_state: {
+        Row: {
+          active_config: string | null
+          audio_holders: string[]
+          background: string
+          border_default: number
+          create_permission: string
+          description: string
+          max_audio: number
+          max_av: number
+          max_participants: number
+          placers: Json
+          queue: string[]
+          room_id: string
+          title: string
+          transport: string
+          updated_at: string
+          video_holders: string[]
+        }
+        Insert: {
+          active_config?: string | null
+          audio_holders?: string[]
+          background?: string
+          border_default?: number
+          create_permission?: string
+          description?: string
+          max_audio?: number
+          max_av?: number
+          max_participants?: number
+          placers?: Json
+          queue?: string[]
+          room_id: string
+          title?: string
+          transport?: string
+          updated_at?: string
+          video_holders?: string[]
+        }
+        Update: {
+          active_config?: string | null
+          audio_holders?: string[]
+          background?: string
+          border_default?: number
+          create_permission?: string
+          description?: string
+          max_audio?: number
+          max_av?: number
+          max_participants?: number
+          placers?: Json
+          queue?: string[]
+          room_id?: string
+          title?: string
+          transport?: string
+          updated_at?: string
+          video_holders?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "room_state_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: true
             referencedRelation: "rooms"
             referencedColumns: ["id"]
           },
