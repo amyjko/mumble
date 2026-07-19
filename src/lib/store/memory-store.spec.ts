@@ -64,8 +64,11 @@ const chatObject = (creator: string): CanvasObject => {
 };
 
 const stores: MemoryRoomStore[] = [];
-const makeStore = (room: string, actor: string): MemoryRoomStore => {
-	const store = new MemoryRoomStore(room, actor);
+const makeStore = (room: string, actor: string, isHost = true): MemoryRoomStore => {
+	// Hosts BY DEFAULT here, deliberately: most of these tests exercise what a
+	// room can do, not who may do it. The gate itself is tested explicitly in
+	// "room settings are host-only", which passes isHost: false.
+	const store = new MemoryRoomStore(room, actor, isHost);
 	stores.push(store);
 	return store;
 };
@@ -1098,5 +1101,63 @@ describe('placement: remembered, placer, nearest legal (AR-CTRL-4/6, UX-AV-2/9)'
 		await store.commit({ kind: 'upsert_participant', participant: person(BOB) });
 		expect(store.state.participants[ALICE]?.location).toEqual(first);
 		expect(store.state.participants[BOB]?.location).not.toEqual(first);
+	});
+});
+
+describe('room settings are host-only (UX-PERM-3, UX-ROOM-6)', () => {
+	/**
+	 * The gate that spent the whole project as a deliberate no-op. Every
+	 * assertion here would have passed against `requireHostForRoom() {}`, which
+	 * is exactly why it needed writing the day the role became real.
+	 */
+	const asGuest = (): MemoryRoomStore => makeStore(`r${String(Math.random())}`, ALICE, false);
+
+	it('refuses capacity changes from a non-host', async () => {
+		const store = asGuest();
+		await expect(
+			store.commit({ kind: 'set_capacity', capacity: { max_participants: 5, max_av: 1, max_audio: 1 } })
+		).rejects.toThrow(/only a host/i);
+	});
+
+	it('refuses placer edits from a non-host', async () => {
+		// Placers are a host tool (UX-AV-2) — the client hides them via
+		// canDesignRoom, and this is the half that holds when the client lies.
+		const store = asGuest();
+		await expect(
+			store.commit({
+				kind: 'add_placer',
+				placer: { id: uuid(), x: 0, y: 0, width: 96, height: 96, rotation: 0, clip: { shape: 'circle' } }
+			})
+		).rejects.toThrow(/only a host/i);
+	});
+
+	it('refuses the room-wide create permission from a non-host', async () => {
+		const store = asGuest();
+		await expect(
+			store.commit({ kind: 'set_room_create_permission', value: 'host' })
+		).rejects.toThrow(/only a host/i);
+	});
+
+	it('but a HOST may do all three, so the gate is a gate and not a wall', async () => {
+		// The paired positive, for the same reason every RLS test has one: a
+		// guard that refuses everyone passes all three assertions above.
+		const store = makeStore(`r${String(Math.random())}`, ALICE, true);
+		await expect(
+			store.commit({ kind: 'set_capacity', capacity: { max_participants: 5, max_av: 1, max_audio: 1 } })
+		).resolves.toBeUndefined();
+		await expect(
+			store.commit({ kind: 'set_room_create_permission', value: 'host' })
+		).resolves.toBeUndefined();
+	});
+
+	it('leaves per-object permission alone: a guest still edits their own note', async () => {
+		// UX-PERM-3 is about ROOM settings. Confusing the two would silently
+		// make guests read-only, which no requirement asks for.
+		const store = asGuest();
+		const object = note(ALICE, 0);
+		await store.commit({ kind: 'create_object', object });
+		await expect(
+			store.commit({ kind: 'move_object', id: object.id, transform: { ...object.transform, x: 40 } })
+		).resolves.toBeUndefined();
 	});
 });

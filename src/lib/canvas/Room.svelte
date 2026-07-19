@@ -45,13 +45,19 @@
 		 * demands it rather than defending against its absence.
 		 */
 		identity?: StoredIdentity | undefined;
+		/**
+		 * Whether you hold the host role in THIS room (UX-PERM-3). Supplied by
+		 * the route from a room_members row; never inferred here, and never
+		 * trusted by the server, which reads its own membership row.
+		 */
+		isHost?: boolean | undefined;
 	}
 
-	let { room, identity = $bindable(EMPTY_IDENTITY) }: Props = $props();
+	let { room, identity = $bindable(EMPTY_IDENTITY), isHost = false }: Props = $props();
 
 	// Derived on `room` so in-app navigation between rooms rebuilds the
 	// store instead of silently keeping the old room's channel.
-	const store = $derived(new MemoryRoomStore(room, identity.id));
+	const store = $derived(new MemoryRoomStore(room, identity.id, isHost));
 	const sync = $derived(new SyncClient(store));
 	const viewport = new Viewport();
 
@@ -86,8 +92,8 @@
 	});
 
 	const count = $derived(Object.keys(store.state.participants).length);
-	/** Placers are a host tool; the gate is real but inert (canDesignRoom). */
-	const canDesign = $derived(canDesignRoom(false));
+	/** Placers are a host tool (UX-AV-2), and the gate is live now. */
+	const canDesign = $derived(canDesignRoom(isHost));
 
 	/**
 	 * Say so when the room moved you (AR-CTRL-4).
@@ -308,12 +314,12 @@
 					}}>hosts only</Button
 				>
 			</div>
-			{#if !mayCreate}
-				<!-- Honest about a real consequence: the host role does not exist
-				     yet (AR-CTRL-5), so "hosts only" currently means nobody. -->
-				<p class="problem" role="alert">
-					No one can add objects until the host role exists — switch back to “anyone adds”.
-				</p>
+			{#if !mayCreate && !isHost}
+				<!-- The warning that used to say "hosts only means nobody" is gone:
+				     the role exists (AR-CTRL-7), so the setting does what it says.
+				     What remains is telling a GUEST why the add buttons are dead,
+				     which is otherwise indistinguishable from a broken toolbar. -->
+				<p class="problem" role="alert">Only a host can add objects in this room.</p>
 			{/if}
 			<div class="row">
 				<Field label="New room name" bind:value={renameDraft} placeholder="new-name" />
@@ -497,7 +503,7 @@
 </header>
 
 <main>
-	<WorldCanvas {store} {sync} {viewport} {identity} {drawMode} {drawColor} />
+	<WorldCanvas {store} {sync} {viewport} {identity} {isHost} {drawMode} {drawColor} />
 	<!-- ONE bottom toolbar: emotes, camera, and theme. Three separate floating
 	     clusters used to compete for this corner and overlap each other. -->
 	<BottomBar {store} {sync} {identity} {viewport} />

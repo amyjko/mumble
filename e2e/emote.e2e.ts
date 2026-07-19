@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { joinRoom, roomName } from './support/join';
+import { hostRoom } from './support/auth';
 
 /**
  * Raise-hand (UX-AV-6) is now the slot-request QUEUE ENTRY, not a decorative
@@ -25,7 +26,7 @@ test('raise hand is the queue entry, and syncs to peers', async ({ browser }) =>
 	const a = await context.newPage();
 	const b = await context.newPage();
 
-	await joinRoom(a, room);
+	await hostRoom(a, room);
 	await removeAllSlots(a);
 
 	await a.getByRole('button', { name: 'Raise hand to queue' }).click();
@@ -34,6 +35,8 @@ test('raise hand is the queue entry, and syncs to peers', async ({ browser }) =>
 	// The queue is shared room state, so a peer sees the raised hand too.
 	// Self-only remains structural: the one bar can address nobody but you,
 	// and the store rejects the attempt (memory-store.spec.ts covers that).
+	// b JOINS — it must not try to create a room that already exists. (It is a
+	// host too, by membership: same browser context, same account.)
 	await joinRoom(b, room);
 	await expect(b.locator('.avatar.raised')).toHaveCount(1);
 
@@ -42,7 +45,7 @@ test('raise hand is the queue entry, and syncs to peers', async ({ browser }) =>
 
 /** Lowering leaves the queue — the same fact from the other side. */
 test('lowering a hand leaves the queue', async ({ page }) => {
-	await joinRoom(page, roomName('lower'));
+	await hostRoom(page, roomName('lower'));
 	await removeAllSlots(page);
 
 	await page.getByRole('button', { name: 'Raise hand to queue' }).click();

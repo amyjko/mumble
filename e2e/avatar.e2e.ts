@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { joinRoom, roomName } from './support/join';
+import { hostRoom } from './support/auth';
 
 /**
  * Avatars are canvas objects (UX-AV-1): resizable, rotatable, and reshapeable
@@ -73,7 +74,7 @@ test('avatar: multiple reactions float at once', async ({ page }) => {
 /** Persistent states must be legible across the room (UX-AV-5). */
 test('avatar: raised hand and away are prominent badges', async ({ page }) => {
 	const room = roomName('avatar-badge');
-	await joinRoom(page, room);
+	await hostRoom(page, room);
 
 	// The room has to be CONTENDED for a raised hand to exist at all: raising
 	// is queueing (UX-AV-6), and with a slot free you are promoted into it

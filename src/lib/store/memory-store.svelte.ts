@@ -63,14 +63,22 @@ export class MemoryRoomStore implements RoomStore {
 	private closed = false;
 	private readonly storageKey: string;
 	private readonly actorId: string;
+	private readonly isHost: boolean;
 	// Subscription plumbing, never rendered. Making it reactive (SvelteSet)
 	// crashes with state_unsafe_mutation: SyncClient subscribes during its own
 	// $derived construction, which would then mutate another derived's state.
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- see above
 	private readonly handlers = new Set<(m: EphemeralMessage) => void>();
 
-	constructor(room: string, actorId: string) {
+	/**
+	 * `isHost` is supplied, never inferred. The stub has no way to know — the
+	 * fact lives in a room_members row (AR-CTRL-7), and the room page reads it
+	 * before constructing this. Defaulting to false keeps every existing caller
+	 * honest: a store built without the fact does not get host powers.
+	 */
+	constructor(room: string, actorId: string, isHost = false) {
 		this.actorId = actorId;
+		this.isHost = isHost;
 		this.storageKey = `mumble:room:${room}`;
 		this.state = this.hydrate();
 		this.channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(`mumble:${room}`);
@@ -175,12 +183,9 @@ export class MemoryRoomStore implements RoomStore {
 			// route enforces the identical rules rather than a second copy of
 			// them (AR-SYNC-3).
 			//
-			// isHost is still false: the role arrives with admission. It is now
-			// an argument rather than a hard-coded literal buried in a guard,
-			// which is the whole point of threading it.
 			const outcome = applyMutation(this.state, parsed.data, {
 				actorId: this.actorId,
-				isHost: false
+				isHost: this.isHost
 			});
 			this.droppedChatMessages += outcome.droppedMessages;
 			this.persistAndBroadcast();

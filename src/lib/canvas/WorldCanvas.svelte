@@ -25,18 +25,16 @@
 		sync: SyncClient;
 		viewport: Viewport;
 		identity: StoredIdentity;
+		/** Host role in this room (UX-PERM-3), from room_members. */
+		isHost?: boolean | undefined;
 		drawMode: boolean;
 		drawColor: string;
 	}
 
-	let { store, sync, viewport, identity, drawMode, drawColor }: Props = $props();
+	let { store, sync, viewport, identity, isHost = false, drawMode, drawColor }: Props = $props();
 
-	/**
-	 * Placers are a host tool (UX-AV-2). The role does not exist yet, so this
-	 * is true for everyone today — see canDesignRoom for why that is deliberate
-	 * rather than an oversight.
-	 */
-	const canDesign = $derived(canDesignRoom(false));
+	/** Placers are a host tool (UX-AV-2); the role is real now (room_members). */
+	const canDesign = $derived(canDesignRoom(isHost));
 
 	let width = $state(1);
 	let height = $state(1);
@@ -57,7 +55,7 @@
 		const object = store.state.objects[fullscreenId] ?? null;
 		// Hiding an object while it is maximised must close the overlay, not
 		// leave it on screen for people who can no longer see the object.
-		return object !== null && canSee(object, identity.id, false) ? object : null;
+		return object !== null && canSee(object, identity.id, isHost) ? object : null;
 	});
 
 	let fullscreenDialog = $state<HTMLDialogElement | null>(null);
@@ -92,7 +90,7 @@
 	 *  - `framing`   — what auto-zoom fits to. Hidden objects would otherwise
 	 *                  drag the camera toward something most people cannot see.
 	 */
-	const rendered = $derived(objects.filter((o) => canSee(o, identity.id, false)));
+	const rendered = $derived(objects.filter((o) => canSee(o, identity.id, isHost)));
 	const occupying = $derived(objects.filter((o) => !o.hidden && participatesInCollision(o)));
 
 	/** Solver obstacles for a moving id: everything else, settled positions. */
@@ -329,6 +327,7 @@
 		{#each rendered as object (object.id)}
 			<ObjectFrame
 				{object}
+				{isHost}
 				{store}
 				{sync}
 				{viewport}
@@ -384,7 +383,7 @@
 				<ObjectContent
 					object={fullscreenObject}
 					{sync}
-					editable={canEdit(fullscreenObject, identity.id, false)}
+					editable={canEdit(fullscreenObject, identity.id, isHost)}
 					{identity}
 					onexit={closeFullscreen}
 				/>

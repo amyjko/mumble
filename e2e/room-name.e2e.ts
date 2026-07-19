@@ -53,12 +53,16 @@ test('the naming form explains WHY a name is rejected', async ({ page }) => {
 	await expect(go).toBeEnabled();
 });
 
-test('case-insensitive: LCI reaches the same room as lci', async ({ page }) => {
+test('case-insensitive: an upper-case name reaches the lower-case room', async ({ page }) => {
+	// A UNIQUE name, because rooms now live in Postgres and outlive the test
+	// run — a fixed 'LCI' collided with its own previous execution, which is a
+	// new failure mode that did not exist when rooms were localStorage.
+	const room = roomName('case');
 	await signInAsAccount(page);
 	await page.goto('/new');
-	await page.getByRole('textbox', { name: 'Room name' }).fill('LCI');
+	await page.getByRole('textbox', { name: 'Room name' }).fill(room.toUpperCase());
 	await page.getByRole('button', { name: 'go' }).click();
-	await expect(page).toHaveURL(/\/hey\/lci$/);
+	await expect(page).toHaveURL(new RegExp(`/hey/${room}$`));
 });
 
 test('rename warns that existing links will break (UX-ROOM-10)', async ({ page }) => {

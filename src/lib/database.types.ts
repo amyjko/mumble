@@ -119,6 +119,13 @@ export type Database = {
       is_admitted_member: { Args: { target_room: string }; Returns: boolean }
       is_host: { Args: { target_room: string }; Returns: boolean }
       is_member: { Args: { target_room: string }; Returns: boolean }
+      join_room: {
+        Args: { p_name: string }
+        Returns: {
+          out_is_host: boolean
+          out_room_id: string
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never

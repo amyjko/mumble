@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { cameraSettled, joinRoom, roomName } from './support/join';
+import { hostRoom } from './support/auth';
 
 /**
  * Placement (UX-AV-2/9, AR-CTRL-4/6). Only the last resolution step existed
@@ -12,7 +13,7 @@ import { cameraSettled, joinRoom, roomName } from './support/join';
  */
 
 test('placement: a newcomer placer is labelled, numbered, and not an object', async ({ page }) => {
-	await joinRoom(page, roomName('placer'));
+	await hostRoom(page, roomName('placer'));
 	await page.getByRole('button', { name: '+ newcomer spot' }).click();
 
 	// Labelled and numbered: the old design was an unexplained dashed circle,
@@ -55,7 +56,7 @@ test('placement: a selected placer keeps its controls when the pointer leaves', 
 	// hover ends, and the control vanishes before it can be pressed. Every
 	// earlier test hovered and clicked in one motion, so all of them passed
 	// against the broken build.
-	await joinRoom(page, roomName('select'));
+	await hostRoom(page, roomName('select'));
 	await page.getByRole('button', { name: '+ newcomer spot' }).click();
 
 	const placer = page.getByRole('group', { name: /Newcomer 1/ });
@@ -88,7 +89,7 @@ test('placement: the rotate grip is actually VISIBLE, not merely present', async
 	// reveal them. This component lacked that rule, so the rotate control was
 	// in the DOM, answered to the keyboard, and could not be seen — which every
 	// role-based query reports as a pass.
-	await joinRoom(page, roomName('grip'));
+	await hostRoom(page, roomName('grip'));
 	await page.getByRole('button', { name: '+ newcomer spot' }).click();
 
 	const placer = page.getByRole('group', { name: /Newcomer 1/ });
@@ -111,7 +112,7 @@ test('placement: the rotate grip is actually VISIBLE, not merely present', async
 });
 
 test('placement: removing a placer renumbers the rest', async ({ page }) => {
-	await joinRoom(page, roomName('renumber'));
+	await hostRoom(page, roomName('renumber'));
 	await page.getByRole('button', { name: '+ newcomer spot' }).click();
 	await page.getByRole('button', { name: '+ newcomer spot' }).click();
 	await expect(page.getByRole('group', { name: /Newcomer 2/ })).toBeVisible();

@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { enhance } from '$app/forms';
 	import { resolve } from '$app/paths';
 	import Button from '$lib/ui/Button.svelte';
-	import { canonicalRoomName, roomNameMessage, roomNameProblem } from '$lib/model/room-name';
+	import { roomNameMessage, roomNameProblem } from '$lib/model/room-name';
+	import type { ActionData } from './$types';
 
 	/**
 	 * Making a room (UX-ROOM-8/9).
@@ -18,14 +19,18 @@
 	 * admits nobody costs).
 	 */
 
+	interface Props {
+		form: ActionData;
+	}
+
+	let { form }: Props = $props();
 	let room = $state('');
 	const problem = $derived(room === '' ? null : roomNameProblem(room));
 	const valid = $derived(room !== '' && problem === null);
 
-	function go(event: SubmitEvent): void {
-		event.preventDefault();
-		if (valid) void goto(resolve('/hey/[room]', { room: canonicalRoomName(room) }));
-	}
+	// No client-side navigation: the room has to EXIST before anyone can be sent
+	// to it, and creating it is a server action so the RLS gate is what refuses
+	// an anonymous attempt.
 </script>
 
 <svelte:head>
@@ -35,9 +40,10 @@
 <main>
 	<h1>Make a room</h1>
 	<p class="lede">Pick a name. The name is the address, so it is worth choosing one you can say out loud.</p>
-	<form onsubmit={go}>
+	<form method="POST" use:enhance>
 		<span class="prefix">mumble.studio/hey/</span>
 		<input
+			name="room"
 			bind:value={room}
 			placeholder="room-name"
 			aria-label="Room name"
@@ -46,6 +52,9 @@
 		/>
 		<Button type="submit" variant="primary" disabled={!valid}>go</Button>
 	</form>
+	{#if form?.message !== undefined}
+		<p class="problem" role="alert">{form.message}</p>
+	{/if}
 	{#if problem !== null}
 		<!-- Say which rule was broken. A disabled button with no explanation
 		     leaves you guessing whether the name is malformed or taken. -->

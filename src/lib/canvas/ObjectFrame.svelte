@@ -30,17 +30,19 @@
 		sync: SyncClient;
 		viewport: Viewport;
 		identity: StoredIdentity;
+		/** Host role in this room (UX-PERM-1's `host` value finally resolves). */
+		isHost?: boolean | undefined;
 		/** Current occupancy for the solver, excluding this object. */
 		obstacles: () => SolverShape[];
 		/** Per-viewer fullscreen request (UX-CANVAS-4) — local, never synced. */
 		onFullscreen: (id: string) => void;
 	}
 
-	let { object, store, sync, viewport, identity, obstacles, onFullscreen }: Props = $props();
+	let { object, store, sync, viewport, identity, isHost = false, obstacles, onFullscreen }: Props = $props();
 	const actorId = $derived(identity.id);
 
-	const editable = $derived(canEdit(object, actorId, false));
-	const deletable = $derived(canDelete(object, actorId, false));
+	const editable = $derived(canEdit(object, actorId, isHost));
+	const deletable = $derived(canDelete(object, actorId, isHost));
 	/** Overlay (own or a peer's in-flight drag) wins over settled state. */
 	const effective = $derived(sync.objectOverlays.get(object.id) ?? object.transform);
 	const clipPath = $derived(clipPathCss(object.clip));

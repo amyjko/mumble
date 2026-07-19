@@ -658,16 +658,24 @@ function requireMayCreate(state: RoomState): void {
 }
 
 /** Room settings are host-only once the role exists; open until then. */
+/**
+ * Room settings are host-only (UX-PERM-3, UX-ROOM-6).
+ *
+ * This spent the whole project as a deliberate no-op with a comment saying it
+ * would light up when the role existed. It exists now: `ctx.isHost` comes from
+ * a room_members row the client has no privilege to write.
+ */
 function requireHostForRoom(ctx: RuleContext): void {
-	// Still a no-op, but now it has the fact it needs. Phase 4 makes this
-	// `if (!ctx.isHost) throw new StoreRejection('permission', ...)` and the
-	// eight call sites are already in the right places.
-	void ctx;
+	if (!ctx.isHost) {
+		throw new StoreRejection('permission', 'Only a host can change room settings');
+	}
 }
 
 function requireEditable(object: CanvasObject, ctx: RuleContext): void {
-	// Host role arrives with admission; until then nobody is a host.
-	if (!canEdit(object, ctx.actorId, false)) {
+	// UX-PERM-1's `host` value finally resolves to something: a room_members
+	// row rather than a literal. This is the branch that had never run in the
+	// product — the original `permission` trap.
+	if (!canEdit(object, ctx.actorId, ctx.isHost)) {
 		throw new StoreRejection('permission', 'You do not have permission to edit this');
 	}
 }

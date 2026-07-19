@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
 /**
  * Sign a browser in, offline (AR-TEST-8).
@@ -42,4 +42,32 @@ export async function signInAsAccount(page: Page, email = testEmail()): Promise<
 	await page.goto(`/auth/confirm?token_hash=${tokenHash}&type=magiclink&next=/`);
 	// generateLink always returns a user on success; the types say so.
 	return data.user.id;
+}
+
+/**
+ * Sign in, create the room, and enter it as its host.
+ *
+ * Being a host is not a client-side flag: it is a `room_members` row, and only
+ * a room that EXISTS in Postgres can have one. So a test that needs host powers
+ * has to create the room, which means an account (AR-AUTH-7) — the sequence is
+ * the requirement, not ceremony.
+ *
+ * Guests keep using `joinRoom`, which needs none of this.
+ */
+export async function hostRoom(page: import('@playwright/test').Page, room: string): Promise<void> {
+	await signInAsAccount(page);
+	await page.goto('/new');
+	await page.getByRole('textbox', { name: 'Room name' }).fill(room);
+	await page.getByRole('button', { name: 'go' }).click();
+	await page.waitForURL(new RegExp(`/hey/${room}$`));
+
+	// The join RPC resolves after the canvas mounts, so host-only chrome
+	// appears a beat later. Waiting on the canvas alone would race it.
+	const nameField = page.getByRole('textbox', { name: 'Your name' });
+	if (await nameField.isVisible().catch(() => false)) {
+		await nameField.fill('Host');
+		await page.getByRole('button', { name: 'Join' }).click();
+	}
+	await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
+	await expect(page.getByRole('button', { name: /newcomer spot/ })).toBeVisible();
 }

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom, roomName } from './support/join';
+import { roomName } from './support/join';
+import { hostRoom } from './support/auth';
 
 /**
  * The stage (UX-STAGE). Control plane only — a slot is AUTHORIZATION, not
@@ -8,7 +9,7 @@ import { joinRoom, roomName } from './support/join';
  */
 
 test('stage: taking a video slot updates the readout and the avatar', async ({ page }) => {
-	await joinRoom(page, roomName('stage'));
+	await hostRoom(page, roomName('stage'));
 
 	// UX-STAGE-9: scarcity is legible before you bump into it.
 	const readout = page.getByLabel('Stage capacity');
@@ -24,7 +25,7 @@ test('stage: taking a video slot updates the readout and the avatar', async ({ p
 });
 
 test('stage: the hand appears only under contention (UX-AV-6)', async ({ page }) => {
-	await joinRoom(page, roomName('conch'));
+	await hostRoom(page, roomName('conch'));
 
 	// With slots free you simply take one, so a queue control would be noise.
 	await expect(page.getByRole('button', { name: /hand/i })).toHaveCount(0);
@@ -45,7 +46,7 @@ test('stage: the hand appears only under contention (UX-AV-6)', async ({ page })
 });
 
 test('stage: muting frees the audio slot, and the readout says so (UX-STAGE-10)', async ({ page }) => {
-	await joinRoom(page, roomName('mute'));
+	await hostRoom(page, roomName('mute'));
 	const readout = page.getByLabel('Stage capacity');
 
 	await page.getByRole('button', { name: 'Unmute' }).click();
@@ -57,7 +58,7 @@ test('stage: muting frees the audio slot, and the readout says so (UX-STAGE-10)'
 });
 
 test('stage: a video holder muting keeps the video slot (the exception)', async ({ page }) => {
-	await joinRoom(page, roomName('vidmute'));
+	await hostRoom(page, roomName('vidmute'));
 	const readout = page.getByLabel('Stage capacity');
 
 	await page.getByRole('button', { name: /Turn camera on/ }).click();

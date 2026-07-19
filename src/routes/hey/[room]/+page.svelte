@@ -3,6 +3,7 @@
 	import type { StoredIdentity } from '$lib/model/types';
 	import { loadIdentity } from '$lib/model/identity';
 	import JoinPrompt from '$lib/ui/JoinPrompt.svelte';
+	import { joinRoom } from '$lib/auth/membership.svelte';
 	import Room from '$lib/canvas/Room.svelte';
 
 	/**
@@ -18,6 +19,23 @@
 
 	// ssr=false, so localStorage is available at init.
 	let identity = $state<StoredIdentity | null>(loadIdentity());
+
+	/**
+	 * Membership resolves asynchronously: an anonymous session is created, then
+	 * the join RPC reports whether this identity is a host (AR-CTRL-7).
+	 *
+	 * The canvas renders IMMEDIATELY on the stub rather than waiting — a room
+	 * that blanks until a network round trip completes is worse than one whose
+	 * host controls appear a moment late, and a guest (the common case) has no
+	 * host controls to wait for.
+	 */
+	let isHost = $state(false);
+	$effect(() => {
+		const room = data.room;
+		void joinRoom(room).then((membership) => {
+			isHost = membership.isHost;
+		});
+	});
 </script>
 
 <svelte:head>
@@ -31,5 +49,5 @@
 		}}
 	/>
 {:else}
-	<Room room={data.room} {identity} />
+	<Room room={data.room} {identity} {isHost} />
 {/if}
