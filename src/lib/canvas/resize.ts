@@ -1,4 +1,4 @@
-import type { Transform } from '$lib/model/types';
+import type { Point, Size, Transform } from '$lib/model/types';
 
 /**
  * Pure resize/rotate transform math (UX-OBJ-1), node-tested. Both feed
@@ -24,11 +24,6 @@ export const MIN_SIZE = 40;
  *  - chat:    a couple of log lines + the compose row
  *  - drawing: no controls at all, so the flat floor is fine
  */
-export interface Size {
-	width: number;
-	height: number;
-}
-
 export function minSizeFor(type: 'note' | 'timer' | 'chat' | 'drawing'): Size {
 	switch (type) {
 		case 'timer':
@@ -111,6 +106,19 @@ export function resizeTransform(
 		y = bottom - height;
 	}
 	return { ...start, x, y, width, height };
+}
+
+/**
+ * The centre of a transform, which is what rotation pivots about.
+ *
+ * Exists because `rotationForPointer` takes a CENTRE and a transform carries a
+ * TOP-LEFT, so every caller had to remember to convert. Two of the three
+ * remembered; the third passed the transform straight through and rotated
+ * about its corner. Naming the conversion is what stops the fourth caller
+ * getting it wrong.
+ */
+export function centerOf(t: { x: number; y: number; width: number; height: number }): Point {
+	return { x: t.x + t.width / 2, y: t.y + t.height / 2 };
 }
 
 /** Rotation (degrees) so the object's top points toward the pointer. */

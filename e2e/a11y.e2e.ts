@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { joinRoom } from './support/join';
+import { hydrated, joinRoom } from './support/join';
 
 /**
  * UX-A11Y-1's automatable half (AR-STYLE-3): axe scans in BOTH themes, plus
@@ -110,6 +110,9 @@ test('tabbing to an off-screen object scrolls it into view', async ({ page }) =>
 
 test('theme persists across reload and applies pre-paint', async ({ page }) => {
 	await page.goto('/');
+	// The control is server-rendered before its handler exists; clicking in
+	// that window does nothing and reads as a failed toggle.
+	await hydrated(page);
 	const toggle = page.getByRole('button', { name: /change theme/i });
 	// Confirm each step before taking the next. Two clicks in a row race under
 	// parallel load: the second can land before the first has been applied, and

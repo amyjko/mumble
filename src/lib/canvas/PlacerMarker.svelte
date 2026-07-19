@@ -4,11 +4,17 @@
 	import type { Viewport } from './viewport.svelte';
 	import TransformHandles from './TransformHandles.svelte';
 	import { nextClip, outlineFor } from '$lib/model/clip';
-	import { resizeTransform, rotationForPointer, snapRotation, type ResizeHandle } from './resize';
-	import { hint, SNAP_HINT } from './hint.svelte';
+	import {
+		arrowDelta,
+		createDragGesture,
+		createHandleGesture,
+		isReshapeKey,
+		resizeByKey,
+		rotateByKey
+	} from './gesture.svelte';
 	import { stopPointer } from '$lib/ui/events';
 	import Button from '$lib/ui/Button.svelte';
-	import { RAISED_Z } from './layers';
+	import { PLACER_Z, RAISED_Z } from './layers';
 
 	/**
 	 * A newcomer placer (UX-AV-2): where arrivals appear, and what they look
@@ -64,132 +70,68 @@
 		void sync.commit({ kind: 'update_placer', placer: { ...placer, ...next } });
 	}
 
-	// ---- drag ----
-	let dragging = $state(false);
-	let pointerStart: Point = { x: 0, y: 0 };
-	let start: Point = { x: 0, y: 0 };
+	/**
+	 * Drag and handle gestures come from the shared module, so a placer cannot
+	 * drift from an object again. It already had: rotation pivoted about the
+	 * top-left instead of the centre, and drags ignored the grid entirely.
+	 */
 	let preview = $state<Point | null>(null);
-
-	function onPointerDown(event: PointerEvent): void {
-		event.stopPropagation();
-		selected = true;
-		dragging = true;
-		pointerStart = viewport.toWorld({ x: event.clientX, y: event.clientY });
-		start = { x: placer.x, y: placer.y };
-		preview = start;
-		hint.show(SNAP_HINT);
-		if (event.currentTarget instanceof HTMLElement) {
-			event.currentTarget.setPointerCapture(event.pointerId);
-		}
-	}
-
-	function onPointerMove(event: PointerEvent): void {
-		if (!dragging) return;
-		const world = viewport.toWorld({ x: event.clientX, y: event.clientY });
+	const drag = createDragGesture({
+		viewport: () => viewport,
+		origin: () => ({ x: placer.x, y: placer.y }),
 		// No solver: a placer holds no space, so it may sit anywhere — including
 		// under content, where it simply will not be chosen for an arrival.
-		preview = {
-			x: start.x + (world.x - pointerStart.x),
-			y: start.y + (world.y - pointerStart.y)
-		};
-	}
-
-	function onPointerUp(): void {
-		if (!dragging) return;
-		dragging = false;
-		hint.clear();
-		if (preview !== null) commit(preview);
-		preview = null;
-	}
-
-	// ---- resize / rotate, the same gestures as an object ----
-	let handleKind: ResizeHandle | 'rotate' | null = null;
-	let handleStart: Transform = { x: 0, y: 0, width: 0, height: 0, rotation: 0, z: 0 };
-	let handleLast: Transform = handleStart;
-	let handlePointer: Point = { x: 0, y: 0 };
-
-	function onHandleMove(event: PointerEvent): void {
-		if (handleKind === null) return;
-		const world = viewport.toWorld({ x: event.clientX, y: event.clientY });
-		if (handleKind === 'rotate') {
-			const degrees = rotationForPointer(handleStart, world);
-			handleLast = { ...handleStart, rotation: snapRotation(degrees, { precise: event.shiftKey }) };
-		} else {
-			handleLast = resizeTransform(
-				handleStart,
-				handleKind,
-				world.x - handlePointer.x,
-				world.y - handlePointer.y,
-				{ precise: event.shiftKey },
-				{ width: MIN_PLACER, height: MIN_PLACER }
-			);
+		preview: (at) => (preview = at),
+		commit: (at) => {
+			preview = null;
+			commit(at);
 		}
-		liveTransform = handleLast;
-	}
+	});
 
-	function onHandleUp(): void {
-		window.removeEventListener('pointermove', onHandleMove);
-		hint.clear();
-		if (handleKind === null) return;
-		handleKind = null;
-		commit({
-			x: handleLast.x,
-			y: handleLast.y,
-			width: handleLast.width,
-			height: handleLast.height,
-			rotation: handleLast.rotation
-		});
-		liveTransform = null;
-	}
+	const handles = createHandleGesture({
+		viewport: () => viewport,
+		start: () => ({ ...shown, z: 0 }),
+		min: () => ({ width: MIN_PLACER, height: MIN_PLACER }),
+		preview: (next) => (liveTransform = next),
+		commit: (next) => {
+			liveTransform = null;
+			commit({
+				x: next.x,
+				y: next.y,
+				width: next.width,
+				height: next.height,
+				rotation: next.rotation
+			});
+		}
+	});
 
-	function onHandleDown(kind: ResizeHandle | 'rotate', event: PointerEvent): void {
-		event.stopPropagation();
-		handleKind = kind;
-		handleStart = { ...shown, z: 0 };
-		handleLast = handleStart;
-		handlePointer = viewport.toWorld({ x: event.clientX, y: event.clientY });
-		hint.show(SNAP_HINT);
-		window.addEventListener('pointermove', onHandleMove);
-		window.addEventListener('pointerup', onHandleUp, { once: true });
-	}
-
-	/** Keyboard parity (UX-A11Y-2): the same vocabulary objects and avatars use. */
+	/** Keyboard parity (UX-A11Y-2), through the shared vocabulary. */
 	function onKeyDown(event: KeyboardEvent): void {
 		if (event.target !== event.currentTarget) return;
-		const step = event.shiftKey ? 1 : 16;
 
-		if (event.altKey && event.key.startsWith('Arrow')) {
-			const grow = event.key === 'ArrowRight' || event.key === 'ArrowDown';
-			const horizontal = event.key === 'ArrowLeft' || event.key === 'ArrowRight';
-			event.preventDefault();
-			commit({
-				width: horizontal
-					? Math.max(MIN_PLACER, placer.width + (grow ? step : -step))
-					: placer.width,
-				height: horizontal
-					? placer.height
-					: Math.max(MIN_PLACER, placer.height + (grow ? step : -step))
+		if (event.altKey) {
+			const size = resizeByKey({ width: placer.width, height: placer.height }, event, {
+				width: MIN_PLACER,
+				height: MIN_PLACER
 			});
-			return;
-		}
-		if (event.key === '[' || event.key === ']') {
+			if (size === null) return;
 			event.preventDefault();
-			commit({ rotation: placer.rotation + (event.key === ']' ? 15 : -15) });
+			commit(size);
 			return;
 		}
-		if (event.key === 'c') {
+		const rotation = rotateByKey(placer.rotation, event);
+		if (rotation !== null) {
+			event.preventDefault();
+			commit({ rotation });
+			return;
+		}
+		if (isReshapeKey(event)) {
 			event.preventDefault();
 			commit({ clip: nextClip(placer.clip) });
 			return;
 		}
-		const delta: Record<string, Point> = {
-			ArrowLeft: { x: -step, y: 0 },
-			ArrowRight: { x: step, y: 0 },
-			ArrowUp: { x: 0, y: -step },
-			ArrowDown: { x: 0, y: step }
-		};
-		const move = delta[event.key];
-		if (move === undefined) return;
+		const move = arrowDelta(event);
+		if (move === null) return;
 		event.preventDefault();
 		commit({ x: placer.x + move.x, y: placer.y + move.y });
 	}
@@ -250,18 +192,21 @@
 <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
 <div
 	class="placer"
-	class:dragging
+	class:dragging={drag.dragging}
 	role="group"
 	aria-label="{label} — where the next arrival appears"
 	tabindex="0"
-	style:z-index={active ? RAISED_Z : 900}
+	style:z-index={active ? RAISED_Z : PLACER_Z}
 	style:transform="translate({preview?.x ?? shown.x}px, {preview?.y ?? shown.y}px) rotate({shown.rotation}deg)"
 	style:width="{shown.width}px"
 	style:height="{shown.height}px"
-	onpointerdown={onPointerDown}
-	onpointermove={onPointerMove}
-	onpointerup={onPointerUp}
-	onpointercancel={onPointerUp}
+	onpointerdown={(event) => {
+		selected = true;
+		drag.onPointerDown(event);
+	}}
+	onpointermove={drag.onPointerMove}
+	onpointerup={drag.onPointerUp}
+	onpointercancel={drag.onPointerUp}
 	onkeydown={onKeyDown}
 	bind:this={root}
 	class:active
@@ -291,7 +236,7 @@
 	</svg>
 	<!-- Labelled, because an unexplained dashed shape is a puzzle, not a hint. -->
 	<span class="tag" aria-hidden="true">{label}</span>
-	<TransformHandles {onHandleDown} subject="placer" />
+	<TransformHandles onHandleDown={handles.onHandleDown} subject="placer" />
 	<!--
 		Chrome only while hovered or focused. It sits OUTSIDE the box, so a
 		neighbouring placer's buttons otherwise cover this one — placers are laid

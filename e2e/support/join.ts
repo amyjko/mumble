@@ -65,3 +65,14 @@ export async function cameraSettled(page: Page): Promise<void> {
 		)
 		.toBe(true);
 }
+
+/**
+ * Wait until the app has hydrated and its controls actually respond.
+ *
+ * SSR puts every control in the DOM before its handler exists, so clicking too
+ * early is a no-op that looks like a broken feature. `joinRoom` gets this for
+ * free by waiting on the canvas; document pages need to ask.
+ */
+export async function hydrated(page: Page): Promise<void> {
+	await expect(page.locator('html')).toHaveAttribute('data-hydrated', 'true');
+}

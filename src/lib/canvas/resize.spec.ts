@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MIN_SIZE, SNAP_GRID, minSizeFor, resizeTransform, rotationForPointer, snapRotation, snapTo } from './resize';
+import { MIN_SIZE, SNAP_GRID, centerOf, minSizeFor, resizeTransform, rotationForPointer, snapRotation, snapTo } from './resize';
 import type { Transform } from '$lib/model/types';
 
 const t: Transform = { x: 100, y: 100, width: 200, height: 160, rotation: 0, z: 1 };
@@ -102,5 +102,28 @@ describe('per-type minimum sizes', () => {
 		const r = resizeTransform(t, 'se', -9999, -9999, PRECISE, timerMin);
 		expect(r.width).toBe(timerMin.width);
 		expect(r.height).toBe(timerMin.height);
+	});
+});
+
+describe('rotation pivots about the CENTRE, not the corner', () => {
+	// rotationForPointer takes a centre; a Transform carries a top-left. Two of
+	// three call sites converted, the third did not — so placers rotated about
+	// their top-left corner and the outline visibly lagged the pointer.
+	const box: Transform = { x: 100, y: 100, width: 200, height: 200, rotation: 0, z: 0 };
+
+	it('centerOf converts a top-left transform to its middle', () => {
+		expect(centerOf(box)).toEqual({ x: 200, y: 200 });
+	});
+
+	it('a pointer directly above the CENTRE reads as 0°', () => {
+		expect(rotationForPointer(centerOf(box), { x: 200, y: 0 })).toBe(0);
+	});
+
+	it('passing the transform itself is wrong, and wrong by a lot', () => {
+		// The bug, pinned: using the top-left as the pivot for a pointer that is
+		// straight above the centre reports 45° instead of 0°.
+		const wrong = rotationForPointer({ x: box.x, y: box.y }, { x: 200, y: 0 });
+		expect(wrong).not.toBe(0);
+		expect(Math.abs(wrong)).toBeGreaterThan(40);
 	});
 });
