@@ -35,7 +35,7 @@
 	const atActualSize = $derived(Math.abs(viewport.camera.scale - 1) < 0.005);
 </script>
 
-<div class="bottom-bar">
+<div class="bottom-bar panel">
 	<ThemeToggle inline />
 
 	<span class="divider" aria-hidden="true"></span>
@@ -82,10 +82,6 @@
 		gap: var(--space-2);
 		max-width: calc(100vw - 2 * var(--space-3));
 		padding: var(--space-1) var(--space-2);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
-		background: var(--surface);
-		box-shadow: var(--shadow-1);
 	}
 	.camera {
 		display: flex;

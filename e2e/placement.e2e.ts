@@ -97,6 +97,17 @@ test('placement: the rotate grip is actually VISIBLE, not merely present', async
 
 	await placer.hover();
 	await expect(rotate).toHaveCSS('opacity', '1');
+
+	// And by KEYBOARD, with no pointer involved. ObjectFrame and AvatarTile
+	// reveal via `:focus-within`; this component has no such rule and instead
+	// selects on focusin, which bubbles from the grips. Same outcome by a
+	// different route — worth asserting, because the two mechanisms are not
+	// obviously equivalent and a reader comparing the CSS would conclude this
+	// one is broken.
+	await page.mouse.move(2, 2);
+	await expect(rotate).toHaveCSS('opacity', '0');
+	await rotate.focus();
+	await expect(rotate).toHaveCSS('opacity', '1');
 });
 
 test('placement: removing a placer renumbers the rest', async ({ page }) => {

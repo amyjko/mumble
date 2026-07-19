@@ -62,12 +62,7 @@
 		gap: var(--space-2);
 		width: 200px;
 		padding: var(--space-2) var(--space-3);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
-		background: var(--surface);
-		box-shadow: var(--shadow-1);
 		font: var(--text-sm) var(--font-ui);
-		color: var(--text);
 	}
 	label {
 		display: flex;

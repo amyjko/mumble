@@ -146,6 +146,33 @@ body {
 }
 
 /* Screen-reader-only utility (announcements, labels). */
+/*
+ * The panel surface: every floating or docked chrome container in the product.
+ *
+ * Six components each spelled out the same four declarations, and they had
+ * already diverged — two omitted `color`, inheriting from body and happening
+ * to match, which stays invisible until one of them is nested somewhere else.
+ * The two shadow depths were an undocumented convention: --shadow-2 for things
+ * that float ABOVE the page (modals, popovers), --shadow-1 for chrome docked
+ * to it (toolbars, panels). Nothing said so, so a seventh author had no way to
+ * choose correctly.
+ *
+ * A global class rather than a token because Svelte scopes component styles;
+ * these are all the top-level element of their component.
+ */
+.panel {
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+	background: var(--surface);
+	color: var(--text);
+	box-shadow: var(--shadow-1);
+}
+/* Floats above the page: modals and popovers, which need the deeper shadow to
+   read as detached rather than docked. */
+.panel-floating {
+	box-shadow: var(--shadow-2);
+}
+
 .sr-only {
 	position: absolute;
 	width: 1px;

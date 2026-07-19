@@ -87,7 +87,7 @@ test('auto-fit frames a resized avatar instead of cropping it', async ({ page })
  * UX-ROOM-5's reset restores the ACTIVE configuration's layout, so with none
  * saved it can do nothing. It used to be offered anyway and silently no-op.
  */
-test('reset is disabled until a configuration exists', async ({ page }) => {
+test('reset is disabled until a layout is saved', async ({ page }) => {
 	const room = `reset-${Date.now().toString(36)}`;
 	await joinRoom(page, room);
 
@@ -96,7 +96,7 @@ test('reset is disabled until a configuration exists', async ({ page }) => {
 	await expect(reset).toBeDisabled();
 
 	// Save one, and it becomes available.
-	await page.getByRole('textbox', { name: 'Configuration name' }).fill('Start');
+	await page.getByRole('textbox', { name: 'Layout name' }).fill('Start');
 	await page.getByRole('button', { name: 'save', exact: true }).click();
 	await expect(reset).toBeEnabled();
 });

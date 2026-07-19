@@ -208,13 +208,13 @@
 		const name = configNameDraft.trim();
 		if (name === '') return;
 		void sync.commit({ kind: 'save_config', id: crypto.randomUUID(), name });
-		sync.announce(`Saved configuration ${name}`);
+		sync.announce(`Saved layout ${name}`);
 		configNameDraft = '';
 	}
 	/** UX-ROOM-4/6: update the configuration you are currently in. */
 	function updateConfig(): void {
 		void sync.commit({ kind: 'update_config' });
-		sync.announce('Configuration updated');
+		sync.announce('Layout updated');
 	}
 	function renameConfig(id: string, name: string): void {
 		const trimmed = name.trim();
@@ -224,7 +224,7 @@
 
 	function switchConfig(id: string): void {
 		void sync.commit({ kind: 'switch_config', id });
-		sync.announce('Switched configuration');
+		sync.announce('Switched layout');
 	}
 	function resetConfig(): void {
 		void sync.commit({ kind: 'reset_config' });
@@ -272,7 +272,7 @@
 	BELOW it even after it wraps onto a second row. Wrapping is why the old
 	fixed-offset menus overlapped the bar on narrow windows.
 -->
-<header class="bar" bind:clientHeight={barHeight} style:--chrome-top-drop="{barHeight + 20}px">
+<header class="bar panel" bind:clientHeight={barHeight} style:--chrome-top-drop="{barHeight + 20}px">
 	<Popover id="room-menu" label="Room settings" anchor="top-start">
 		{#snippet trigger()}
 			<strong>{store.state.title === '' ? room : store.state.title}</strong>
@@ -405,15 +405,15 @@
 					>
 					<Button
 						shape="icon"
-						label="Rename configuration {config.name}"
+						label="Rename layout {config.name}"
 						onclick={() => {
-							const next = prompt('Rename configuration', config.name);
+							const next = prompt('Rename layout', config.name);
 							if (next !== null) renameConfig(config.id, next);
 						}}>✎</Button
 					>
 					<Button
 						shape="icon"
-						label="Delete configuration {config.name}"
+						label="Delete layout {config.name}"
 						onclick={() => {
 							deleteConfig(config.id);
 						}}>×</Button
@@ -434,19 +434,19 @@
 				variant="primary"
 				disabled={store.state.active_config === null}
 				title={store.state.active_config === null
-					? 'Switch to a configuration to update it'
+					? 'Switch to a layout to update it'
 					: undefined}
-				onclick={updateConfig}>⤓ update this configuration</Button
+				onclick={updateConfig}>⤓ update this layout</Button
 			>
 			<Button
 				disabled={store.state.active_config === null}
 				title={store.state.active_config === null
-					? 'Save a configuration first — reset restores its layout'
+					? 'Save a layout first — reset restores it'
 					: undefined}
 				onclick={resetConfig}>↺ reset layout</Button
 			>
 			<div class="row">
-				<Field label="Configuration name" bind:value={configNameDraft} placeholder="e.g. Standup" />
+				<Field label="Layout name" bind:value={configNameDraft} placeholder="e.g. Standup" />
 				<Button onclick={saveConfig}>save</Button>
 			</div>
 		</div>
@@ -529,12 +529,7 @@
 		max-height: calc(100vh - 2 * var(--space-3));
 		overflow: auto;
 		padding: var(--space-2) var(--space-3);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
-		background: var(--surface);
-		box-shadow: var(--shadow-1);
 		font-size: var(--text-sm);
-		color: var(--text);
 	}
 	.count,
 	.hint {

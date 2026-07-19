@@ -47,7 +47,7 @@
      to, so Escape must not dismiss this. -->
 <dialog
 	bind:this={dialog}
-	class="join"
+	class="join panel panel-floating"
 	aria-label="Choose how you appear"
 	oncancel={(event) => {
 		event.preventDefault();
@@ -73,11 +73,6 @@
 	.join {
 		width: min(420px, calc(100vw - 2 * var(--space-4)));
 		padding: var(--space-4);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
-		background: var(--surface);
-		color: var(--text);
-		box-shadow: var(--shadow-2);
 	}
 	.join::backdrop {
 		background: var(--bg-canvas);

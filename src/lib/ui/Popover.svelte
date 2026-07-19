@@ -49,7 +49,7 @@
 	<span class="chevron" aria-hidden="true">{open ? '▾' : '▸'}</span>
 </Button>
 
-<div {id} popover="auto" class="popover {anchor}" aria-label={label} ontoggle={onToggle}>
+<div {id} popover="auto" class="popover panel panel-floating {anchor}" aria-label={label} ontoggle={onToggle}>
 	{@render children()}
 </div>
 
@@ -64,11 +64,6 @@
 		max-height: calc(100vh - 2 * var(--space-3));
 		overflow: auto;
 		padding: var(--space-3);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
-		background: var(--surface);
-		color: var(--text);
-		box-shadow: var(--shadow-2);
 	}
 	.popover.top-start {
 		top: var(--chrome-top-drop, var(--space-8));

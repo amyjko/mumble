@@ -10,7 +10,7 @@ test('config: save layout, move object, switch back restores position', async ({
 
 	// Save current layout as a configuration.
 	await page.getByRole('button', { name: /layouts/ }).click();
-	await page.getByRole('textbox', { name: 'Configuration name' }).fill('Start');
+	await page.getByRole('textbox', { name: 'Layout name' }).fill('Start');
 	await page.getByRole('button', { name: 'save', exact: true }).click();
 	const saved = await worldX();
 

@@ -38,7 +38,7 @@ test('visibility: a configuration remembers what was hidden', async ({ page }) =
 
 	// Save a configuration with the note visible.
 	await page.getByRole('button', { name: /layouts/ }).click();
-	await page.getByRole('textbox', { name: 'Configuration name' }).fill('Shown');
+	await page.getByRole('textbox', { name: 'Layout name' }).fill('Shown');
 	await page.getByRole('button', { name: 'save', exact: true }).click();
 	await page.keyboard.press('Escape');
 
@@ -47,7 +47,7 @@ test('visibility: a configuration remembers what was hidden', async ({ page }) =
 	await page.getByRole('button', { name: 'Hide object from others' }).click();
 	await expect(page.locator('.frame.ghost')).toHaveCount(1);
 	await page.getByRole('button', { name: /layouts/ }).click();
-	await page.getByRole('textbox', { name: 'Configuration name' }).fill('Concealed');
+	await page.getByRole('textbox', { name: 'Layout name' }).fill('Concealed');
 	await page.getByRole('button', { name: 'save', exact: true }).click();
 
 	// Switching back restores visibility, not just placement.
