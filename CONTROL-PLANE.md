@@ -126,36 +126,36 @@ compromise. Re-measured after the change: 0 lost of 20.
 
 ### Still open
 
-- **E2E flakiness — cause NOT yet identified.** 1-4 of 85 fail per run with a
-  rotating set. Three things were measured and each refuted a hypothesis:
-  widening the 18 cross-client assertions to a 10s budget changed the rate not
-  at all; raising Playwright's global `expect` timeout to the same value changed
-  it not at all (so that raise was reverted rather than kept as an unsupported
-  change); and the database is entirely healthy during a failing run — 20
-  connections, 2 active, nothing waiting or idle-in-transaction. Worker count
-  does not correlate cleanly either: 4 workers produced FEWER failures than 2,
-  and a serial run is usually but not always green.
+- **E2E flakiness — FOUND and fixed (2026-07-19).** 88/88 across six consecutive
+  two-worker runs, plus 4 workers and serial. It was never the assertion budget,
+  the database, or the concurrency model — three hypotheses measured and
+  discarded before a Playwright TRACE of an actual failure showed the mechanism
+  in one line: six mutates, six `get_room_state` calls.
 
-  Three genuine races were found and fixed structurally along the way (a hover
-  landing on an auto-fit-animating frame, a non-atomic z-index sample, and four
-  fixed `waitForTimeout` sleeps standing in for network writes). They are worth
-  having on their own and are not the whole story.
+  Every write was triggering a full re-read BY THE CLIENT THAT MADE IT. The
+  suppression meant to prevent that adopted the version from the commit's HTTP
+  response, and the broadcast beats that response back to the browser — the RPC
+  is ~5ms, the round trip through the worker is not — so `version` was still
+  stale when the echo arrived and the hydrate fired anyway.
 
-  **Three hypotheses now refuted, each by measurement:**
-  1. *Assertion budget.* Widening 18 cross-client assertions to 10s: no change.
-     Raising Playwright's global `expect` timeout to the same: no change. The
-     global raise was reverted.
-  2. *Database or pool contention.* Sampled every 3s through a failing run: 20
-     connections, 2 active, none waiting, none idle-in-transaction.
-  3. *The concurrency model.* Per-object versions removed the room-wide false
-     conflict for `edit_note` entirely — and the failure rate was 2, 4, 2 across
-     three runs afterwards, statistically identical to before.
+  The cost was not traffic. Each hydrate replaced the whole object graph, so
+  every derived recomputed, auto-fit re-ran, and the canvas RE-LAID-OUT under
+  whatever pointer was mid-gesture. That is why the failures rotated across
+  unrelated tests and why they were all hover, click, or measure: the target
+  moved. Fixed by having the broadcast name its writer (a per-TAB client id, not
+  the actor — two tabs of one person must still see each other) so a client can
+  recognise its own echo.
 
-  Worker count does not correlate cleanly either (4 workers produced FEWER
-  failures than 2; serial is usually but not always green). Whatever this is, it
-  is not write contention, not the database, and not the budget. Worth a fresh
-  look with a bisect over the spec files or a trace of one captured failure,
-  rather than a fourth guess.
+  A second, related bug was found by the same trace and fixed first: a hydrate
+  landing while a commit was in flight replaced state that already contained the
+  optimistic write, and the object vanished for good, because a commit's echo is
+  suppressed and nothing re-read. Unconfirmed writes are now re-applied on top of
+  every snapshot. An earlier attempt dropped snapshots whenever anything was in
+  flight, which starved peer updates entirely while anyone was typing.
+
+  Method note: three rounds of reasoning cost more than one trace. Capture the
+  artefact first next time.
+
 - **Admission** (UX-ID-3 / AR-CTRL-5) remains deferred by agreement.
 - Avatar name/emoji now roam with the profile; the id roams too.
 

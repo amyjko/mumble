@@ -10,7 +10,7 @@ import { supabaseBrowser } from '$lib/auth/browser-client';
 
 /** Wire shapes, parsed at the boundary — `as` is banned, and rightly here. */
 const z_envelope = z.object({ version: z.number(), state: z.unknown() });
-const z_version = z.object({ version: z.number() });
+const z_version = z.object({ version: z.number(), by: z.string().nullish() });
 const z_ok = z.object({ version: z.number() });
 const z_error = z.object({ message: z.string() });
 import { docFromEncoded, mergeEncoded, noteText } from '$lib/model/ydoc';
@@ -36,6 +36,12 @@ function emptyState(): RoomState {
 export class SupabaseRoomStore implements RoomStore {
 	state = $state<RoomState>(emptyState());
 
+	/**
+	 * This TAB. Sent with every write and echoed in the broadcast, so this store
+	 * can tell its own change from a peer's — two tabs of one person are two
+	 * clients, so the actor id could not do this job.
+	 */
+	private readonly clientId = crypto.randomUUID();
 	private readonly roomId: string;
 	private readonly roomName: string;
 	private channel: RealtimeChannel | null = null;
@@ -87,6 +93,15 @@ export class SupabaseRoomStore implements RoomStore {
 	 * Mirrored onto the document by the room page, next to `data-hydrated`.
 	 */
 	pending = $state(0);
+	/**
+	 * Applied locally, not yet confirmed by the server.
+	 *
+	 * A snapshot fetched while one of these is in flight does not contain it —
+	 * the read was issued before the write landed — so applying that snapshot
+	 * raw silently discards work the user has already seen happen. They are
+	 * re-applied on top of every snapshot instead; see `hydrate`.
+	 */
+	private unconfirmed: Mutation[] = [];
 
 	constructor(roomId: string, roomName: string) {
 		this.roomId = roomId;
@@ -144,9 +159,41 @@ export class SupabaseRoomStore implements RoomStore {
 		 */
 		if (envelope.data.version <= this.version) return;
 
-
 		this.version = envelope.data.version;
 		this.state = incoming;
+
+		/*
+		 * Put unconfirmed local writes BACK on top.
+		 *
+		 * This is the bug that made the E2E suite flaky for days, and the trace
+		 * of a failure shows it exactly: a broadcast triggers a hydrate WHILE a
+		 * commit is still in flight, so `version` has not caught up, the guard
+		 * above passes, and a snapshot taken before that write replaces state
+		 * that already contained it. The object vanishes and never comes back,
+		 * because a commit's own echo is deliberately suppressed — so nothing
+		 * further re-reads. Create a note and do anything else immediately, and
+		 * the note is simply gone.
+		 *
+		 * The earlier attempt at this dropped the snapshot whenever anything was
+		 * in flight. That starved peer updates completely while anyone was
+		 * typing, because typing means something is always in flight. Re-applying
+		 * is the version that keeps both properties: the peer's change lands, and
+		 * so does the local one the server has not answered for yet.
+		 *
+		 * Rejections are ignored on purpose. The server is the authority, and a
+		 * write it is about to refuse (an overlap, a lost slot) should not be
+		 * forced back into view here — the commit's own failure path re-reads and
+		 * shows the revert (UX-PERM-4).
+		 */
+		for (const mutation of this.unconfirmed) {
+			try {
+				untrack(() => {
+					applyMutation(this.state, mutation, { actorId: this.actorId, isHost: this.isHost });
+				});
+			} catch {
+				// Refused against the settled state; the server's answer wins.
+			}
+		}
 	}
 
 	private subscribe(): void {
@@ -172,6 +219,23 @@ export class SupabaseRoomStore implements RoomStore {
 		channel.on('broadcast', { event: 'state' }, (message) => {
 			const version = z_version.safeParse(message['payload']);
 			if (!version.success || version.data.version <= this.version) return;
+
+			/*
+			 * Our OWN write, already applied locally: record the version and do
+			 * not re-read.
+			 *
+			 * Adopting the version from the commit's HTTP response was supposed
+			 * to do this, and does not — the broadcast beats the response back,
+			 * so `version` is still stale here. Measured before this: six writes
+			 * produced six full re-reads by the client that made them, each one
+			 * replacing the entire object graph, re-running auto-fit and moving
+			 * the canvas under whatever pointer was mid-gesture.
+			 */
+			if (version.data.by === this.clientId) {
+				this.version = version.data.version;
+				return;
+			}
+
 			void this.hydrate();
 		});
 
@@ -301,17 +365,20 @@ export class SupabaseRoomStore implements RoomStore {
 
 	private async send(mutation: Mutation): Promise<void> {
 		this.pending += 1;
+		this.unconfirmed.push(mutation);
 		try {
 			await this.post(mutation);
 		} finally {
 			this.pending -= 1;
+			const at = this.unconfirmed.indexOf(mutation);
+			if (at !== -1) this.unconfirmed.splice(at, 1);
 		}
 	}
 
 	private async post(mutation: Mutation): Promise<void> {
 		const response = await fetch(`/api/rooms/${this.roomName}/mutate`, {
 			method: 'POST',
-			headers: { 'content-type': 'application/json' },
+			headers: { 'content-type': 'application/json', 'x-mumble-client': this.clientId },
 			body: JSON.stringify(mutation)
 		});
 

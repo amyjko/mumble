@@ -89,7 +89,10 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 				// Every object write is guarded by the version we READ for it, so
 				// object conflicts are per object rather than per room. New objects
 				// are simply absent from the map.
-				room_state.objectVersions
+				room_state.objectVersions,
+				// A header, not a body field: the body is the mutation union, and
+				// which client sent it is transport, not vocabulary.
+				request.headers.get('x-mumble-client')
 			);
 			return json({ ok: true, version });
 		} catch (conflict) {

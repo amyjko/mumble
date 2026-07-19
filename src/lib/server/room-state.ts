@@ -107,12 +107,18 @@ export async function saveRoomState(
 	 * guard; one that is present must still be at that version or the write is
 	 * refused and the route re-applies on top of the winner.
 	 */
-	objectVersions: Record<string, number> = {}
+	objectVersions: Record<string, number> = {},
+	/**
+	 * Which CLIENT made this write, echoed in the broadcast so that client can
+	 * recognise its own change and skip re-reading what it already applied.
+	 */
+	clientId: string | null = null
 ): Promise<number> {
 	const { data, error } = await db.rpc('save_room_state', {
 		p_room_id: roomId,
 		p_diff: plainJson(diff),
 		p_object_versions: objectVersions,
+		...(clientId === null ? {} : { p_client: clientId }),
 		// OMITTED when unguarded, rather than passed as null: the argument has a
 		// SQL default, and the generated types mark defaulted arguments optional,
 		// so this is the one spelling that needs neither a type assertion nor a

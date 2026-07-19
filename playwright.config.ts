@@ -65,7 +65,7 @@ export default defineConfig({
 	// Chromium only: AR-TEST-9's fake media devices are unsupported on WebKit,
 	// and this layer exists to exercise one runtime honestly rather than three
 	// shallowly.
-	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], trace: 'retain-on-failure' } }],
 	// CI runners are noisy neighbours; one retry separates a flake from a
 	// failure without hiding a real one.
 	retries: ci ? 1 : 0,

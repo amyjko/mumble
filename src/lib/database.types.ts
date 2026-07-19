@@ -387,8 +387,10 @@ export type Database = {
           out_status: string
         }[]
       }
+      may_use_guest_topic: { Args: { topic: string }; Returns: boolean }
       save_room_state: {
         Args: {
+          p_client?: string
           p_diff: Json
           p_expected_version?: number
           p_object_versions?: Json
