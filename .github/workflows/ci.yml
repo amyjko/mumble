@@ -86,6 +86,14 @@ jobs:
       - name: Unit and component tests
         run: pnpm exec vitest --run --project client --project server
 
+      # An EXPLICIT build. check:bundle measures `wrangler deploy --dry-run`,
+      # which needs .svelte-kit/cloudflare/_worker.js to exist — and until now
+      # that was a side effect of the E2E step's `build && preview` running
+      # first in the same job. Moving E2E to the database job broke the bundle
+      # check, which is a fair verdict on depending on another step's leftovers.
+      - name: Build the worker
+        run: pnpm run build
+
       - name: Bundle budget (AR-DEPLOY-3)
         run: pnpm run check:bundle
 

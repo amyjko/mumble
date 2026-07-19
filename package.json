@@ -11,7 +11,7 @@
 		"dev": "vite dev",
 		"build": "wrangler types --check && vite build",
 		"preview": "wrangler dev .svelte-kit/cloudflare/_worker.js --port 4173",
-		"prepare": "svelte-kit sync || echo ''",
+		"prepare": "svelte-kit sync && wrangler types || echo ''",
 		"gen": "wrangler types",
 		"check": "pnpm run lint && pnpm run check:ts && pnpm run check:svelte",
 		"check:ts": "node_modules/ts7/bin/tsc --noEmit",
