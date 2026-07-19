@@ -75,7 +75,12 @@ export class VersionConflict extends Error {}
 export async function saveRoomState(
 	db: SupabaseClient<Database>,
 	roomId: string,
-	expectedVersion: number,
+	/**
+	 * Null skips the compare-and-swap — for writes that touch disjoint rows and
+	 * so cannot lose anything by landing second. The route decides; see
+	 * `needsGuard`. The version advances either way.
+	 */
+	expectedVersion: number | null,
 	diff: RoomStateDiff
 ): Promise<number> {
 	const { data, error } = await db.rpc('save_room_state', {
@@ -84,10 +89,15 @@ export async function saveRoomState(
 		p_diff: plainJson(diff)
 	});
 	if (error !== null) {
-		// 40001 is serialization_failure, raised by the CAS when the version
-		// moved under us. Distinguished from a real failure so the route can
-		// retry rather than reporting a fault to the user.
-		if (error.code === '40001') throw new VersionConflict(error.message);
+		// PT409 is raised by the CAS when the version moved under us.
+		// Distinguished from a real failure so the route can retry rather than
+		// reporting a fault to the user.
+		//
+		// Deliberately NOT 40001: PostgREST treats serialization_failure as
+		// transient and retries it internally, so a deterministic CAS mismatch
+		// stalled for 60s and pinned a pool connection instead of returning.
+		// See 20260719000010_cas_errcode.sql — this was the switchover blocker.
+		if (error.code === 'PT409') throw new VersionConflict(error.message);
 		throw new Error(error.message);
 	}
 	return data;
