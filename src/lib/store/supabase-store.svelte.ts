@@ -3,6 +3,7 @@ import type { EphemeralMessage, Mutation, RoomState } from '$lib/model/types';
 import type { RoomStore } from './room-store';
 import { StoreRejection } from '$lib/model/types';
 import { ephemeralSchema, roomStateSchema, mutationSchema } from '$lib/model/schemas';
+import { applyMutation } from '$lib/model/rules';
 import { z } from 'zod';
 import { supabaseBrowser } from '$lib/auth/browser-client';
 
@@ -59,6 +60,18 @@ export class SupabaseRoomStore implements RoomStore {
 	// would then mutate another derived's state.
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- see above
 	private readonly handlers = new Set<(m: EphemeralMessage) => void>();
+
+	/**
+	 * Who is acting, set AFTER construction.
+	 *
+	 * Not a constructor argument, because the store must be built once per ROOM
+	 * and the identity resolves later (anonymous sign-in, then the join RPC,
+	 * then possibly a roamed profile). Taking it up front made the store a
+	 * `$derived` on identity, which rebuilt it — and its Realtime channel — every
+	 * time any of those landed.
+	 */
+	private actorId = '';
+	private isHost = false;
 
 	constructor(roomId: string, roomName: string) {
 		this.roomId = roomId;
@@ -140,9 +153,31 @@ export class SupabaseRoomStore implements RoomStore {
 	 * StoreRejection reasons the optimistic layer already reverts on, so
 	 * SyncClient is reused untouched.
 	 */
+	setActor(actorId: string, isHost: boolean): void {
+		this.actorId = actorId;
+		this.isHost = isHost;
+	}
+
 	async commit(mutation: Mutation): Promise<void> {
 		const parsed = mutationSchema.safeParse(mutation);
 		if (!parsed.success) throw new StoreRejection('invalid', 'Malformed mutation');
+
+		/*
+		 * Apply LOCALLY first, then send. AR-SYNC-3 permits exactly this —
+		 * "client-side checks exist only for responsiveness" — and it is not
+		 * optional in practice: a canvas that waits for a round trip before
+		 * showing your own keystroke is unusable, and re-reading the whole room
+		 * after every commit (what this did first) also destroys whatever you
+		 * have typed since.
+		 *
+		 * The server remains the authority. A local rejection saves a pointless
+		 * request; a SERVER rejection re-reads, which is the revert.
+		 */
+		// Only once the actor is known. Before that (the moment between mount and
+		// sign-in) the server is the sole judge, which is correct anyway.
+		if (this.actorId !== '') {
+			applyMutation(this.state, parsed.data, { actorId: this.actorId, isHost: this.isHost });
+		}
 
 		const response = await fetch(`/api/rooms/${this.roomName}/mutate`, {
 			method: 'POST',
@@ -155,12 +190,11 @@ export class SupabaseRoomStore implements RoomStore {
 				response.status === 403 ? 'permission' : response.status === 409 ? 'overlap' : 'invalid';
 			const body: unknown = await response.json().catch(() => null);
 			const message = z_error.safeParse(body);
+			// The server disagreed, so the local optimism was wrong: re-read to
+			// get the settled truth back (UX-PERM-4's visible revert).
+			await this.hydrate();
 			throw new StoreRejection(reason, message.success ? message.data.message : 'Change rejected');
 		}
-		// Re-read rather than trusting a local copy: the server may have adjusted
-		// the result (the solver slides a drag to contact), and the settled state
-		// is whatever it wrote.
-		await this.hydrate();
 	}
 
 	sendEphemeral(message: EphemeralMessage): void {

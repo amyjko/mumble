@@ -89,11 +89,56 @@ change plus test fallout, and the fallout is the part to plan for:
   the real backend those levers do not exist, so it should be absent rather than
   showing dead controls.
 
+### THE blocker, found on the second attempt (2026-07-19)
+
+`save_room_state` writes the ENTIRE room on every mutation — every object,
+participant and configuration, in one plpgsql transaction — for each keystroke
+and each drag commit. Each call holds a database connection for the duration.
+PostgREST's pool (10 by default) saturates almost at once, and every request
+after that fails with *"Timed out acquiring connection from connection pool"*,
+which reads exactly like broken application code.
+
+That is the "correctness before cleverness" choice made in Phase 5a, and it does
+not survive contact with traffic. Raising the pool size would hide it locally
+and reproduce it in production, where the cost is O(room) writes per keystroke.
+
+**The switchover is blocked on incremental writes**, not on the store, the
+route, the fan-out, or the tests. What it needs:
+
+- a diff between the prior and next `RoomState` — the route already has both, so
+  this is a pure function over two values, testable with no database at all;
+- `save_room_state` taking that diff (changed rows and deleted ids) rather than
+  the whole document, keeping the version CAS and the in-transaction broadcast;
+- the same treatment for `edit_note`, which is the highest-frequency mutation
+  and today rewrites every object row to append to one Yjs document.
+
+Until then the UI stays on the stub, which works.
+
+### Also learned
+
+Optimistic local apply is not optional. The first version awaited the server and
+then re-read the whole room after every commit; that both lagged each keystroke
+and destroyed in-flight typing. AR-SYNC-3's "client-side checks exist only for
+responsiveness" is the licence to apply locally and let the server arbitrate,
+and `SupabaseRoomStore` now does that.
+
+The store must be built ONCE per room, with the actor set afterwards. Taking
+`actorId` as a constructor argument made it a `$derived` on identity, which
+rebuilt the store and its Realtime channel every time anonymous sign-in, the
+join RPC, or a roamed profile landed.
+
 Three harness defects the attempt exposed are already FIXED and on main-line:
-the admin client is memoized (a fresh client per request meant a fresh
-connection pool per request, which exhausted the local stack), E2E uses one
-account per worker, and `hostRoom` tolerates a join prompt that vanishes when a
-roamed profile arrives.
+the admin client is memoized on BOTH sides — the server route and the E2E
+helper, where a fresh client per call meant a fresh connection pool per call —
+E2E uses one account per worker, `hostRoom` tolerates a join prompt that
+vanishes when a roamed profile arrives, and `createRoomDirectly` lets a test
+create a room without a browser, so the default test user stays an anonymous
+guest instead of every test becoming an account-holding host.
+
+A measurement note worth keeping: an exhausted pool POISONS later runs. Two
+full-suite results were drawn against a degraded stack before I noticed I was
+measuring the environment rather than the change. Restart Supabase before
+trusting a suite result that follows a failing one.
 
 Remaining design notes:
 
