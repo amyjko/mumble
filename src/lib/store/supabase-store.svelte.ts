@@ -11,6 +11,7 @@ import { supabaseBrowser } from '$lib/auth/browser-client';
 /** Wire shapes, parsed at the boundary — `as` is banned, and rightly here. */
 const z_envelope = z.object({ version: z.number(), state: z.unknown() });
 const z_version = z.object({ version: z.number() });
+const z_ok = z.object({ version: z.number() });
 const z_error = z.object({ message: z.string() });
 import { docFromEncoded, mergeEncoded, noteText } from '$lib/model/ydoc';
 import { freshStage } from '$lib/model/stage';
@@ -112,6 +113,23 @@ export class SupabaseRoomStore implements RoomStore {
 			const merged = mergeEncoded(mine.payload.doc, object.payload.doc);
 			object.payload = { doc: merged, text: noteText(docFromEncoded(merged)) };
 		}
+
+		/*
+		 * Drop a snapshot that is not NEWER than what we hold.
+		 *
+		 * The broadcast handler already refuses stale versions, but the hydrate
+		 * RESPONSE can be stale on its own: a read issued before a local commit
+		 * lands returns afterwards, and assigning it unconditionally replaced
+		 * newer local state with an older server snapshot. It looked like a
+		 * rendering glitch and behaved like a data race — create a note, then a
+		 * timer immediately, and the timer's `maxZOf` saw an empty room, so both
+		 * objects were born at z=1 and stacking order became arbitrary. Waiting a
+		 * couple of seconds between them "fixed" it, which is the signature.
+		 *
+		 * Equal versions are dropped too: we already applied that write locally,
+		 * and re-assigning it would discard whatever has been typed since.
+		 */
+		if (envelope.data.version <= this.version) return;
 
 		this.version = envelope.data.version;
 		this.state = incoming;
@@ -231,7 +249,30 @@ export class SupabaseRoomStore implements RoomStore {
 			body: JSON.stringify(mutation)
 		});
 
-		if (!response.ok) {
+		if (response.ok) {
+			/*
+			 * Adopt the version the server just wrote.
+			 *
+			 * Our own write comes back to us as a broadcast, and without this the
+			 * client re-hydrates on its OWN commit — replacing the whole state it
+			 * had already applied locally. Every replacement hands the canvas new
+			 * object identities, so auto-fit re-runs and the world animates: with
+			 * a commit per keystroke the layout never settled, and Playwright
+			 * reported "element is not stable" because it genuinely was not.
+			 *
+			 * Recording the version here makes that echo a no-op, since the
+			 * broadcast handler drops anything at or below what we hold. A peer's
+			 * write carries a HIGHER version and still hydrates, which is the
+			 * whole point of the counter.
+			 */
+			const settled = z_ok.safeParse(await response.json().catch(() => null));
+			if (settled.success && settled.data.version > this.version) {
+				this.version = settled.data.version;
+			}
+			return;
+		}
+
+		{
 			const reason =
 				response.status === 403 ? 'permission' : response.status === 409 ? 'overlap' : 'invalid';
 			const body: unknown = await response.json().catch(() => null);

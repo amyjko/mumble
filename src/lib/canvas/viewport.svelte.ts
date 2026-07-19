@@ -59,13 +59,28 @@ export class Viewport {
 
 	/** Recomputed on content change while autoZoom holds (UX-CANVAS-3). */
 	fit(content: readonly Bounds[]): void {
-		this.markAnimated();
 		const union = unionBounds(content);
-		if (union === null) {
-			this.camera = { x: this.size.width / 2, y: this.size.height / 2, scale: 1 };
+		const next =
+			union === null
+				? { x: this.size.width / 2, y: this.size.height / 2, scale: 1 }
+				: fitAll(union, this.size);
+
+		/*
+		 * Nothing moved, so do not move — the same discipline `ensureVisible`
+		 * already applies one method below.
+		 *
+		 * This runs on every content change, and with a server-backed store a
+		 * content change now arrives on every peer broadcast: hydrating replaces
+		 * the whole state, so the canvas recomputes bounds even when the fitted
+		 * result is identical. Animating that made the world jitter continuously
+		 * while anyone was typing — Playwright's "element is not stable" was
+		 * literally true, and a click could not land on a moving button.
+		 */
+		if (next.x === this.camera.x && next.y === this.camera.y && next.scale === this.camera.scale) {
 			return;
 		}
-		this.camera = fitAll(union, this.size);
+		this.markAnimated();
+		this.camera = next;
 	}
 
 	enableAutoZoom(content: readonly Bounds[]): void {

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { joinRoom, roomName } from './support/join';
+import { hostRoom } from './support/auth';
 
 /** Room title (UX-ROOM-2) syncs; rename (UX-ROOM-10) navigates carrying state. */
 test('title syncs to peers; rename navigates and carries state', async ({ browser }) => {
@@ -8,7 +9,10 @@ test('title syncs to peers; rename navigates and carries state', async ({ browse
 	const a = await context.newPage();
 	const b = await context.newPage();
 
-	await joinRoom(a, room);
+	// A HOSTS, because renaming is a host action and the server enforces it now
+	// (UX-ROOM-10). As a guest this test renamed nothing and only appeared to
+	// pass, because the stub's rename was a localStorage copy.
+	await hostRoom(a, room);
 	await a.getByRole('button', { name: '+ note' }).click(); // some state to carry
 
 	// Set a title via the room popover.

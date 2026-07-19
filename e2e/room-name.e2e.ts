@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { joinRoom, roomName } from './support/join';
-import { signInAsAccount } from './support/auth';
+import { signInAsAccount, hostRoom } from './support/auth';
 
 /**
  * Room names (UX-ROOM-9/10). The pattern used to exist in two places with each
@@ -67,7 +67,10 @@ test('case-insensitive: an upper-case name reaches the lower-case room', async (
 
 test('rename warns that existing links will break (UX-ROOM-10)', async ({ page }) => {
 	const room = roomName('rn');
-	await joinRoom(page, room);
+	// Hosts, because the rename control is host-only now: the server refuses a
+	// guest's rename, so offering them the field would be a control that can
+	// only fail.
+	await hostRoom(page, room);
 
 	await page.getByRole('button', { name: room }).click();
 	const field = page.getByRole('textbox', { name: 'New room name' });

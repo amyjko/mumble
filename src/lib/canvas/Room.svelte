@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import { z } from 'zod';
 	import type { StoredIdentity } from '$lib/model/types';
 	import { MemoryRoomStore } from '$lib/store/memory-store.svelte';
 	import type { RoomStore } from '$lib/store/room-store';
@@ -280,6 +281,9 @@
 	 * behaviors the stub cannot yet honor (freeing the old name, and old URLs
 	 * ceasing to resolve), nothing admitted its absence.
 	 */
+	/** SvelteKit's error body, for reporting a refused rename. */
+	const z_message = z.object({ message: z.string() });
+
 	function renameRoom(): void {
 		if (!renameReady) return;
 		const name = canonicalRoomName(renameDraft);
@@ -289,12 +293,27 @@
 				'Links cannot be updated for them.'
 		);
 		if (!ok) return;
-		// Carry this room's state to the new name. NOTE: the old name is not
-		// truly freed in the stub — real uniqueness/freeing is server-side
-		// (AR-BACKEND-10, UX-ROOM-10); old URLs still rehydrate here.
-		const current = localStorage.getItem(`mumble:room:${room}`);
-		if (current !== null) localStorage.setItem(`mumble:room:${name}`, current);
-		void goto(resolve('/hey/[room]', { room: name }));
+		// The room is renamed SERVER-side and then navigated to. The stub used to
+		// copy one localStorage key to another, which worked only because it
+		// conjured a room for any name and freed nothing — so the warning above
+		// was not yet true. It is now: the old name is released by the same
+		// update, and old links stop resolving.
+		void (async () => {
+			const response = await fetch(`/api/rooms/${room}/rename`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ name })
+			});
+			if (!response.ok) {
+				const problem: unknown = await response.json().catch(() => null);
+				const message = z_message.safeParse(problem);
+				sync.announce(
+					`Rename failed: ${message.success ? message.data.message : 'the room was not renamed'}`
+				);
+				return;
+			}
+			await goto(resolve('/hey/[room]', { room: name }));
+		})();
 	}
 </script>
 
@@ -346,12 +365,18 @@
 				     which is otherwise indistinguishable from a broken toolbar. -->
 				<p class="problem" role="alert">Only a host can add objects in this room.</p>
 			{/if}
-			<div class="row">
-				<Field label="New room name" bind:value={renameDraft} placeholder="new-name" />
-				<Button disabled={!renameReady} onclick={renameRoom}>rename</Button>
-			</div>
-			{#if renameProblem !== null}
-				<p class="problem" role="alert">{renameProblem}</p>
+			<!-- Host-only, because the server now enforces it (UX-ROOM-10). Offered
+			     to everyone, it was a control that could only ever fail — and
+			     while the rename was stub-local it appeared to work for guests
+			     too, which is worse than refusing them. -->
+			{#if isHost}
+				<div class="row">
+					<Field label="New room name" bind:value={renameDraft} placeholder="new-name" />
+					<Button disabled={!renameReady} onclick={renameRoom}>rename</Button>
+				</div>
+				{#if renameProblem !== null}
+					<p class="problem" role="alert">{renameProblem}</p>
+				{/if}
 			{/if}
 		</div>
 	</Popover>
