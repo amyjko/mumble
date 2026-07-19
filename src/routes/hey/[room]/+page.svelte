@@ -103,10 +103,7 @@
 		// so the participant existed on the server and not in local state, and
 		// the next click ("Turn camera on") was refused by the client's own rule
 		// engine with "Unknown participant" and never reached the server at all.
-		active.setActor(
-			untrack(() => (authId !== '' ? authId : (identity?.id ?? ''))),
-			untrack(() => isHost)
-		);
+		active.setActor(untrack(() => authId), untrack(() => isHost));
 		store = active;
 		return () => {
 			active.dispose();
@@ -121,7 +118,11 @@
 	// Also `.pre`, and for the same ordering reason: the roamed profile lands
 	// after mount, and Room re-commits when it does.
 	$effect.pre(() => {
-		store?.setActor(authId !== '' ? authId : (identity?.id ?? ''), isHost);
+		// `authId` ONLY, never the localStorage identity: RLS authorizes the
+		// Realtime channel and every read against the JWT subject, so a
+		// browser-supplied id is not merely stale, it cannot authorize anything.
+		// A second tab that started from one subscribed as a non-member.
+		store?.setActor(authId, isHost);
 	});
 
 	$effect(() => {
@@ -172,7 +173,7 @@
 			void saveMyProfile(supabaseBrowser(), { name: joined.name, emoji: joined.emoji });
 		}}
 	/>
-{:else if store !== null && authId !== ''}
+{:else if store !== null && store.ready}
 	<!--
 		Waits for the session, deliberately.
 
@@ -185,8 +186,10 @@
 		the real one — two avatars for one person, "Tester" beside "Tester (you)",
 		and every count, announcement and auto-fit downstream of it wrong.
 
-		`store` is non-null from the first effect flush, so in practice this waits
-		on the join round trip alone.
+		`store.ready` means the room has been READ once, which also implies the
+		session resolved — the store cannot read before it knows who is asking,
+		since RLS authorizes on the JWT subject. So this waits on the join round
+		trip plus one read.
 	-->
 	<Room room={data.room} {identity} {isHost} {store} />
 {/if}

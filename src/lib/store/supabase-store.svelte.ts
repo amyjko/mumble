@@ -76,13 +76,30 @@ export class SupabaseRoomStore implements RoomStore {
 	private isHost = false;
 	/** Tail of the in-flight commit chain; see `commit`. */
 	private queue: Promise<void> = Promise.resolve();
+	/**
+	 * True once the room has been read at least once.
+	 *
+	 * The canvas waits for this before it may commit anything. Without it the
+	 * FIRST read raced the join commit: the read was issued against an empty
+	 * room, returned after the participant had been applied optimistically, and
+	 * replaced it — the room rendered with no avatar at all, and nothing
+	 * re-read, because a commit's own echo is deliberately suppressed.
+	 *
+	 * Only the first read has this problem; later ones carry a version that
+	 * settles the ordering. So this is a one-time gate rather than a rule about
+	 * every snapshot, which is what an earlier attempt made it — and that
+	 * starved peer updates completely while anyone was typing.
+	 */
+	ready = $state(false);
 
 	constructor(roomId: string, roomName: string) {
 		this.roomId = roomId;
 		this.roomName = roomName;
-		void this.hydrate();
-		this.subscribe();
+		// Deliberately does NOT read or subscribe yet — see `setActor`.
 	}
+
+	/** Set once the actor is known, so the room is read exactly once. */
+	private started = false;
 
 	/**
 	 * Read the whole room in one call.
@@ -131,13 +148,20 @@ export class SupabaseRoomStore implements RoomStore {
 		 */
 		if (envelope.data.version <= this.version) return;
 
+
 		this.version = envelope.data.version;
 		this.state = incoming;
 	}
 
 	private subscribe(): void {
 		const channel = supabaseBrowser().channel(`room:${this.roomId}`, {
-			config: { broadcast: { self: false } }
+			// PRIVATE, so `room_channel_read`/`room_channel_write` on
+			// realtime.messages are actually consulted — Supabase checks RLS only
+			// for private channels, and the policy commented as "the room gate"
+			// was inert while this defaulted to public. Measured before the fix: a
+			// never-signed-in client subscribed to a room it had no membership in
+			// and injected an emote that a member rendered.
+			config: { private: true, broadcast: { self: false } }
 		});
 
 		/*
@@ -175,8 +199,45 @@ export class SupabaseRoomStore implements RoomStore {
 	 * SyncClient is reused untouched.
 	 */
 	setActor(actorId: string, isHost: boolean): void {
+		const changed = this.actorId !== actorId;
 		this.actorId = actorId;
 		this.isHost = isHost;
+
+		/*
+		 * The room is read and subscribed HERE, not in the constructor, because
+		 * both depend on WHO IS ASKING.
+		 *
+		 * The Realtime channel is private, so joining it is authorized by RLS
+		 * against `room_members` — and membership is granted by `join_room`,
+		 * which resolves after the store is built. Subscribing in the constructor
+		 * therefore asked before the answer could be yes, and the channel was
+		 * refused with "Unauthorized: you do not have permissions to read from
+		 * this Channel topic". Every peer edit then went unseen, with no error
+		 * anywhere near the symptom. `get_room_state` is gated the same way.
+		 *
+		 * An empty actor means the session has not resolved, so there is nothing
+		 * to ask on behalf of yet.
+		 */
+		if (actorId === '' || this.closed) return;
+
+		// A CHANGED actor has to re-subscribe, not just be recorded. Channel
+		// authorization is evaluated once at join against whoever was asking, so
+		// a channel opened as the wrong identity stays wrong for its lifetime —
+		// which is exactly what happened when a second tab started from a stale
+		// localStorage id, subscribed as a non-member, and then silently received
+		// nothing for the rest of the session.
+		if (this.started) {
+			if (!changed) return;
+			void this.channel?.unsubscribe();
+			this.channel = null;
+			this.version = -1;
+		}
+
+		this.started = true;
+		void this.hydrate().finally(() => {
+			this.ready = true;
+		});
+		this.subscribe();
 	}
 
 	async commit(mutation: Mutation): Promise<void> {

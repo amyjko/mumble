@@ -2,44 +2,12 @@ import { json, error, type RequestHandler } from '@sveltejs/kit';
 import { mutationSchema } from '$lib/model/schemas';
 import { StoreRejection } from '$lib/model/types';
 import { applyMutation } from '$lib/model/rules';
-import { diffRoomState, type RoomStateDiff } from '$lib/model/diff';
+import { diffRoomState } from '$lib/model/diff';
+import { needsGuard } from '$lib/server/guard';
 import { parseClaims } from '$lib/auth/claims';
 import { supabaseAdmin } from '$lib/server/supabase-admin';
 import { loadRoomState, saveRoomState, VersionConflict } from '$lib/server/room-state';
 import { canonicalRoomName } from '$lib/model/room-name';
-
-/**
- * Mutations that MERGE into content already in the row, rather than replacing
- * it. Both are read-modify-write and both lose text under last-writer-wins:
- * `edit_note` applies a Yjs update to the stored document, and `post_message`
- * appends to a log. Neither shows up in `diff.room`, so neither can be inferred
- * from the diff — they have to be named.
- *
- * `edit_timer` is deliberately absent: it replaces the payload wholesale, so
- * the last writer is the correct winner.
- */
-const MERGING: ReadonlySet<string> = new Set(['edit_note', 'post_message']);
-
-/**
- * Whether this write must not land second.
- *
- * Guarding everything is lossy, not merely slow: measured, twenty concurrent
- * writers touching twenty different objects lost seventeen of their writes to
- * an exhausted retry budget, because one room-wide counter makes every writer
- * invalidate every other. See concurrency.integration.spec.ts.
- *
- * `diff.room !== null` covers more than it looks like. Every stage, capacity,
- * placer, layout and room-meta write changes a room scalar, and `diffRoomState`
- * compares those BY VALUE — so a mutation that reassigns `video_holders` to an
- * equal array correctly produces no guard, while one that actually takes a slot
- * does. That is what keeps two people from holding one slot (AR-MEDIA-1).
- *
- * Everything else writes disjoint rows keyed by object or participant id, where
- * last-writer-wins is the correct outcome and not a compromise.
- */
-function needsGuard(diff: RoomStateDiff, kind: string): boolean {
-	return diff.room !== null || MERGING.has(kind);
-}
 
 /**
  * The ONLY write path (AR-SYNC-3, AR-CTRL-1).
