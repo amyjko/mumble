@@ -794,7 +794,7 @@ describe('configurations can be edited (UX-ROOM-4/6)', () => {
 		await store.commit({ kind: 'update_config' });
 
 		expect(Object.keys(store.state.configurations)).toHaveLength(1);
-		expect(store.state.configurations[id]?.snapshot.layouts[object.id]?.transform.x).toBe(400);
+		expect(store.state.configurations[id]?.snapshot.poses[object.id]?.transform.x).toBe(400);
 	});
 
 	it('refuses to update when no configuration is active (UX-ROOM-4)', async () => {
@@ -812,7 +812,7 @@ describe('configurations can be edited (UX-ROOM-4/6)', () => {
 		await store.commit({ kind: 'save_config', id, name: 'Old' });
 		await store.commit({ kind: 'rename_config', id, name: 'New' });
 		expect(store.state.configurations[id]?.name).toBe('New');
-		expect(store.state.configurations[id]?.snapshot.layouts[object.id]).toBeDefined();
+		expect(store.state.configurations[id]?.snapshot.poses[object.id]).toBeDefined();
 	});
 });
 

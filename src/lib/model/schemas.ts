@@ -183,9 +183,18 @@ export const participantSchema = z.object({
 });
 
 /**
- * Configurations (UX-ROOM-3..6). A configuration is a NAMED SNAPSHOT of
- * LAYOUT, where layout means position, size, AND visibility — plus the room's
+ * Configurations (UX-ROOM-3..6). A configuration is a saved LAYOUT — the word
+ * the product uses — and it holds one POSE per object: where that object sits,
+ * how big it is, and whether it is shown, plus the room's
  * background/title/description.
+ *
+ * "Pose" rather than "layout" for the per-object record, because "layout" is
+ * now the user-facing name for the whole saved configuration and one word
+ * cannot be both the set and its members. Not "shape" either: that already
+ * means the clip silhouette (`clip.shape`) and the solver polygon
+ * (`SolverShape`), and a third meaning would put all three in one expression.
+ * A pose carries `hidden` alongside the transform, which stretches the word
+ * slightly — a deliberate trade for a name that collides with nothing.
  *
  * This resolves the old "hide vs remove" open item by dissolving it: every
  * object exists in every configuration, and configurations differ only in
@@ -196,7 +205,7 @@ export const participantSchema = z.object({
  * Content stays at the room level: switching never touches note text or chat
  * logs (UX-ROOM-5).
  */
-export const layoutSchema = z.object({
+export const poseSchema = z.object({
 	transform: transformSchema,
 	hidden: z.boolean().default(false)
 });
@@ -233,7 +242,7 @@ export const placerSchema = z.object({
 });
 
 export const configSnapshotSchema = z.object({
-	layouts: z.record(z.uuid(), layoutSchema),
+	poses: z.record(z.uuid(), poseSchema),
 	/**
 	 * Where newcomers appear in this configuration, in order (UX-AV-2). A
 	 * configuration with no placers still works — arrivals fall through to
@@ -246,6 +255,8 @@ export const configSnapshotSchema = z.object({
 	title: z.string(),
 	description: z.string()
 });
+
+
 export const configurationSchema = z.object({
 	id: z.uuid(),
 	name: z.string().min(1).max(60),

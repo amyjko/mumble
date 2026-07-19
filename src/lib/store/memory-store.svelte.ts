@@ -9,7 +9,7 @@ import { StoreRejection, nowIso, omitKey } from '$lib/model/types';
 import type {
 	CanvasObject,
 	ConfigSnapshot,
-	Layout,
+	Pose,
 	EphemeralMessage,
 	Mutation,
 	Participant,
@@ -628,12 +628,12 @@ export class MemoryRoomStore implements RoomStore {
 	 * things — which is exactly the drift that makes "update" untrustworthy.
 	 */
 	private captureSnapshot(): ConfigSnapshot {
-		const layouts: Record<string, Layout> = {};
+		const poses: Record<string, Pose> = {};
 		for (const [id, o] of Object.entries(this.state.objects)) {
-			layouts[id] = { transform: { ...o.transform }, hidden: o.hidden };
+			poses[id] = { transform: { ...o.transform }, hidden: o.hidden };
 		}
 		return {
-			layouts,
+			poses,
 			// Capacity is per-configuration (UX-STAGE-1), so it travels with the
 			// snapshot and is re-applied on switch (AR-MEDIA-1).
 			capacity: { ...this.state.capacity },
@@ -645,11 +645,11 @@ export class MemoryRoomStore implements RoomStore {
 	}
 
 	private applySnapshot(snapshot: ConfigSnapshot): void {
-		for (const [id, layout] of Object.entries(snapshot.layouts)) {
+		for (const [id, pose] of Object.entries(snapshot.poses)) {
 			const object = this.state.objects[id];
 			if (object === undefined) continue;
-			object.transform = { ...layout.transform };
-			object.hidden = layout.hidden;
+			object.transform = { ...pose.transform };
+			object.hidden = pose.hidden;
 		}
 		// AR-MEDIA-1: caps are re-read on a configuration switch, and lowering
 		// one releases holders beyond it, in reverse acquisition order, to the
