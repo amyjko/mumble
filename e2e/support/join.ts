@@ -37,3 +37,31 @@ export async function joinRoom(page: Page, room: string, name = 'Tester'): Promi
 export function roomName(prefix: string): string {
 	return `${prefix}-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e4).toString(36)}`;
 }
+
+/**
+ * Wait until the camera has stopped moving.
+ *
+ * Adding content re-runs auto-fit, which ANIMATES the world layer for ~300ms
+ * (Viewport.markAnimated). A test that measures a boundingBox and then clicks
+ * it is aiming at a moving target: it usually wins the race and occasionally
+ * does not, which is precisely the flake CI reported for the placer selection
+ * test. Waiting on the transform settling is deterministic where a fixed sleep
+ * is just a longer bet.
+ */
+export async function cameraSettled(page: Page): Promise<void> {
+	const world = page.locator('.world');
+	let previous = '';
+	await expect
+		.poll(
+			async () => {
+				const current = await world.evaluate((el) =>
+					el instanceof HTMLElement ? el.style.transform : ''
+				);
+				const stable = current !== '' && current === previous;
+				previous = current;
+				return stable;
+			},
+			{ intervals: [100, 100, 100, 100, 100, 100] }
+		)
+		.toBe(true);
+}

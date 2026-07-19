@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom, roomName } from './support/join';
+import { cameraSettled, joinRoom, roomName } from './support/join';
 
 /**
  * Placement (UX-AV-2/9, AR-CTRL-4/6). Only the last resolution step existed
@@ -59,6 +59,10 @@ test('placement: a selected placer keeps its controls when the pointer leaves', 
 	await page.getByRole('button', { name: '+ newcomer spot' }).click();
 
 	const placer = page.getByRole('group', { name: /Newcomer 1/ });
+	// Adding the placer re-ran auto-fit, which animates the world layer — so
+	// measure only once the camera has stopped, or the click below aims at
+	// where the placer USED to be. (CI caught this as a flake.)
+	await cameraSettled(page);
 	const box = await placer.boundingBox();
 	if (box === null) throw new Error('placer has no box');
 
