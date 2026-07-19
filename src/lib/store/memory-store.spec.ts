@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AVATAR_SIZE, CHAT_LOG_LIMIT, MemoryRoomStore } from './memory-store.svelte';
 import { StoreRejection } from '$lib/model/types';
-import type { CanvasObject, Participant } from '$lib/model/types';
+import type { CanvasObject, Participant, Placer } from '$lib/model/types';
 import { docFromEncoded, encodeDoc, encodedFromText, noteText, textType } from '$lib/model/ydoc';
 
 const ALICE = '11111111-1111-4111-8111-111111111111';
 const BOB = '22222222-2222-4222-8222-222222222222';
+const CAROL = '33333333-3333-4333-8333-333333333333';
 
 let seq = 0;
 const uuid = (): string => {
@@ -899,23 +900,90 @@ describe('the stage, through the store (UX-STAGE, AR-CTRL-2)', () => {
 	});
 });
 
-describe('placement: remembered, default, nearest legal (AR-CTRL-4/6, UX-AV-2/9)', () => {
-	it('a first visit lands on the configuration default, not the origin', async () => {
+describe('placement: remembered, placer, nearest legal (AR-CTRL-4/6, UX-AV-2/9)', () => {
+	const placer = (over: Partial<Placer> = {}): Placer => ({
+		id: uuid(),
+		x: 300,
+		y: 200,
+		width: 96,
+		height: 96,
+		rotation: 0,
+		clip: { shape: 'circle' },
+		...over
+	});
+
+	it('a first visit lands on the first placer, not the origin', async () => {
 		const store = makeStore(`r${String(Math.random())}`, ALICE);
-		await store.commit({ kind: 'set_default_location', location: { x: 300, y: 200 } });
+		await store.commit({ kind: 'add_placer', placer: placer() });
 		await store.commit({ kind: 'upsert_participant', participant: person(ALICE) });
 		expect(store.state.participants[ALICE]?.location).toEqual({ x: 300, y: 200 });
 	});
 
-	it('a return visit lands where you last were, not the default', async () => {
+	it('an arrival ADOPTS the placer\'s size, rotation, and shape', async () => {
+		// The whole reason a placer is transformable rather than a point: a host
+		// lays out tilted hexagonal seats and arrivals take that form. Without
+		// this, the resize and rotate handles decorate a marker.
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		await store.commit({
+			kind: 'add_placer',
+			placer: placer({ width: 140, height: 140, rotation: 30, clip: { shape: 'ellipse' } })
+		});
+		await store.commit({ kind: 'upsert_participant', participant: person(ALICE) });
+
+		const arrived = store.state.participants[ALICE];
+		expect(arrived?.size).toEqual({ width: 140, height: 140 });
+		expect(arrived?.rotation).toBe(30);
+		expect(arrived?.clip).toEqual({ shape: 'ellipse' });
+	});
+
+	it('fills the LOWEST-numbered free placer, and leaving frees it again', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const one = placer({ x: 0, y: 0 });
+		const two = placer({ x: 500, y: 0 });
+		await store.commit({ kind: 'add_placer', placer: one });
+		await store.commit({ kind: 'add_placer', placer: two });
+
+		await store.commit({ kind: 'upsert_participant', participant: person(ALICE) });
+		expect(store.state.participants[ALICE]?.location).toEqual({ x: 0, y: 0 });
+
+		// Second arrival takes placer 2, because 1 is occupied.
+		await store.commit({ kind: 'upsert_participant', participant: person(BOB) });
+		expect(store.state.participants[BOB]?.location).toEqual({ x: 500, y: 0 });
+
+		// Alice leaves; placer 1 is free again for the next newcomer. Occupancy
+		// is derived from where people are, so this needs no bookkeeping.
+		await store.commit({ kind: 'remove_participant', id: ALICE });
+		await store.commit({ kind: 'upsert_participant', participant: person(CAROL) });
+		expect(store.state.participants[CAROL]?.location).toEqual({ x: 0, y: 0 });
+	});
+
+	it('falls through to nearest-legal when every placer is taken', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		await store.commit({ kind: 'add_placer', placer: placer({ x: 0, y: 0 }) });
+		await store.commit({ kind: 'upsert_participant', participant: person(ALICE) });
+		await store.commit({ kind: 'upsert_participant', participant: person(BOB) });
+
+		// Bob is somewhere legal rather than stacked on Alice.
+		expect(store.state.participants[BOB]?.location).not.toEqual({ x: 0, y: 0 });
+		expect(store.state.participants[ALICE]?.location).toEqual({ x: 0, y: 0 });
+	});
+
+	it('works with NO placers at all — the behaviour rooms had before them', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		await store.commit({ kind: 'upsert_participant', participant: person(ALICE) });
+		expect(store.state.participants[ALICE]).toBeDefined();
+	});
+
+	it('a return visit lands where you last were, NOT in a newcomer placer', async () => {
+		// Someone coming back is not a newcomer, and putting them in the
+		// newcomer seat would take it from the person it is for.
 		const room = `r${String(Math.random())}`;
 		const store = makeStore(room, ALICE);
-		await store.commit({ kind: 'set_default_location', location: { x: 300, y: 200 } });
+		await store.commit({ kind: 'add_placer', placer: placer({ x: 300, y: 200 }) });
 		await store.commit({ kind: 'upsert_participant', participant: person(ALICE) });
 		await store.commit({ kind: 'move_participant', id: ALICE, location: { x: 800, y: 40 } });
 		await store.commit({ kind: 'remove_participant', id: ALICE });
 
-		// Rejoin: remembered beats default (UX-AV-9).
 		await store.commit({ kind: 'upsert_participant', participant: person(ALICE) });
 		expect(store.state.participants[ALICE]?.location).toEqual({ x: 800, y: 40 });
 	});
@@ -937,13 +1005,10 @@ describe('placement: remembered, default, nearest legal (AR-CTRL-4/6, UX-AV-2/9)
 		const back = store.state.participants[ALICE];
 		expect(back).toBeDefined();
 		if (back === undefined) return;
-		// She is somewhere legal, and not on top of the note.
 		expect(back.location).not.toEqual({ x: 600, y: 0 });
 	});
 
 	it('memory is keyed PER CONFIGURATION, so Standup does not leak into Retro', async () => {
-		// UX-AV-9's exact claim, and the reason the key is a pair rather than
-		// just a participant id.
 		const store = makeStore(`r${String(Math.random())}`, ALICE);
 		await store.commit({ kind: 'upsert_participant', participant: person(ALICE) });
 
@@ -955,8 +1020,6 @@ describe('placement: remembered, default, nearest legal (AR-CTRL-4/6, UX-AV-2/9)
 		await store.commit({ kind: 'save_config', id: retro, name: 'Retro' });
 		await store.commit({ kind: 'move_participant', id: ALICE, location: { x: 700, y: 500 } });
 
-		// Switching re-places people by the same rule (AR-CTRL-4 reads locations
-		// at entry AND on switch — nothing did the latter before).
 		await store.commit({ kind: 'switch_config', id: standup });
 		expect(store.state.participants[ALICE]?.location).toEqual({ x: 100, y: 100 });
 
@@ -964,28 +1027,71 @@ describe('placement: remembered, default, nearest legal (AR-CTRL-4/6, UX-AV-2/9)
 		expect(store.state.participants[ALICE]?.location).toEqual({ x: 700, y: 500 });
 	});
 
-	it('a configuration carries its own drop-in point', async () => {
+	it('a configuration carries its own placers', async () => {
 		const store = makeStore(`r${String(Math.random())}`, ALICE);
-		await store.commit({ kind: 'set_default_location', location: { x: 50, y: 50 } });
+		await store.commit({ kind: 'add_placer', placer: placer({ x: 50, y: 50 }) });
 		const near = uuid();
 		await store.commit({ kind: 'save_config', id: near, name: 'Near' });
 
-		await store.commit({ kind: 'set_default_location', location: { x: 900, y: 900 } });
+		await store.commit({ kind: 'add_placer', placer: placer({ x: 900, y: 900 }) });
 		const far = uuid();
 		await store.commit({ kind: 'save_config', id: far, name: 'Far' });
 
 		await store.commit({ kind: 'switch_config', id: near });
-		expect(store.state.default_location).toEqual({ x: 50, y: 50 });
+		expect(store.state.placers.map((p) => ({ x: p.x, y: p.y }))).toEqual([{ x: 50, y: 50 }]);
 		await store.commit({ kind: 'switch_config', id: far });
-		expect(store.state.default_location).toEqual({ x: 900, y: 900 });
+		expect(store.state.placers.map((p) => ({ x: p.x, y: p.y }))).toEqual([
+			{ x: 50, y: 50 },
+			{ x: 900, y: 900 }
+		]);
+	});
+
+	it('removing a placer renumbers the rest, so there is never a gap', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		const first = placer({ x: 0, y: 0 });
+		const second = placer({ x: 400, y: 0 });
+		const third = placer({ x: 800, y: 0 });
+		for (const each of [first, second, third]) {
+			await store.commit({ kind: 'add_placer', placer: each });
+		}
+		await store.commit({ kind: 'remove_placer', id: second.id });
+
+		// Number IS array position, so what was 3 becomes 2 — "newcomer 3" with
+		// no newcomer 2 would be a puzzle the user has to interpret.
+		expect(store.state.placers.map((p) => p.id)).toEqual([first.id, third.id]);
+	});
+
+	it('a new placer is laid down CLEAR of anyone already standing there', async () => {
+		// Avatars paint above placers by design, so a placer spawned under one
+		// is visible and ungrabbable — the host sees a control they cannot
+		// reach. It may be MOVED under content afterwards; that is deliberate.
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		await store.commit({ kind: 'upsert_participant', participant: person(ALICE) });
+		const standing = store.state.participants[ALICE]?.location ?? { x: 0, y: 0 };
+
+		await store.commit({ kind: 'add_placer', placer: placer({ x: standing.x, y: standing.y }) });
+		const laid = store.state.placers[0];
+		expect(laid).toBeDefined();
+		expect({ x: laid?.x, y: laid?.y }).not.toEqual(standing);
+	});
+
+	it('a new placer never lands on ANOTHER placer', async () => {
+		// Two identical dashed boxes at the same coordinates: the top one eats
+		// every gesture aimed at the one below, and neither looks wrong.
+		const store = makeStore(`r${String(Math.random())}`, ALICE);
+		await store.commit({ kind: 'add_placer', placer: placer({ x: 200, y: 200 }) });
+		await store.commit({ kind: 'add_placer', placer: placer({ x: 200, y: 200 }) });
+
+		const [one, two] = store.state.placers;
+		expect(one).toBeDefined();
+		expect(two).toBeDefined();
+		expect({ x: two?.x, y: two?.y }).not.toEqual({ x: one?.x, y: one?.y });
 	});
 
 	it('arriving never displaces anyone (UX-AV-2)', async () => {
-		// Two people whose default is the same spot: the second is placed
-		// nearby, and the first does not move.
 		const room = `r${String(Math.random())}`;
 		const store = makeStore(room, ALICE);
-		await store.commit({ kind: 'set_default_location', location: { x: 400, y: 400 } });
+		await store.commit({ kind: 'add_placer', placer: placer({ x: 400, y: 400 }) });
 		await store.commit({ kind: 'upsert_participant', participant: person(ALICE) });
 		const first = { ...(store.state.participants[ALICE]?.location ?? { x: 0, y: 0 }) };
 

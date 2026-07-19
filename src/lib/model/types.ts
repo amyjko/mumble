@@ -12,6 +12,7 @@ import type {
 	canvasObjectSchema,
 	participantSchema,
 	layoutSchema,
+	placerSchema,
 	configSnapshotSchema,
 	configurationSchema,
 	roomStateSchema,
@@ -35,6 +36,7 @@ export type DrawingCanvasObject = z.infer<typeof drawingObjectSchema>;
 export type Participant = z.infer<typeof participantSchema>;
 /** A configuration's per-object layout: position, size, and visibility. */
 export type Layout = z.infer<typeof layoutSchema>;
+export type Placer = z.infer<typeof placerSchema>;
 export type ConfigSnapshot = z.infer<typeof configSnapshotSchema>;
 export type Configuration = z.infer<typeof configurationSchema>;
 export type RoomState = z.infer<typeof roomStateSchema>;

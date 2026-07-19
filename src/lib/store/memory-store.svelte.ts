@@ -13,6 +13,8 @@ import type {
 	EphemeralMessage,
 	Mutation,
 	Participant,
+	Placer,
+	Size,
 	RoomState,
 	Transform
 } from '$lib/model/types';
@@ -40,7 +42,7 @@ import type { Clip, Point, SolverShape } from '$lib/model/types';
 import type { RoomStore } from './room-store';
 
 function freshState(): RoomState {
-	return { objects: {}, participants: {}, background: '', title: '', description: '', create_permission: 'all', border_default: DEFAULT_BORDER_WIDTH, ...freshStage(), transport: 'p2p', participant_locations: {}, default_location: { x: 0, y: 0 }, configurations: {}, active_config: null };
+	return { objects: {}, participants: {}, background: '', title: '', description: '', create_permission: 'all', border_default: DEFAULT_BORDER_WIDTH, ...freshStage(), transport: 'p2p', participant_locations: {}, placers: [], configurations: {}, active_config: null };
 }
 
 /**
@@ -384,7 +386,7 @@ export class MemoryRoomStore implements RoomStore {
 				if (!admits(this.stage(), present, already)) {
 					throw new StoreRejection('permission', 'This room is full');
 				}
-				const located: Participant = { ...m.participant, location: this.entryLocation(m.participant) };
+				const located: Participant = { ...m.participant, ...this.entryPlacement(m.participant) };
 				this.state.participants[located.id] = located;
 				break;
 			}
@@ -478,9 +480,34 @@ export class MemoryRoomStore implements RoomStore {
 				this.applyStage(revokeSlot(this.stage(), m.id, m.media));
 				break;
 			}
-			case 'set_default_location': {
+			case 'add_placer': {
 				this.requireHostForRoom();
-				this.state.default_location = m.location;
+				// Laid down CLEAR of anyone standing there AND of other placers. A
+				// placer may legitimately be moved under content afterwards — it
+				// holds no space — but spawning underneath something makes it
+				// unreachable by pointer, and the host is left with a control
+				// they can see and cannot grab. Stacked placers are the worse
+				// case: identical dashed boxes, where the top one silently eats
+				// every gesture aimed at the one below.
+				const clear = nearestLegal(shapeOfPlacer(m.placer), [
+					...this.shapes(),
+					...this.state.placers.map((existing) => shapeOfPlacer(existing))
+				]);
+				this.state.placers = [...this.state.placers, { ...m.placer, x: clear.x, y: clear.y }];
+				break;
+			}
+			case 'update_placer': {
+				this.requireHostForRoom();
+				const at = this.state.placers.findIndex((placer) => placer.id === m.placer.id);
+				if (at === -1) throw new StoreRejection('invalid', 'Unknown placer');
+				this.state.placers[at] = { ...m.placer };
+				break;
+			}
+			case 'remove_placer': {
+				this.requireHostForRoom();
+				// Numbering is array position, so removing one renumbers the rest.
+				// That is the point: "newcomer 4" with no newcomer 3 is a puzzle.
+				this.state.placers = this.state.placers.filter((placer) => placer.id !== m.id);
 				break;
 			}
 			case 'set_capacity': {
@@ -610,7 +637,7 @@ export class MemoryRoomStore implements RoomStore {
 			// Capacity is per-configuration (UX-STAGE-1), so it travels with the
 			// snapshot and is re-applied on switch (AR-MEDIA-1).
 			capacity: { ...this.state.capacity },
-			default_location: { ...this.state.default_location },
+			placers: this.state.placers.map((placer) => ({ ...placer })),
 			background: this.state.background,
 			title: this.state.title,
 			description: this.state.description
@@ -629,7 +656,7 @@ export class MemoryRoomStore implements RoomStore {
 		// queue. Routing through applyCapacity means switch and reset get that
 		// for free rather than each reimplementing it.
 		this.applyStage(applyCapacity(this.stage(), snapshot.capacity));
-		this.state.default_location = { ...snapshot.default_location };
+		this.state.placers = snapshot.placers.map((placer) => ({ ...placer }));
 		this.state.background = snapshot.background;
 		this.state.title = snapshot.title;
 		this.state.description = snapshot.description;
@@ -641,23 +668,70 @@ export class MemoryRoomStore implements RoomStore {
 	}
 
 	/**
-	 * Where someone appears on entry (AR-CTRL-4), in the order the requirement
-	 * states: remembered location for THIS configuration → the configuration's
-	 * default location → the nearest legal position (UX-OBJ-12).
+	 * The lowest-numbered placer nobody is standing in (UX-AV-2).
 	 *
-	 * Only the third step existed before; a participant simply arrived wherever
-	 * the caller suggested. The first two are what make UX-AV-2's "arriving
-	 * never displaces anyone" and UX-AV-9's per-configuration memory true.
+	 * Occupancy is DERIVED from where people actually are, not tracked in a
+	 * separate assignment table. A table would be a second source of truth that
+	 * drifts the moment someone wanders off, leaves in a lost tab, or is
+	 * re-placed by a configuration switch — and it would have to be reconciled
+	 * on every one of those. Deriving it also gives "leaving frees the spot"
+	 * for nothing, because leaving is what makes the spot legal again.
+	 */
+	private freePlacer(excludeId: string): Placer | undefined {
+		return this.state.placers.find((placer) =>
+			placementLegal(shapeOfPlacer(placer), this.shapes(excludeId))
+		);
+	}
+
+	/**
+	 * How someone arrives (AR-CTRL-4 / UX-AV-2), in the order the requirement
+	 * states: remembered spot for THIS configuration → the lowest-numbered free
+	 * placer → the nearest legal position (UX-OBJ-12).
+	 *
+	 * Returns GEOMETRY, not just a point, because a placer defines the arrival:
+	 * whoever lands in one adopts its size, rotation, and shape. That is what
+	 * makes a placer's resize and rotate handles mean something rather than
+	 * decorate a marker — a host lays out tilted hexagonal seats and arrivals
+	 * take that form.
 	 *
 	 * A remembered location is RE-VALIDATED, not trusted: the layout may have
 	 * changed since, so an illegal remembered spot falls through to the same
-	 * search rather than dropping someone on top of content.
+	 * search rather than dropping someone on top of content. Note what it does
+	 * NOT do — fall through to a placer. Someone returning to a room they have
+	 * been in before is not a newcomer, and putting them in the newcomer seat
+	 * would take it from the person it is for.
 	 */
-	private entryLocation(participant: Participant): Point {
+	private entryPlacement(participant: Participant): {
+		location: Point;
+		size: Size;
+		rotation: number;
+		clip: Clip;
+	} {
+		const own = {
+			size: participant.size,
+			rotation: participant.rotation,
+			clip: participant.clip
+		};
 		const remembered = this.state.participant_locations[this.locationKey(participant.id)];
-		const preferred = remembered ?? this.state.default_location;
-		const shape = { ...shapeOfParticipant(participant), x: preferred.x, y: preferred.y };
-		return nearestLegal(shape, this.shapes(participant.id));
+		if (remembered !== undefined) {
+			const shape = { ...shapeOfParticipant(participant), x: remembered.x, y: remembered.y };
+			return { ...own, location: nearestLegal(shape, this.shapes(participant.id)) };
+		}
+
+		const placer = this.freePlacer(participant.id);
+		if (placer !== undefined) {
+			return {
+				location: nearestLegal(shapeOfPlacer(placer), this.shapes(participant.id)),
+				size: { width: placer.width, height: placer.height },
+				rotation: placer.rotation,
+				clip: { ...placer.clip }
+			};
+		}
+
+		// No memory and no free placer: the behaviour every room had before
+		// placers existed. Not an error — a configuration need not have any.
+		const shape = { ...shapeOfParticipant(participant), x: 0, y: 0 };
+		return { ...own, location: nearestLegal(shape, this.shapes(participant.id)) };
 	}
 
 	/**
@@ -670,7 +744,11 @@ export class MemoryRoomStore implements RoomStore {
 		for (const id of Object.keys(this.state.participants).sort()) {
 			const participant = this.state.participants[id];
 			if (participant === undefined) continue;
-			participant.location = this.entryLocation(participant);
+			const placement = this.entryPlacement(participant);
+			participant.location = placement.location;
+			participant.size = placement.size;
+			participant.rotation = placement.rotation;
+			participant.clip = placement.clip;
 		}
 	}
 
@@ -788,6 +866,26 @@ export function outlinePoints(clip: Clip): readonly { x: number; y: number }[] |
 		default:
 			return undefined;
 	}
+}
+
+/**
+ * Solver view of a placer, used only to ask whether anyone is standing in it.
+ * A placer never enters the obstacle set itself — it holds no space, so people
+ * and content pass through it freely. Borrows the avatar border so "occupied"
+ * means the same thing here as it does between two avatars.
+ */
+export function shapeOfPlacer(placer: Placer): SolverShape {
+	return {
+		id: placer.id,
+		x: placer.x,
+		y: placer.y,
+		width: placer.width,
+		height: placer.height,
+		rotation: placer.rotation,
+		circle: placer.clip.shape === 'circle',
+		points: outlinePoints(placer.clip),
+		border: AVATAR_BORDER
+	};
 }
 
 export function shapeOfParticipant(participant: Participant): SolverShape {

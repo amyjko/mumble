@@ -38,6 +38,25 @@ export function canSee(object: CanvasObject, actorId: string, isHost: boolean): 
 }
 
 /**
+ * Who may lay out newcomer placers (UX-AV-2): a room-design privilege, not an
+ * object one, so it takes no object and asks only about the role.
+ *
+ * DELIBERATELY PERMISSIVE UNTIL THE ROLE EXISTS. The requirement says placers
+ * are host-only, and `isHost` is false at every call site today — so gating on
+ * it literally would hide them from everyone, which means nobody could
+ * position them and the feature would ship dead. That is precisely the
+ * `create_permission: 'host'` defect, where a setting admits nobody.
+ *
+ * So this returns true for now and the gate is a real function with a real
+ * argument, ready to become `return isHost` the day admission lands. The
+ * alternative — no function at all — would leave nothing to change.
+ */
+export function canDesignRoom(isHost: boolean): boolean {
+	void isHost;
+	return true;
+}
+
+/**
  * Glyphs for each permission (UX-PERM-1). Data, not markup, so every render
  * goes through <Emoji> and therefore --font-emoji — enforced by
  * no-raw-emoji.spec.ts, which caught these as literals when they were written

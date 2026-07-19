@@ -13,11 +13,11 @@
 	import { simplify, strokeBounds, normalizePoints, pointsToPath } from '$lib/model/drawing';
 	import type { Bounds } from './geometry';
 	import ObjectFrame from './ObjectFrame.svelte';
-	import DefaultLocation from './DefaultLocation.svelte';
+	import PlacerMarker from './PlacerMarker.svelte';
 	import AvatarTile from './AvatarTile.svelte';
 	import ObjectContent from '$lib/objects/ObjectContent.svelte';
 	import Button from '$lib/ui/Button.svelte';
-	import { canEdit, canSee } from '$lib/model/permissions';
+	import { canDesignRoom, canEdit, canSee } from '$lib/model/permissions';
 	import { untrack } from 'svelte';
 
 	interface Props {
@@ -30,6 +30,13 @@
 	}
 
 	let { store, sync, viewport, identity, drawMode, drawColor }: Props = $props();
+
+	/**
+	 * Placers are a host tool (UX-AV-2). The role does not exist yet, so this
+	 * is true for everyone today — see canDesignRoom for why that is deliberate
+	 * rather than an oversight.
+	 */
+	const canDesign = $derived(canDesignRoom(false));
 
 	let width = $state(1);
 	let height = $state(1);
@@ -303,10 +310,21 @@
 		class:animated={viewport.animating}
 		style:transform="translate({viewport.camera.x}px, {viewport.camera.y}px) scale({viewport.camera.scale})"
 	>
-		<!-- The configuration's drop-in point (UX-AV-2). In the world layer so it
-		     pans and scales with content, but it is a marker, not an object: it
-		     holds no space and is not part of any object layout. -->
-		<DefaultLocation {store} {sync} {viewport} />
+		<!-- Newcomer placers (UX-AV-2). In the world layer so they pan and scale
+		     with content, but they are markers, not objects: they hold no space
+		     and are not part of any object layout.
+
+		     Host-only by requirement. `isHost` is false everywhere until the
+		     role arrives with admission, and gating on it now would make these
+		     invisible to everyone and therefore impossible to position — the
+		     same defect as a create_permission that admits nobody. So the gate
+		     is written where it belongs and left inert, exactly as canEdit and
+		     canSee already do. -->
+		{#if canDesign}
+			{#each store.state.placers as placer, index (placer.id)}
+				<PlacerMarker {placer} number={index + 1} {sync} {viewport} />
+			{/each}
+		{/if}
 
 		{#each rendered as object (object.id)}
 			<ObjectFrame

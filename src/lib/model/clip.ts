@@ -45,3 +45,47 @@ export function clipPathCss(clip: Clip): string | null {
 			return null;
 	}
 }
+
+/**
+ * The shape's outline as an SVG element description, in a 0–100 box.
+ *
+ * Exists because a DASHED outline cannot be drawn with `clip-path`: clipping a
+ * bordered box removes the border rather than bending it, which is the same
+ * failure the sticker border had (UX-OBJ-8) — and there the fix was a second
+ * clipped layer forming a ring, which cannot be dashed. Stroking a real path
+ * is the only way to get a dashed edge that follows an ellipse or a hexagon.
+ *
+ * Coordinates are percentages so the caller can render at any size with
+ * `viewBox="0 0 100 100"` and `preserveAspectRatio="none"`; pair that with
+ * `vector-effect="non-scaling-stroke"` or a non-square box will stretch the
+ * dashes.
+ */
+export type Outline =
+	| { kind: 'rect'; rx: number; ry: number }
+	| { kind: 'ellipse' }
+	| { kind: 'polygon'; points: { x: number; y: number }[] };
+
+export function outlineFor(clip: Clip, width: number, height: number): Outline {
+	switch (clip.shape) {
+		case 'rect':
+			return { kind: 'rect', rx: 0, ry: 0 };
+		case 'rounded':
+			// Radius is in pixels but the box is 0–100, and x and y scale
+			// independently — so the corner is elliptical, matching what
+			// border-radius actually paints on a non-square box. Using one axis
+			// for both would visibly disagree with the object it describes.
+			return {
+				kind: 'rect',
+				rx: (clip.radius / Math.max(width, 1)) * 100,
+				ry: (clip.radius / Math.max(height, 1)) * 100
+			};
+		case 'circle':
+		case 'ellipse':
+			// `circle` is border-radius 50%, which on a non-square box paints an
+			// ellipse — so both map to the same outline. Calling this an ellipse
+			// is the honest description of what the user sees.
+			return { kind: 'ellipse' };
+		case 'polygon':
+			return { kind: 'polygon', points: clip.points };
+	}
+}

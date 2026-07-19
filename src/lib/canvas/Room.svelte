@@ -20,6 +20,7 @@
 	import { DRAW_COLORS } from '$lib/model/palette';
 	import { canonicalRoomName, roomNameMessage, roomNameProblem } from '$lib/model/room-name';
 	import { wasDisplaced } from '$lib/model/placement';
+	import { canDesignRoom } from '$lib/model/permissions';
 	import { counts as stageCounts, type Capacity, type StageState } from '$lib/model/stage';
 	import { AVATAR_EMOJI, saveIdentity } from '$lib/model/identity';
 	import EmojiPicker from '$lib/ui/EmojiPicker.svelte';
@@ -97,6 +98,8 @@
 	});
 
 	const count = $derived(Object.keys(store.state.participants).length);
+	/** Placers are a host tool; the gate is real but inert (canDesignRoom). */
+	const canDesign = $derived(canDesignRoom(false));
 
 	/**
 	 * Say so when the room moved you (AR-CTRL-4).
@@ -156,6 +159,27 @@
 		const objects = untrack(() => Object.values(store.state.objects));
 		void sync.commit({ kind: 'create_object', object: newTimer(identity.id, centerWorld(), maxZOf(objects), store.state.border_default) });
 		sync.announce('Timer added');
+	}
+	/**
+	 * Lay out a spot for the next newcomer (UX-AV-2). Created at the viewport
+	 * centre like any other addition, sized to the default avatar so the host
+	 * sees the footprint an arrival will actually take.
+	 */
+	function addPlacer(): void {
+		const at = centerWorld();
+		void sync.commit({
+			kind: 'add_placer',
+			placer: {
+				id: crypto.randomUUID(),
+				x: at.x,
+				y: at.y,
+				width: AVATAR_SIZE,
+				height: AVATAR_SIZE,
+				rotation: 0,
+				clip: { shape: 'circle' }
+			}
+		});
+		sync.announce(`Newcomer spot ${String(store.state.placers.length + 1)} added`);
 	}
 	function addChat(): void {
 		const objects = untrack(() => Object.values(store.state.objects));
@@ -376,6 +400,10 @@
 	<Button disabled={!mayCreate} onclick={addNote}>+ note</Button>
 	<Button disabled={!mayCreate} onclick={addTimer}>+ timer</Button>
 	<Button disabled={!mayCreate} onclick={addChat}>+ chat</Button>
+	<!-- A host tool, not content: placers say where NEWCOMERS land (UX-AV-2). -->
+	{#if canDesign}
+		<Button onclick={addPlacer}>+ newcomer spot</Button>
+	{/if}
 
 	<Popover id="config-menu" label="configs" anchor="top-start">
 		<div class="menu">

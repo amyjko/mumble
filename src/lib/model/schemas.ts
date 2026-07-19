@@ -203,15 +203,43 @@ export const layoutSchema = z.object({
 
 export const pointSchema = z.object({ x: z.number(), y: z.number() });
 
+/**
+ * A newcomer placer (UX-AV-2): a numbered spot a host lays out to say where
+ * arrivals should appear and what they should look like when they do.
+ *
+ * NOT an object, and the distinction is load-bearing: a placer holds no space
+ * in the solver, carries no permission of its own, never appears in a
+ * configuration's object layout, and is invisible to the people it places. It
+ * is a property OF the configuration that happens to be positioned.
+ *
+ * It carries a full transform and clip rather than a bare point because the
+ * placer DEFINES the arrival: whoever lands here adopts its size, rotation,
+ * and shape. That is what makes the resize and rotate handles mean something
+ * instead of decorating a marker.
+ *
+ * Number is array position, not a stored field. A stored index drifts the
+ * first time one is deleted from the middle, and "newcomer 4" with no
+ * newcomer 3 is a bug the user has to interpret.
+ */
+export const placerSchema = z.object({
+	id: z.uuid(),
+	/** No `z`: placers never interleave with content, they sit under avatars. */
+	x: z.number(),
+	y: z.number(),
+	width: z.number().positive(),
+	height: z.number().positive(),
+	rotation: z.number(),
+	clip: clipSchema
+});
+
 export const configSnapshotSchema = z.object({
 	layouts: z.record(z.uuid(), layoutSchema),
 	/**
-	 * The configuration's drop-in point (UX-AV-2): where a participant appears
-	 * when they have no remembered location HERE. A draggable marker, not an
-	 * object — the glossary is explicit about that, and it matters: a marker
-	 * holds no space, takes no permission, and cannot be deleted like content.
+	 * Where newcomers appear in this configuration, in order (UX-AV-2). A
+	 * configuration with no placers still works — arrivals fall through to
+	 * nearest-legal, which is what every room did before placers existed.
 	 */
-	default_location: pointSchema.default({ x: 0, y: 0 }),
+	placers: z.array(placerSchema).default([]),
 	/** UX-STAGE-1: the numbers belong to the configuration, not the room. */
 	capacity: capacitySchema.default({ max_participants: 20, max_av: 4, max_audio: 8 }),
 	background: z.string(),
@@ -263,8 +291,8 @@ export const roomStateSchema = z.object({
 	 * "Standup" never leaks into "Retro" (UX-AV-9).
 	 */
 	participant_locations: z.record(z.string(), pointSchema).default({}),
-	/** The live default location; a configuration switch re-applies its own. */
-	default_location: pointSchema.default({ x: 0, y: 0 }),
+	/** The live placers; a configuration switch re-applies its own set. */
+	placers: z.array(placerSchema).default([]),
 	configurations: z.record(z.uuid(), configurationSchema).default({}),
 	active_config: z.uuid().nullable().default(null)
 });
@@ -324,8 +352,14 @@ export const mutationSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('grant_slot'), id: z.uuid(), media: slotMediaSchema }),
 	z.object({ kind: z.literal('revoke_slot'), id: z.uuid(), media: slotMediaSchema }),
 	z.object({ kind: z.literal('set_capacity'), capacity: capacitySchema }),
-	/** Hosts position the drop-in point like any other element (UX-AV-2). */
-	z.object({ kind: z.literal('set_default_location'), location: pointSchema }),
+	/**
+	 * Hosts lay out newcomer placers (UX-AV-2). Transform and clip are set with
+	 * the same gestures as an object's, so the whole placer is one mutation
+	 * rather than a position/size/rotation/shape family.
+	 */
+	z.object({ kind: z.literal('add_placer'), placer: placerSchema }),
+	z.object({ kind: z.literal('update_placer'), placer: placerSchema }),
+	z.object({ kind: z.literal('remove_placer'), id: z.uuid() }),
 	z.object({ kind: z.literal('set_away'), id: z.uuid(), away: z.boolean() }),
 	// Change your own name or camera-off face (UX-ID-1, UX-AV-3). Self-only:
 	// your identity is yours, the same rule that governs emotes (UX-AV-7).
