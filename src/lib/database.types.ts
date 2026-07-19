@@ -69,6 +69,27 @@ export type Database = {
           },
         ]
       }
+      profiles: {
+        Row: {
+          emoji: string
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          emoji: string
+          id: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          emoji?: string
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       reserved_room_names: {
         Row: {
           name: string

@@ -1,4 +1,6 @@
 import { supabaseBrowser, ensureSession } from './browser-client';
+import { syncProfile, type Profile } from './profile';
+import type { StoredIdentity } from '$lib/model/types';
 
 /**
  * Who you are in THIS room (AR-CTRL-7, UX-PERM-3).
@@ -16,11 +18,21 @@ export interface Membership {
 	userId: string | null;
 	roomId: string | null;
 	isHost: boolean;
+	/**
+	 * The roaming avatar identity (UX-ID-6). Null when there is nothing stored
+	 * and nothing local to seed it from — a genuine first visit, where the join
+	 * prompt asks.
+	 */
+	profile: Profile | null;
 }
 
-export async function joinRoom(name: string): Promise<Membership> {
+export async function joinRoom(name: string, local: StoredIdentity | null = null): Promise<Membership> {
 	const userId = await ensureSession();
-	if (userId === null) return { userId: null, roomId: null, isHost: false };
+	if (userId === null) return { userId: null, roomId: null, isHost: false, profile: null };
+
+	// Identity first: the name and face follow the person, so they are resolved
+	// before anything room-shaped. Seeds from `local` when nothing is stored.
+	const profile = await syncProfile(supabaseBrowser(), userId, local);
 
 	const { data, error } = await supabaseBrowser().rpc('join_room', { p_name: name });
 	// A failure here must not blank the canvas: the room still works on the
@@ -28,10 +40,10 @@ export async function joinRoom(name: string): Promise<Membership> {
 	// where a developer looks when host controls are missing.
 	if (error !== null) {
 		console.warn('mumble: could not join room', error.message);
-		return { userId, roomId: null, isHost: false };
+		return { userId, roomId: null, isHost: false, profile };
 	}
 
 	const row = data.at(0);
-	if (row === undefined) return { userId, roomId: null, isHost: false };
-	return { userId, roomId: row.out_room_id, isHost: row.out_is_host };
+	if (row === undefined) return { userId, roomId: null, isHost: false, profile };
+	return { userId, roomId: row.out_room_id, isHost: row.out_is_host, profile };
 }

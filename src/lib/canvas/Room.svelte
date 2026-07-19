@@ -24,6 +24,8 @@
 	import { canDesignRoom } from '$lib/model/permissions';
 	import { counts as stageCounts, type Capacity, type StageState } from '$lib/model/stage';
 	import { AVATAR_EMOJI, saveIdentity } from '$lib/model/identity';
+	import { saveMyProfile } from '$lib/auth/profile';
+	import { supabaseBrowser } from '$lib/auth/browser-client';
 	import { ADD_EMOJI } from '$lib/model/emotes';
 	import EmojiPicker from '$lib/ui/EmojiPicker.svelte';
 	import Emoji from '$lib/ui/Emoji.svelte';
@@ -193,6 +195,14 @@
 		saveIdentity(next);
 		identity = next;
 		void sync.commit({ kind: 'set_identity', id: identity.id, name: next.name, emoji: next.emoji });
+
+		// THREE places, because they answer three different questions:
+		//   localStorage — who am I in this browser, offline, before any network
+		//   the room     — who is that on the canvas, for everyone here now
+		//   the profile  — who am I everywhere, on my next machine (UX-ID-6)
+		// Writing only the first two is what made a second machine show a
+		// stranger's blank face.
+		void saveMyProfile(supabaseBrowser(), { name: next.name, emoji: next.emoji });
 		sync.announce('Your name and face were updated');
 	}
 

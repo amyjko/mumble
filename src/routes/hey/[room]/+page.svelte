@@ -1,9 +1,12 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import type { PageProps } from './$types';
 	import type { StoredIdentity } from '$lib/model/types';
-	import { loadIdentity } from '$lib/model/identity';
+	import { loadIdentity, saveIdentity } from '$lib/model/identity';
 	import JoinPrompt from '$lib/ui/JoinPrompt.svelte';
 	import { joinRoom } from '$lib/auth/membership.svelte';
+	import { saveMyProfile } from '$lib/auth/profile';
+	import { supabaseBrowser } from '$lib/auth/browser-client';
 	import Room from '$lib/canvas/Room.svelte';
 
 	/**
@@ -32,8 +35,21 @@
 	let isHost = $state(false);
 	$effect(() => {
 		const room = data.room;
-		void joinRoom(room).then((membership) => {
+		// `identity` is passed in so a name chosen in THIS browser seeds the
+		// stored profile on first sign-in, rather than being replaced by it.
+		void joinRoom(room, untrack(() => identity)).then((membership) => {
 			isHost = membership.isHost;
+			if (membership.profile === null) return;
+			// The stored profile WINS (UX-ID-6): it is the roaming copy, and the
+			// browser you happen to be at is the incidental thing. Mirrored back
+			// to localStorage so an offline reload still knows who you are.
+			const roamed = {
+				id: membership.userId ?? identity?.id ?? '',
+				name: membership.profile.name,
+				emoji: membership.profile.emoji
+			};
+			identity = roamed;
+			saveIdentity(roamed);
 		});
 	});
 </script>
@@ -46,6 +62,11 @@
 	<JoinPrompt
 		onjoin={(joined: StoredIdentity) => {
 			identity = joined;
+			// Seed the profile HERE too, not only in the join effect above. That
+			// effect runs on mount, before a first-time visitor has answered this
+			// prompt — so it sees no local identity, seeds nothing, and the name
+			// they just chose would never leave this browser.
+			void saveMyProfile(supabaseBrowser(), { name: joined.name, emoji: joined.emoji });
 		}}
 	/>
 {:else}
