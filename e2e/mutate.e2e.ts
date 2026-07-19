@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { roomName } from './support/join';
-import { hostRoom, signInAsAccount } from './support/auth';
+import { hostRoom, signInAsAccount, testEmail } from './support/auth';
 
 /**
  * The control plane's write path (AR-SYNC-3, AR-CTRL-1).
@@ -59,7 +59,7 @@ test('a non-member cannot mutate a room they can see', async ({ page }) => {
 	await hostRoom(page, room);
 
 	await page.context().clearCookies();
-	await signInAsAccount(page); // a different account, never joined
+	await signInAsAccount(page, testEmail('stranger')); // a DIFFERENT account, never joined
 	const response = await page.request.post(`/api/rooms/${room}/mutate`, {
 		data: { kind: 'set_background', value: '' }
 	});

@@ -15,6 +15,8 @@ import { hostRoom, signInAsAccount, testEmail } from './support/auth';
  */
 
 test('a name chosen on one machine appears on another', async ({ browser }) => {
+	// An explicit address: this test is about ONE person on TWO machines, which
+	// the shared account cannot express.
 	const email = testEmail('roam');
 	const room = roomName('roam');
 

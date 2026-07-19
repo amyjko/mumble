@@ -369,6 +369,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_room_state: { Args: { p_room_id: string }; Returns: Json }
       is_admitted_member: { Args: { target_room: string }; Returns: boolean }
       is_host: { Args: { target_room: string }; Returns: boolean }
       is_member: { Args: { target_room: string }; Returns: boolean }
@@ -378,6 +379,10 @@ export type Database = {
           out_is_host: boolean
           out_room_id: string
         }[]
+      }
+      save_room_state: {
+        Args: { p_expected_version: number; p_room_id: string; p_state: Json }
+        Returns: number
       }
     }
     Enums: {

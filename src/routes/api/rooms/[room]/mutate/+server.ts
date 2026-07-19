@@ -4,7 +4,7 @@ import { StoreRejection } from '$lib/model/types';
 import { applyMutation } from '$lib/model/rules';
 import { parseClaims } from '$lib/auth/claims';
 import { supabaseAdmin } from '$lib/server/supabase-admin';
-import { loadRoomState, saveRoomState } from '$lib/server/room-state';
+import { loadRoomState, saveRoomState, VersionConflict } from '$lib/server/room-state';
 import { canonicalRoomName } from '$lib/model/room-name';
 
 /**
@@ -46,24 +46,35 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 		error(403, 'Not a member of this room');
 	}
 
-	const state = await loadRoomState(db, room.data.id);
-	if (state === null) error(404, 'No such room');
+	const ctx = { actorId: claims.sub, isHost: membership.data.role === 'host' };
 
-	try {
-		applyMutation(state, parsed.data, {
-			actorId: claims.sub,
-			isHost: membership.data.role === 'host'
-		});
-	} catch (rejection) {
-		if (rejection instanceof StoreRejection) {
-			// The same reasons the optimistic layer already reverts on, mapped to
-			// status codes so the client can reconstruct them.
-			const status = { permission: 403, overlap: 409, invalid: 400, forced: 409 }[rejection.reason];
-			error(status, rejection.message);
+	// Bounded retry on a version conflict. Bounded, not a loop: under a
+	// concurrent drag an unbounded retry is a storm, and the loser seeing
+	// UX-PERM-4's revert is a better outcome than the server grinding.
+	for (let attempt = 0; attempt < 3; attempt++) {
+		const room_state = await loadRoomState(db, room.data.id);
+		if (room_state === null) error(404, 'No such room');
+
+		try {
+			applyMutation(room_state.state, parsed.data, ctx);
+		} catch (rejection) {
+			if (rejection instanceof StoreRejection) {
+				// The same reasons the optimistic layer already reverts on, mapped
+				// to status codes so the client can reconstruct them.
+				const status = { permission: 403, overlap: 409, invalid: 400, forced: 409 }[rejection.reason];
+				error(status, rejection.message);
+			}
+			throw rejection;
 		}
-		throw rejection;
-	}
 
-	await saveRoomState(db, room.data.id, state);
-	return json({ ok: true });
+		try {
+			const version = await saveRoomState(db, room.data.id, room_state.version, room_state.state);
+			return json({ ok: true, version });
+		} catch (conflict) {
+			// Someone committed between our read and our write. Re-read and
+			// re-apply, so the rule engine judges against the winner's state.
+			if (!(conflict instanceof VersionConflict)) throw conflict;
+		}
+	}
+	error(409, 'The room changed while you were writing. Try again.');
 };

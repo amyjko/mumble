@@ -1,175 +1,93 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from '$lib/database.types';
+import type { Database, Json } from '$lib/database.types';
 import type { RoomState } from '$lib/model/types';
+import { z } from 'zod';
 import { roomStateSchema } from '$lib/model/schemas';
 
 /**
- * Postgres renders `timestamptz` as `2026-07-19 05:00:00+00` — a space, and a
- * `+00` offset. The schema demands strict ISO 8601 (`T`, `Z`), which is what
- * the browser produces and what every stored room already contains. The
- * database's representation and the wire format genuinely differ, so the
- * loader is where they are reconciled; without this every object round-trips
- * as "Invalid ISO datetime" the moment it is read back.
+ * The RPC's envelope. Parsed rather than asserted: `rpc()` returns Json, and
+ * this project bans `as` precisely so a shape coming from outside gets checked
+ * once at the boundary instead of assumed everywhere after it.
  */
-function isoTime(value: string): string {
-	return new Date(value).toISOString();
-}
+const envelopeSchema = z.object({ version: z.number(), state: z.unknown() });
 
 /**
- * Assemble a RoomState from Postgres, and write one back.
+ * A plain-data copy for the wire.
  *
- * The shape is `roomStateSchema` — the SAME schema the canvas renders and the
- * rule engine mutates — so the database is a projection of one model rather
- * than a second definition of it. Everything read here is parsed by that schema
- * before it is trusted, exactly as the stub parses localStorage.
+ * `JSON.parse` returns `any`, which the no-unsafe-* rules refuse — and refuse
+ * for a good reason here, since this value is about to be handed to SQL. The
+ * round trip itself is necessary: Svelte `$state` proxies do not survive
+ * serialisation intact, and sending one produces something the function cannot
+ * read, silently.
  */
-export async function loadRoomState(
-	db: SupabaseClient<Database>,
-	roomId: string
-): Promise<RoomState | null> {
-	const [state, objects, participants, configurations, locations] = await Promise.all([
-		db.from('room_state').select('*').eq('room_id', roomId).maybeSingle(),
-		db.from('room_objects').select('*').eq('room_id', roomId),
-		db.from('room_participants').select('*').eq('room_id', roomId),
-		db.from('room_configurations').select('*').eq('room_id', roomId),
-		db.from('participant_locations').select('*').eq('room_id', roomId)
-	]);
-	if (state.data === null) return null;
-
-	const row = state.data;
-	const parsed = roomStateSchema.safeParse({
-		objects: Object.fromEntries(
-			(objects.data ?? []).map((o) => [
-				o.id,
-				{
-					id: o.id,
-					type: o.type,
-					creator_id: o.creator_id,
-					permission: o.permission,
-					hidden: o.hidden,
-					transform: o.transform,
-					clip: o.clip,
-					border: o.border,
-					payload: o.payload,
-					created_at: isoTime(o.created_at),
-					updated_at: isoTime(o.updated_at)
-				}
-			])
-		),
-		participants: Object.fromEntries(
-			(participants.data ?? []).map((p) => [
-				p.id,
-				{
-					id: p.id,
-					name: p.name,
-					emoji: p.emoji,
-					location: p.location,
-					size: p.size,
-					rotation: p.rotation,
-					clip: p.clip,
-					fake: p.fake,
-					away: p.away,
-					muted: p.muted
-				}
-			])
-		),
-		background: row.background,
-		title: row.title,
-		description: row.description,
-		create_permission: row.create_permission,
-		border_default: row.border_default,
-		capacity: {
-			max_participants: row.max_participants,
-			max_av: row.max_av,
-			max_audio: row.max_audio
-		},
-		video_holders: row.video_holders,
-		audio_holders: row.audio_holders,
-		queue: row.queue,
-		transport: row.transport,
-		placers: row.placers,
-		active_config: row.active_config,
-		configurations: Object.fromEntries(
-			(configurations.data ?? []).map((c) => [c.id, { id: c.id, name: c.name, snapshot: c.snapshot }])
-		),
-		participant_locations: Object.fromEntries(
-			(locations.data ?? []).map((l) => [l.config_key, { x: l.x, y: l.y }])
-		)
-	});
-
-	// A row that no longer satisfies the schema is a bug worth surfacing, not
-	// one to paper over with defaults — the stub's equivalent path warns and
-	// starts fresh, which a server may not do to someone's room.
-	if (!parsed.success) throw new Error(`room ${roomId} failed validation: ${parsed.error.message}`);
+function plainJson(value: RoomState): Json {
+	const copy: unknown = JSON.parse(JSON.stringify(value));
+	// Validated against the generated `Json` shape rather than cast into it.
+	const json: z.ZodType<Json> = z.lazy(() =>
+		z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(json), z.record(z.string(), json)])
+	);
+	const parsed = json.safeParse(copy);
+	if (!parsed.success) throw new Error('room state did not serialise to JSON');
 	return parsed.data;
 }
 
 /**
- * Persist a mutated RoomState.
+ * Room state, read and written as a whole (AR-BACKEND-4, AR-SYNC-3).
  *
- * Writes the whole projection rather than a computed diff. That is a
- * deliberate first cut: correctness before cleverness, and the shape that a
- * diff would optimise is the shape Realtime fan-out will dictate anyway
- * (AR-BACKEND-4). It is bounded by room size, not by history.
+ * Both directions are ONE call into SQL. Reading that way gives a consistent
+ * snapshot — five PostgREST queries can interleave with a write and produce
+ * objects from before it and participants from after. Writing that way is
+ * transactional, which the per-table version was not: a failure midway left a
+ * room partially written.
  *
- * Not yet transactional across tables — that arrives with the CAS function and
- * broadcast trigger, and is called out here rather than left to be discovered:
- * a failure midway currently leaves a room partially written.
+ * The shape is `roomStateSchema`, the same schema the canvas renders and the
+ * rule engine mutates, so the database is a projection of one model rather than
+ * a second definition of it.
  */
+
+export interface LoadedRoom {
+	state: RoomState;
+	/** For the compare-and-swap on write. A stale writer re-reads. */
+	version: number;
+}
+
+export async function loadRoomState(
+	db: SupabaseClient<Database>,
+	roomId: string
+): Promise<LoadedRoom | null> {
+	const { data, error } = await db.rpc('get_room_state', { p_room_id: roomId });
+	if (error !== null || data === null) return null;
+
+	const envelope = envelopeSchema.safeParse(data);
+	if (!envelope.success) throw new Error(`room ${roomId} returned an unreadable envelope`);
+	const parsed = roomStateSchema.safeParse(envelope.data.state);
+	// A row that no longer satisfies the schema is a bug to surface, not one to
+	// paper over with defaults — the stub warns and starts fresh, which a server
+	// may not do to someone's room.
+	if (!parsed.success) throw new Error(`room ${roomId} failed validation: ${parsed.error.message}`);
+	return { state: parsed.data, version: envelope.data.version };
+}
+
+/** Thrown when someone else committed first. The caller re-reads and retries. */
+export class VersionConflict extends Error {}
+
 export async function saveRoomState(
 	db: SupabaseClient<Database>,
 	roomId: string,
+	expectedVersion: number,
 	state: RoomState
-): Promise<void> {
-	await db
-		.from('room_state')
-		.update({
-			background: state.background,
-			title: state.title,
-			description: state.description,
-			create_permission: state.create_permission,
-			border_default: state.border_default,
-			max_participants: state.capacity.max_participants,
-			max_av: state.capacity.max_av,
-			max_audio: state.capacity.max_audio,
-			video_holders: state.video_holders,
-			audio_holders: state.audio_holders,
-			queue: state.queue,
-			transport: state.transport,
-			placers: state.placers,
-			active_config: state.active_config,
-			updated_at: new Date().toISOString()
-		})
-		.eq('room_id', roomId);
-
-	const objects = Object.values(state.objects);
-	if (objects.length > 0) {
-		await db.from('room_objects').upsert(
-			objects.map((o) => ({
-				id: o.id,
-				room_id: roomId,
-				type: o.type,
-				creator_id: o.creator_id,
-				permission: o.permission,
-				hidden: o.hidden,
-				transform: o.transform,
-				clip: o.clip,
-				border: o.border,
-				payload: o.payload,
-				created_at: o.created_at,
-				updated_at: o.updated_at
-			}))
-		);
+): Promise<number> {
+	const { data, error } = await db.rpc('save_room_state', {
+		p_room_id: roomId,
+		p_expected_version: expectedVersion,
+		p_state: plainJson(state)
+	});
+	if (error !== null) {
+		// 40001 is serialization_failure, raised by the CAS when the version
+		// moved under us. Distinguished from a real failure so the route can
+		// retry rather than reporting a fault to the user.
+		if (error.code === '40001') throw new VersionConflict(error.message);
+		throw new Error(error.message);
 	}
-	// Deletions are absences, so they need their own pass.
-	const keep = objects.map((o) => o.id);
-	const stale = db.from('room_objects').delete().eq('room_id', roomId);
-	await (keep.length > 0 ? stale.not('id', 'in', `(${keep.join(',')})`) : stale);
-
-	const participants = Object.values(state.participants);
-	if (participants.length > 0) {
-		await db.from('room_participants').upsert(
-			participants.map((p) => ({ room_id: roomId, ...p }))
-		);
-	}
+	return data;
 }
