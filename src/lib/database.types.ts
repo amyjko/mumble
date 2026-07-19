@@ -346,6 +346,7 @@ export type Database = {
       rooms: {
         Row: {
           created_at: string
+          geometry_version: number
           id: string
           name: string
           owner_id: string
@@ -354,6 +355,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          geometry_version?: number
           id?: string
           name: string
           owner_id: string
@@ -362,6 +364,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          geometry_version?: number
           id?: string
           name?: string
           owner_id?: string
@@ -392,6 +395,7 @@ export type Database = {
         Args: {
           p_client?: string
           p_diff: Json
+          p_expected_geometry?: number
           p_expected_version?: number
           p_object_versions?: Json
           p_room_id: string

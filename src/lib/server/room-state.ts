@@ -18,7 +18,9 @@ const envelopeSchema = z.object({
 	 * on purpose: `diffRoomState` compares rows structurally, so a version
 	 * inside a row would read as content and mark every object changed.
 	 */
-	object_versions: z.record(z.string(), z.number()).default({})
+	object_versions: z.record(z.string(), z.number()).default({}),
+	/** Bumped only by writes that decide against other shapes (UX-OBJ-12). */
+	geometry_version: z.number().default(0)
 });
 
 /**
@@ -65,6 +67,11 @@ export interface LoadedRoom {
 	 * else touched this room", which was both too loud and too quiet.
 	 */
 	objectVersions: Record<string, number>;
+	/**
+	 * For the GEOMETRY compare-and-swap. Overlap is a cross-row invariant, so it
+	 * needs a token shared by everything that moves — see `movesSomething`.
+	 */
+	geometryVersion: number;
 }
 
 export async function loadRoomState(
@@ -84,7 +91,8 @@ export async function loadRoomState(
 	return {
 		state: parsed.data,
 		version: envelope.data.version,
-		objectVersions: envelope.data.object_versions
+		objectVersions: envelope.data.object_versions,
+		geometryVersion: envelope.data.geometry_version
 	};
 }
 
@@ -112,13 +120,16 @@ export async function saveRoomState(
 	 * Which CLIENT made this write, echoed in the broadcast so that client can
 	 * recognise its own change and skip re-reading what it already applied.
 	 */
-	clientId: string | null = null
+	clientId: string | null = null,
+	/** Non-null only for geometry writes; see `movesSomething`. */
+	expectedGeometry: number | null = null
 ): Promise<number> {
 	const { data, error } = await db.rpc('save_room_state', {
 		p_room_id: roomId,
 		p_diff: plainJson(diff),
 		p_object_versions: objectVersions,
 		...(clientId === null ? {} : { p_client: clientId }),
+		...(expectedGeometry === null ? {} : { p_expected_geometry: expectedGeometry }),
 		// OMITTED when unguarded, rather than passed as null: the argument has a
 		// SQL default, and the generated types mark defaulted arguments optional,
 		// so this is the one spelling that needs neither a type assertion nor a

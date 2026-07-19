@@ -61,3 +61,34 @@ const COUNTING: ReadonlySet<string> = new Set(['upsert_participant']);
 export function needsGuard(diff: RoomStateDiff, kind: string): boolean {
 	return diff.room !== null || COUNTING.has(kind);
 }
+
+/**
+ * Mutations that decide against OTHER SHAPES, and so must serialise with each
+ * other (UX-OBJ-12).
+ *
+ * Overlap is a cross-row invariant and fits neither of the other two guards.
+ * The room counter is too broad — every write bumps it, so a drag would
+ * conflict with every keystroke — and per-object versions are too narrow,
+ * because the rows do not collide, the shapes do: two writers moving two
+ * DIFFERENT objects into one space each pass their own row's check.
+ *
+ * Derived from the rule engine rather than guessed: these are exactly the kinds
+ * whose case in `model/rules.ts` calls `shapes()`, `placementLegal()` or
+ * `nearestLegal()`. `add_placer` and `delete_config` do too, but they also
+ * change a room scalar and are already guarded by `needsGuard`;
+ * `upsert_participant` is in COUNTING for its capacity check, which serialises
+ * arrivals for the same reason.
+ */
+const GEOMETRY: ReadonlySet<string> = new Set([
+	'create_object',
+	'move_object',
+	'set_border',
+	'set_hidden',
+	'move_participant',
+	'size_participant'
+]);
+
+/** Whether this write has to serialise against other geometry writes. */
+export function movesSomething(kind: string): boolean {
+	return GEOMETRY.has(kind);
+}

@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import { movesSomething } from './guard';
 import { PUBLIC_SUPABASE_URL } from '$env/static/public';
 import { SUPABASE_SECRET_KEY } from '$env/static/private';
 import type { Database, Json } from '$lib/database.types';
@@ -59,6 +60,9 @@ function anObject(id: string, x: number) {
 	};
 }
 
+/** Mirrors the route's bounded retry, so these measure what the product does. */
+const ROUTE_RETRIES = 6;
+
 let roomId = '';
 let version = 0;
 
@@ -79,15 +83,24 @@ beforeEach(async () => {
 async function save(
 	expected: number | null,
 	diff: Json,
-	objectVersions: Record<string, number> = {}
+	objectVersions: Record<string, number> = {},
+	expectedGeometry: number | null = null
 ): Promise<string | null> {
 	const { error } = await db.rpc('save_room_state', {
 		p_room_id: roomId,
 		p_diff: diff,
 		p_object_versions: objectVersions,
-		...(expected === null ? {} : { p_expected_version: expected })
+		...(expected === null ? {} : { p_expected_version: expected }),
+		...(expectedGeometry === null ? {} : { p_expected_geometry: expectedGeometry })
 	});
 	return error?.code ?? null;
+}
+
+/** The room's geometry token, as `get_room_state` reports it. */
+async function geometryVersion(): Promise<number> {
+	const { data } = await db.rpc('get_room_state', { p_room_id: roomId });
+	const parsed = z.object({ geometry_version: z.number() }).safeParse(data);
+	return parsed.success ? parsed.data.geometry_version : 0;
 }
 
 /** The versions the server currently holds, as `get_room_state` reports them. */
@@ -352,6 +365,157 @@ describe('per-object versions', () => {
 		expect(after[note.id]).toBeGreaterThan(before[note.id] ?? 0);
 		const { data } = await db.from('room_objects').select('payload').eq('id', note.id).single();
 		expect(data?.payload).toEqual({ text: 'kept', doc: '' });
+	});
+});
+
+describe('geometry serialises, so overlap cannot be produced by two writers', () => {
+	it('two concurrent MOVES cannot both land', async () => {
+		// THE UX-OBJ-12 hole. Overlap is a cross-row invariant: two writers
+		// moving two DIFFERENT objects into one space each pass their own row's
+		// check against a snapshot that lacks the other. Neither the room guard
+		// (too broad — every write bumps it, so a drag would conflict with every
+		// keystroke) nor per-object versions (too narrow — the rows do not
+		// collide, the shapes do) can see it.
+		const a = anObject(crypto.randomUUID(), 0);
+		const b = anObject(crypto.randomUUID(), 400);
+		await save(null, { ...emptyDiff(), objects: { upsert: [a, b], remove: [] } });
+		const geometry = await geometryVersion();
+		const seen = await objectVersions();
+
+		// Both aim at the same spot, from the same starting knowledge.
+		const moveTo = (o: typeof a, x: number) => ({
+			...emptyDiff(),
+			objects: { upsert: [{ ...o, transform: { ...o.transform, x } }], remove: [] }
+		});
+		const results = await Promise.all([
+			save(null, moveTo(a, 800), seen, geometry),
+			save(null, moveTo(b, 800), seen, geometry)
+		]);
+
+		// Exactly one lands. The other is told, and the ROUTE re-reads and
+		// re-applies — at which point the overlap check sees the winner's shape
+		// and refuses properly, which is UX-PERM-4's visible revert.
+		expect(results.filter((code) => code === null)).toHaveLength(1);
+		expect(results.filter((code) => code === 'PT409')).toHaveLength(1);
+	});
+
+	it('MEASURED: concurrent movers, and what happens when the retry runs out', async () => {
+		/*
+		 * The trade this guard makes, stated honestly.
+		 *
+		 * Guarding room-wide was LOSSY — twenty concurrent writers lost seventeen
+		 * writes — which is why geometry went unguarded and UX-OBJ-12 stayed
+		 * violable. Serialising geometry brings back contention, and measured
+		 * here: eight movers commiting in the same instant need about twelve
+		 * attempts for all eight to land, and lose five with a budget of three.
+		 *
+		 * But the FAILURE MODE is what changed, and it is the whole point. An
+		 * exhausted retry is now a refusal — a 409 the client shows as
+		 * UX-PERM-4's revert — where before it was a silent OVERLAP that violated
+		 * UX-OBJ-12 and nothing ever repaired. A drag that has to be repeated is
+		 * a worse experience than one that does not; a room that quietly enters
+		 * an illegal state is a worse PRODUCT.
+		 *
+		 * Eight simultaneous commits is also far past realistic: a drag commits
+		 * once on drop and the keyboard path is debounced, so eight people would
+		 * have to release within the same ~50ms.
+		 */
+		const movers = 8;
+		const objects = Array.from({ length: movers }, (_, i) => anObject(crypto.randomUUID(), i * 300));
+		await save(null, { ...emptyDiff(), objects: { upsert: objects, remove: [] } });
+
+		async function moveWithRetry(o: (typeof objects)[number], to: number): Promise<string | null> {
+			for (let attempt = 0; attempt < ROUTE_RETRIES; attempt++) {
+				const geometry = await geometryVersion();
+				const seen = await objectVersions();
+				const code = await save(
+					null,
+					{ ...emptyDiff(), objects: { upsert: [{ ...o, transform: { ...o.transform, x: to } }], remove: [] } },
+					seen,
+					geometry
+				);
+				if (code === null) return null;
+				if (code !== 'PT409') return code;
+			}
+			return 'exhausted';
+		}
+
+		// Each to its own destination, so this measures contention on the shared
+		// token rather than genuine overlap, which SHOULD be refused.
+		const results = await Promise.all(objects.map((o, i) => moveWithRetry(o, 5000 + i * 400)));
+		const lost = results.filter((code) => code !== null);
+		console.log(`[measured] ${String(movers)} concurrent movers, budget ${String(ROUTE_RETRIES)}: ${String(lost.length)} refused`);
+
+		// THE INVARIANT, which holds whatever the budget is: nobody was refused
+		// for any reason other than losing the race, and — asserted below — no
+		// overlap was produced. A refusal is recoverable; an overlap is not.
+		expect(lost.every((code) => code === 'exhausted')).toBe(true);
+
+		// No two objects ended up in the same place. This is UX-OBJ-12, and it
+		// is the assertion that failed before the geometry guard existed.
+		const { data } = await db.from('room_objects').select('transform').eq('room_id', roomId);
+		const xs = (data ?? []).map((row) => {
+			const parsed = z.object({ x: z.number() }).safeParse(row.transform);
+			return parsed.success ? parsed.data.x : -1;
+		});
+		expect(new Set(xs).size).toBe(xs.length);
+	});
+
+	it('MEASURED: at realistic concurrency nobody is refused', async () => {
+		// Three people releasing a drag at the same instant, which is already a
+		// busy room. This is the number the route's retry budget is sized for.
+		const movers = 3;
+		const objects = Array.from({ length: movers }, (_, i) => anObject(crypto.randomUUID(), i * 300));
+		await save(null, { ...emptyDiff(), objects: { upsert: objects, remove: [] } });
+
+		const results = await Promise.all(
+			objects.map(async (o, i) => {
+				for (let attempt = 0; attempt < ROUTE_RETRIES; attempt++) {
+					const geometry = await geometryVersion();
+					const seen = await objectVersions();
+					const code = await save(
+						null,
+						{ ...emptyDiff(), objects: { upsert: [{ ...o, transform: { ...o.transform, x: 7000 + i * 400 } }], remove: [] } },
+						seen,
+						geometry
+					);
+					if (code === null) return null;
+					if (code !== 'PT409') return code;
+				}
+				return 'exhausted';
+			})
+		);
+		expect(results.filter((code) => code !== null)).toEqual([]);
+	});
+
+	it('a keystroke does not invalidate a drag', () => {
+		// Why this is a SECOND counter and not `rooms.version`. Merging writes
+		// carry no geometry token, so they cannot bump it and cannot make a
+		// concurrent drag conflict — the room-wide false conflict that
+		// per-object versions were introduced to remove.
+		expect(movesSomething('edit_note')).toBe(false);
+		expect(movesSomething('post_message')).toBe(false);
+		expect(movesSomething('move_object')).toBe(true);
+		expect(movesSomething('move_participant')).toBe(true);
+	});
+
+	it('MEASURED: a keystroke and a drag do not conflict', async () => {
+		const note = anObject(crypto.randomUUID(), 0);
+		await save(null, { ...emptyDiff(), objects: { upsert: [note], remove: [] } });
+		const geometry = await geometryVersion();
+		const seen = await objectVersions();
+
+		const results = await Promise.all([
+			// A drag, holding the geometry token.
+			save(null, {
+				...emptyDiff(),
+				objects: { upsert: [{ ...note, transform: { ...note.transform, x: 900 } }], remove: [] }
+			}, seen, geometry),
+			// A room-scalar write, holding none — it must not be blocked by the
+			// drag, nor block it.
+			save(null, { ...emptyDiff(), participants: { upsert: [], remove: [] } })
+		]);
+		expect(results.filter((code) => code !== null)).toEqual([]);
 	});
 });
 

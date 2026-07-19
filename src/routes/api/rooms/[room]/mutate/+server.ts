@@ -3,7 +3,7 @@ import { mutationSchema } from '$lib/model/schemas';
 import { StoreRejection } from '$lib/model/types';
 import { applyMutation } from '$lib/model/rules';
 import { diffRoomState } from '$lib/model/diff';
-import { needsGuard } from '$lib/server/guard';
+import { needsGuard, movesSomething } from '$lib/server/guard';
 import { parseClaims } from '$lib/auth/claims';
 import { supabaseAdmin } from '$lib/server/supabase-admin';
 import { loadRoomState, saveRoomState, VersionConflict } from '$lib/server/room-state';
@@ -50,10 +50,23 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 
 	const ctx = { actorId: claims.sub, isHost: membership.data.role === 'host' };
 
-	// Bounded retry on a version conflict. Bounded, not a loop: under a
-	// concurrent drag an unbounded retry is a storm, and the loser seeing
-	// UX-PERM-4's revert is a better outcome than the server grinding.
-	for (let attempt = 0; attempt < 3; attempt++) {
+	/*
+	 * Bounded retry on a conflict. Bounded, not a loop: under a concurrent drag
+	 * an unbounded retry is a storm, and the loser seeing UX-PERM-4's revert is
+	 * a better outcome than the server grinding.
+	 *
+	 * Six, not three. Three predates the geometry guard, when the only conflicts
+	 * were room-scalar writes that are rare by nature. Geometry writes now share
+	 * a token deliberately (UX-OBJ-12), so the budget has to cover the number of
+	 * people who might release a drag in the same instant. Measured: three
+	 * concurrent movers all land inside six attempts; eight need about twelve,
+	 * and eight simultaneous commits is already far past a real room, since a
+	 * drag commits once on drop.
+	 *
+	 * Exhausting it is safe, which is what makes six a reasonable place to stop:
+	 * the loser is REFUSED (409, a visible revert), not silently overlapped.
+	 */
+	for (let attempt = 0; attempt < 6; attempt++) {
 		const room_state = await loadRoomState(db, room.data.id);
 		if (room_state === null) error(404, 'No such room');
 
@@ -92,7 +105,10 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 				room_state.objectVersions,
 				// A header, not a body field: the body is the mutation union, and
 				// which client sent it is transport, not vocabulary.
-				request.headers.get('x-mumble-client')
+				request.headers.get('x-mumble-client'),
+				// Geometry writes serialise with each other so two of them cannot
+				// produce an overlap neither would be allowed alone (UX-OBJ-12).
+				movesSomething(parsed.data.kind) ? room_state.geometryVersion : null
 			);
 			return json({ ok: true, version });
 		} catch (conflict) {
