@@ -65,11 +65,37 @@ bypassed entirely.
 
 ## What is left
 
-**Phase 5b — the store swap.** `SupabaseRoomStore` implementing the existing
-`RoomStore` interface, Realtime subscription, and pointing `Room.svelte` at it.
-Left undone on purpose: it replaces the storage layer of a working app, and the
-plan's own risk note says if it slips, Phases 1–5a still stand and the app still
-runs. Design notes:
+**Phase 5b — the switchover.** Everything except pointing the canvas at it is
+DONE and tested: `SupabaseRoomStore`, `save_room_state` (one transaction for
+every table plus the version bump plus the broadcast), `get_room_state`, the CAS
+with bounded retry, and the `realtime.messages` channel-join policy.
+
+I attempted the switchover on 2026-07-19 and backed it out. It is a four-line
+change plus test fallout, and the fallout is the part to plan for:
+
+- `Room.svelte` must take an INJECTED store (it currently constructs
+  `MemoryRoomStore` itself, which violates room-store.ts's own rule that no
+  consumer may name a backend). The route supplies `SupabaseRoomStore`; tests
+  supply the stub.
+- `/hey/[room]` needs a `+page.server.ts` that 404s a room absent from Postgres.
+  `ssr = false` does NOT prevent this — that flag disables server RENDERING, not
+  server `load` — but `+page.ts` must forward the server data explicitly,
+  because when both loads exist the universal one's return value is what the
+  page receives.
+- Every E2E that joins a room then needs the room to EXIST, so `joinRoom` has to
+  create it, which needs an account. That is the bulk of the work: ~85 tests
+  change behaviour at once, and several assert guest-only UI.
+- The DevPanel is stub-only (it injects latency and forces rejections). Against
+  the real backend those levers do not exist, so it should be absent rather than
+  showing dead controls.
+
+Three harness defects the attempt exposed are already FIXED and on main-line:
+the admin client is memoized (a fresh client per request meant a fresh
+connection pool per request, which exhausted the local stack), E2E uses one
+account per worker, and `hostRoom` tolerates a join prompt that vanishes when a
+roamed profile arrives.
+
+Remaining design notes:
 
 - Hydrate via one RPC returning the whole `RoomState`, parsed by
   `roomStateSchema` — one round trip, one consistent snapshot.
