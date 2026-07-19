@@ -16,11 +16,16 @@ async function expectNoViolations(page: Page): Promise<void> {
 }
 
 for (const theme of ['light', 'dark'] as const) {
-	test(`axe: landing + room are violation-free (${theme})`, async ({ page }) => {
+	test(`axe: landing + new + room are violation-free (${theme})`, async ({ page }) => {
 		await page.addInitScript((t) => {
 			localStorage.setItem('mumble:theme', t);
 		}, theme);
 		await page.goto('/');
+		await expectNoViolations(page);
+
+		// The naming form is its own route now, and an unscanned route is an
+		// unscanned route however small it is.
+		await page.goto('/new');
 		await expectNoViolations(page);
 
 		await joinRoom(page, `axe-${theme}-${Date.now().toString(36)}`);

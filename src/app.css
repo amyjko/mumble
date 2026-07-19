@@ -78,6 +78,11 @@
 	--text-md: 16px;
 	--text-lg: 18px;
 	--text-xl: 22px;
+	/* Display sizes, used by the landing page. Kept in the scale rather than
+	   hard-coded there, so a heading anywhere else can reach for the same two
+	   steps instead of inventing a third. */
+	--text-2xl: 28px;
+	--text-3xl: 40px;
 	--leading: 1.45;
 
 	/* Space (4px base) and radii */

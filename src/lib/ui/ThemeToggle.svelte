@@ -35,11 +35,18 @@
 </div>
 
 <style>
+	/*
+	 * NORMAL FLOW, not fixed.
+	 *
+	 * Fixed chrome suits the room, which fills the viewport and never scrolls.
+	 * The only pages that render this wrapper are the landing page and /new —
+	 * documents that DO scroll — where a fixed badge sat permanently on top of
+	 * the text and, at phone widths, covered a feature heading outright. The
+	 * room carries its own copy inside the bottom toolbar (inline), so nothing
+	 * still needs this pinned.
+	 */
 	.theme-slot {
-		position: fixed;
-		bottom: var(--space-3);
-		left: var(--space-3);
-		z-index: var(--z-chrome);
+		padding: var(--space-6) var(--space-4);
 	}
 	.theme-slot.inline {
 		display: contents;

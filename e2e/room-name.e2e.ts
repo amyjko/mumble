@@ -31,8 +31,10 @@ test('a well-formed name still resolves', async ({ page }) => {
 	await expect(page.getByText('No such room')).toHaveCount(0);
 });
 
-test('the landing form explains WHY a name is rejected', async ({ page }) => {
-	await page.goto('/');
+test('the naming form explains WHY a name is rejected', async ({ page }) => {
+	// The form moved off the landing page to /new, where account creation will
+	// intercept once auth exists.
+	await page.goto('/new');
 	const field = page.getByRole('textbox', { name: 'Room name' });
 	const go = page.getByRole('button', { name: 'go' });
 
@@ -50,7 +52,7 @@ test('the landing form explains WHY a name is rejected', async ({ page }) => {
 });
 
 test('case-insensitive: LCI reaches the same room as lci', async ({ page }) => {
-	await page.goto('/');
+	await page.goto('/new');
 	await page.getByRole('textbox', { name: 'Room name' }).fill('LCI');
 	await page.getByRole('button', { name: 'go' }).click();
 	await expect(page).toHaveURL(/\/hey\/lci$/);

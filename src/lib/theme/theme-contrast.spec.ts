@@ -27,6 +27,10 @@ const PAIRS: [string, string, number][] = [
 	['text', 'bg-canvas', 4.5],
 	['text-muted', 'surface', 4.5],
 	['text-muted', 'surface-2', 4.5],
+	// The landing page sets muted text directly on the page background — the
+	// lede, every feature body, the footer. The pair was absent from this
+	// contract until that page existed, so it had never been checked at all.
+	['text-muted', 'bg-canvas', 4.5],
 	['accent', 'surface', 4.5],
 	['accent-contrast', 'accent', 4.5],
 	['danger', 'surface', 4.5],
