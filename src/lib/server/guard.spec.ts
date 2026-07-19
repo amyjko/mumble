@@ -92,7 +92,7 @@ describe('needsGuard', () => {
 		expect(needsGuard(diff, 'upsert_participant')).toBe(true);
 	});
 
-	it('guards a note edit, which merges into stored content', () => {
+	it('does NOT room-guard a note edit any more: notes carry their own version', () => {
 		const state = roomWithHost();
 		applyMutation(state, { kind: 'create_object', object: newNote(HOST, { x: 0, y: 0 }, 1, 10) }, ctx);
 		const note = Object.values(state.objects)[0];
@@ -102,7 +102,14 @@ describe('needsGuard', () => {
 			// so the test would have proved only that invalid input throws.
 			applyMutation(s, { kind: 'edit_note', id: note.id, update: encodedFromText('hello') }, ctx)
 		);
-		expect(needsGuard(diff, 'edit_note')).toBe(true);
+		// THE false conflict this change removes. `edit_note` used to take the
+		// ROOM guard, so typing in note A conflicted with typing in note B —
+		// each conflict costing a re-read and a re-apply, and dropping the edit
+		// once the bounded retry exhausted. It is guarded per OBJECT now
+		// (room-state.ts `objectVersions`), which is both narrower and stricter:
+		// different notes stop conflicting, and the same note starts to.
+		expect(diff.room).toBeNull();
+		expect(needsGuard(diff, 'edit_note')).toBe(false);
 	});
 
 	it('does NOT guard a plain object move', () => {

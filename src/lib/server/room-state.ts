@@ -10,7 +10,16 @@ import type { RoomStateDiff } from '$lib/model/diff';
  * this project bans `as` precisely so a shape coming from outside gets checked
  * once at the boundary instead of assumed everywhere after it.
  */
-const envelopeSchema = z.object({ version: z.number(), state: z.unknown() });
+const envelopeSchema = z.object({
+	version: z.number(),
+	state: z.unknown(),
+	/**
+	 * Per-object versions, keyed by id. In the ENVELOPE rather than in the state
+	 * on purpose: `diffRoomState` compares rows structurally, so a version
+	 * inside a row would read as content and mark every object changed.
+	 */
+	object_versions: z.record(z.string(), z.number()).default({})
+});
 
 /**
  * A plain-data copy for the wire.
@@ -48,8 +57,14 @@ function plainJson(value: RoomStateDiff): Json {
 
 export interface LoadedRoom {
 	state: RoomState;
-	/** For the compare-and-swap on write. A stale writer re-reads. */
+	/** For the ROOM-wide compare-and-swap: scalars, and the capacity count. */
 	version: number;
+	/**
+	 * For the PER-OBJECT compare-and-swap. A conflict here means "someone else
+	 * edited this object", which is a fact worth surfacing, rather than "someone
+	 * else touched this room", which was both too loud and too quiet.
+	 */
+	objectVersions: Record<string, number>;
 }
 
 export async function loadRoomState(
@@ -66,7 +81,11 @@ export async function loadRoomState(
 	// paper over with defaults — the stub warns and starts fresh, which a server
 	// may not do to someone's room.
 	if (!parsed.success) throw new Error(`room ${roomId} failed validation: ${parsed.error.message}`);
-	return { state: parsed.data, version: envelope.data.version };
+	return {
+		state: parsed.data,
+		version: envelope.data.version,
+		objectVersions: envelope.data.object_versions
+	};
 }
 
 /** Thrown when someone else committed first. The caller re-reads and retries. */
@@ -81,11 +100,19 @@ export async function saveRoomState(
 	 * `needsGuard`. The version advances either way.
 	 */
 	expectedVersion: number | null,
-	diff: RoomStateDiff
+	diff: RoomStateDiff,
+	/**
+	 * The versions this writer READ, for the objects it is about to write. An
+	 * object absent from the map is new to this writer and is inserted without a
+	 * guard; one that is present must still be at that version or the write is
+	 * refused and the route re-applies on top of the winner.
+	 */
+	objectVersions: Record<string, number> = {}
 ): Promise<number> {
 	const { data, error } = await db.rpc('save_room_state', {
 		p_room_id: roomId,
 		p_diff: plainJson(diff),
+		p_object_versions: objectVersions,
 		// OMITTED when unguarded, rather than passed as null: the argument has a
 		// SQL default, and the generated types mark defaulted arguments optional,
 		// so this is the one spelling that needs neither a type assertion nor a
@@ -93,7 +120,8 @@ export async function saveRoomState(
 		...(expectedVersion === null ? {} : { p_expected_version: expectedVersion })
 	});
 	if (error !== null) {
-		// PT409 is raised by the CAS when the version moved under us.
+		// PT409 is raised by either CAS — room-wide or per-object — when the
+		// thing we read moved under us.
 		// Distinguished from a real failure so the route can retry rather than
 		// reporting a fault to the user.
 		//

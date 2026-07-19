@@ -141,12 +141,21 @@ compromise. Re-measured after the change: 0 lost of 20.
   fixed `waitForTimeout` sleeps standing in for network writes). They are worth
   having on their own and are not the whole story.
 
-  **Leading hypothesis, untested:** the remaining failures cluster on tests with
-  CONCURRENT writers — two tabs typing into one note, two pages raising hands,
-  a layout switch racing a debounced move. `edit_note` is guarded ROOM-wide, so
-  two tabs typing conflict continuously and lose edits once the bounded retry
-  is exhausted. If that is it, per-object versions fix it and no test-level
-  patch would have. Re-measure after that lands before spending more here.
+  **Three hypotheses now refuted, each by measurement:**
+  1. *Assertion budget.* Widening 18 cross-client assertions to 10s: no change.
+     Raising Playwright's global `expect` timeout to the same: no change. The
+     global raise was reverted.
+  2. *Database or pool contention.* Sampled every 3s through a failing run: 20
+     connections, 2 active, none waiting, none idle-in-transaction.
+  3. *The concurrency model.* Per-object versions removed the room-wide false
+     conflict for `edit_note` entirely — and the failure rate was 2, 4, 2 across
+     three runs afterwards, statistically identical to before.
+
+  Worker count does not correlate cleanly either (4 workers produced FEWER
+  failures than 2; serial is usually but not always green). Whatever this is, it
+  is not write contention, not the database, and not the budget. Worth a fresh
+  look with a bisect over the spec files or a trace of one captured failure,
+  rather than a fourth guess.
 - **Admission** (UX-ID-3 / AR-CTRL-5) remains deferred by agreement.
 - Avatar name/emoji now roam with the profile; the id roams too.
 

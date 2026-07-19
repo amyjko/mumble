@@ -183,6 +183,7 @@ export type Database = {
           transform: Json
           type: string
           updated_at: string
+          version: number
         }
         Insert: {
           border: Json
@@ -197,6 +198,7 @@ export type Database = {
           transform: Json
           type: string
           updated_at?: string
+          version?: number
         }
         Update: {
           border?: Json
@@ -211,6 +213,7 @@ export type Database = {
           transform?: Json
           type?: string
           updated_at?: string
+          version?: number
         }
         Relationships: [
           {
@@ -381,7 +384,12 @@ export type Database = {
         }[]
       }
       save_room_state: {
-        Args: { p_diff: Json; p_expected_version?: number; p_room_id: string }
+        Args: {
+          p_diff: Json
+          p_expected_version?: number
+          p_object_versions?: Json
+          p_room_id: string
+        }
         Returns: number
       }
     }

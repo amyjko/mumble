@@ -85,7 +85,11 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 				db,
 				room.data.id,
 				needsGuard(diff, parsed.data.kind) ? room_state.version : null,
-				diff
+				diff,
+				// Every object write is guarded by the version we READ for it, so
+				// object conflicts are per object rather than per room. New objects
+				// are simply absent from the map.
+				room_state.objectVersions
 			);
 			return json({ ok: true, version });
 		} catch (conflict) {

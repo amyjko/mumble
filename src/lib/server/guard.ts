@@ -26,33 +26,23 @@ import type { RoomStateDiff } from '$lib/model/diff';
  *    reassigns `video_holders` to an equal array correctly produces no guard
  *    while one that actually takes a slot does. This is what stops two people
  *    holding one slot (AR-MEDIA-1).
- *  - `MERGING` — read-modify-write into existing row content, which
- *    last-writer-wins silently truncates.
  *  - `COUNTING` — decisions against a HARD CAP, where landing second admits
  *    someone the cap should have refused.
  *
- * Deliberately NOT guarded: the overlap checks in `move_object`,
- * `create_object`, `set_border`, `set_hidden`, `move_participant` and
- * `size_participant`. Two concurrent writers can produce an overlap that
- * neither would have accepted alone — a real UX-OBJ-12 violation, and it is
- * recorded as one rather than hidden here. It is visible, recoverable by
- * dragging, and no worse than the stub's behaviour, whereas guarding the
- * high-frequency canvas mutations is the case the measurement above says goes
- * lossy. The durable fix is per-object versions (a conflict then means
- * "someone edited THIS object", which is a fact worth surfacing) rather than a
- * wider room-wide guard.
- */
-
-/**
- * Mutations that MERGE into content already in the row rather than replacing
- * it. `edit_note` applies a Yjs update to the stored document and
- * `post_message` appends to a log; both lose content under last-writer-wins,
- * and neither shows up in `diff.room`, so neither can be inferred from the diff.
+ * Object writes are no longer listed here at all. They carry their OWN version
+ * now (`objectVersions`, see room-state.ts), so `edit_note` and `post_message`
+ * — the read-modify-write pair that last-writer-wins silently truncates — are
+ * guarded per object instead of room-wide. That is strictly better in both
+ * directions: two people typing in two DIFFERENT notes no longer conflict at
+ * all, and two people editing the SAME object now do, where before they raced
+ * and the loser's edit vanished.
  *
- * `edit_timer` is deliberately absent: it replaces the payload wholesale, so
- * the last writer is the correct winner.
+ * Still NOT solved: overlap. Per-object versions do not help — two writers
+ * moving two DIFFERENT objects into the same space each pass their own row's
+ * check, because overlap is a cross-row invariant. UX-OBJ-12 records this and
+ * stays PARTIAL. Serialising every geometry write against a shared token would
+ * close it, at the cost the measurement above describes.
  */
-const MERGING: ReadonlySet<string> = new Set(['edit_note', 'post_message']);
 
 /**
  * Mutations that decide against a hard cap by counting rows they do not write.
@@ -69,5 +59,5 @@ const MERGING: ReadonlySet<string> = new Set(['edit_note', 'post_message']);
 const COUNTING: ReadonlySet<string> = new Set(['upsert_participant']);
 
 export function needsGuard(diff: RoomStateDiff, kind: string): boolean {
-	return diff.room !== null || MERGING.has(kind) || COUNTING.has(kind);
+	return diff.room !== null || COUNTING.has(kind);
 }

@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { PUBLIC_SUPABASE_URL } from '$env/static/public';
 import { SUPABASE_SECRET_KEY } from '$env/static/private';
 import type { Database, Json } from '$lib/database.types';
@@ -75,13 +76,27 @@ beforeEach(async () => {
 });
 
 /** Returns the error code, or null when the write succeeded. */
-async function save(expected: number | null, diff: Json): Promise<string | null> {
+async function save(
+	expected: number | null,
+	diff: Json,
+	objectVersions: Record<string, number> = {}
+): Promise<string | null> {
 	const { error } = await db.rpc('save_room_state', {
 		p_room_id: roomId,
 		p_diff: diff,
+		p_object_versions: objectVersions,
 		...(expected === null ? {} : { p_expected_version: expected })
 	});
 	return error?.code ?? null;
+}
+
+/** The versions the server currently holds, as `get_room_state` reports them. */
+async function objectVersions(): Promise<Record<string, number>> {
+	const { data } = await db.rpc('get_room_state', { p_room_id: roomId });
+	const parsed = z
+		.object({ object_versions: z.record(z.string(), z.number()) })
+		.safeParse(data);
+	return parsed.success ? parsed.data.object_versions : {};
 }
 
 /**
@@ -269,6 +284,74 @@ describe('a write cannot reach into another room', () => {
 			.single();
 		expect(after?.room_id).toBe(victimRoom);
 		expect(after?.payload).toEqual({ text: '', doc: '' });
+	});
+});
+
+describe('per-object versions', () => {
+	it('two writers editing the SAME object: one is refused', async () => {
+		// Before object versions this was UNGUARDED — an object write that
+		// changed no room scalar took no CAS at all, so both writers landed and
+		// the loser's edit vanished with nothing to notice it.
+		const note = anObject(crypto.randomUUID(), 0);
+		expect(await save(null, { ...emptyDiff(), objects: { upsert: [note], remove: [] } })).toBeNull();
+		const seen = await objectVersions();
+
+		const edit = (text: string) => ({
+			...emptyDiff(),
+			objects: { upsert: [{ ...note, payload: { text, doc: '' } }], remove: [] }
+		});
+		const results = await Promise.all([
+			save(null, edit('from A'), seen),
+			save(null, edit('from B'), seen)
+		]);
+
+		const refused = results.filter((code) => code !== null);
+		expect(refused).toEqual(['PT409']);
+	});
+
+	it('MEASURED: two writers editing DIFFERENT objects never conflict', async () => {
+		// THE false conflict this change removes. `edit_note` used to take the
+		// ROOM guard, so typing in one note conflicted with typing in another —
+		// and each conflict costs a re-read and a re-apply, with the edit dropped
+		// once the bounded retry is exhausted.
+		const a = anObject(crypto.randomUUID(), 0);
+		const b = anObject(crypto.randomUUID(), 400);
+		await save(null, { ...emptyDiff(), objects: { upsert: [a, b], remove: [] } });
+		const seen = await objectVersions();
+
+		const results = await Promise.all([
+			save(null, { ...emptyDiff(), objects: { upsert: [{ ...a, payload: { text: 'A types', doc: '' } }], remove: [] } }, seen),
+			save(null, { ...emptyDiff(), objects: { upsert: [{ ...b, payload: { text: 'B types', doc: '' } }], remove: [] } }, seen)
+		]);
+		expect(results.filter((code) => code !== null)).toEqual([]);
+	});
+
+	it('a new object needs no expectation, so creating still works', async () => {
+		// An object absent from the map is new to this writer; guarding it
+		// against a version it never read would refuse every create.
+		const fresh = anObject(crypto.randomUUID(), 0);
+		expect(
+			await save(null, { ...emptyDiff(), objects: { upsert: [fresh], remove: [] } }, {})
+		).toBeNull();
+	});
+
+	it('the winner keeps its write, and the version advances', async () => {
+		const note = anObject(crypto.randomUUID(), 0);
+		await save(null, { ...emptyDiff(), objects: { upsert: [note], remove: [] } });
+		const before = await objectVersions();
+
+		expect(
+			await save(
+				null,
+				{ ...emptyDiff(), objects: { upsert: [{ ...note, payload: { text: 'kept', doc: '' } }], remove: [] } },
+				before
+			)
+		).toBeNull();
+
+		const after = await objectVersions();
+		expect(after[note.id]).toBeGreaterThan(before[note.id] ?? 0);
+		const { data } = await db.from('room_objects').select('payload').eq('id', note.id).single();
+		expect(data?.payload).toEqual({ text: 'kept', doc: '' });
 	});
 });
 
