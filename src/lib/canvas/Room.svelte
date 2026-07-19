@@ -14,6 +14,7 @@
 	import { resolve } from '$app/paths';
 	import WorldCanvas from '$lib/canvas/WorldCanvas.svelte';
 	import DevPanel from '$lib/dev/DevPanel.svelte';
+	import PendingGuests from '$lib/ui/PendingGuests.svelte';
 	import BottomBar from '$lib/canvas/BottomBar.svelte';
 	import HintBar from '$lib/canvas/HintBar.svelte';
 	import Button from '$lib/ui/Button.svelte';
@@ -44,6 +45,12 @@
 		/** Canonical room name from the route. */
 		room: string;
 		/**
+		 * The room's uuid. The NAME is the address and can be changed
+		 * (UX-ROOM-10); the id is what membership and channels are keyed by, so
+		 * anything reading room_members needs this one.
+		 */
+		roomId: string;
+		/**
 		 * Who you are. NON-NULLABLE by design: a room cannot be entered without
 		 * an identity (UX-ID-1 requires a name), so the component that needs one
 		 * demands it rather than defending against its absence.
@@ -72,7 +79,7 @@
 		store: RoomStore;
 	}
 
-	let { room, identity = $bindable(EMPTY_IDENTITY), isHost = false, store }: Props = $props();
+	let { room, roomId, identity = $bindable(EMPTY_IDENTITY), isHost = false, store }: Props = $props();
 	const sync = $derived(new SyncClient(store));
 	const viewport = new Viewport();
 
@@ -224,6 +231,11 @@
 
 	/** UX-OBJ-9: creation permission is a ROOM setting, default all-may-create. */
 	const mayCreate = $derived(store.state.create_permission === 'all');
+	/** UX-ID-3's door. Host-only, enforced server-side like every room setting. */
+	function setAdmission(value: 'open' | 'ask'): void {
+		void sync.commit({ kind: 'set_room_admission', value });
+	}
+
 	function setCreatePermission(value: 'all' | 'host'): void {
 		void sync.commit({ kind: 'set_room_create_permission', value });
 		sync.announce(value === 'all' ? 'Anyone can add objects' : 'Only hosts can add objects');
@@ -364,6 +376,25 @@
 				     What remains is telling a GUEST why the add buttons are dead,
 				     which is otherwise indistinguishable from a broken toolbar. -->
 				<p class="problem" role="alert">Only a host can add objects in this room.</p>
+			{/if}
+			{#if isHost}
+				<div class="row" role="group" aria-label="Who may enter">
+					<Button
+						pressed={store.state.admission === 'open'}
+						onclick={() => {
+							setAdmission('open');
+						}}>anyone enters</Button
+					>
+					<Button
+						pressed={store.state.admission === 'ask'}
+						onclick={() => {
+							setAdmission('ask');
+						}}>ask first</Button
+					>
+				</div>
+				<!-- Who is waiting, and the decision. Hosts only: a guest cannot
+				     read the pending set, and would have nothing to do with it. -->
+				<PendingGuests {roomId} roomName={room} />
 			{/if}
 			<!-- Host-only, because the server now enforces it (UX-ROOM-10). Offered
 			     to everyone, it was a control that could only ever fail — and

@@ -20,11 +20,18 @@
 	 */
 
 	interface Props {
-		onjoin: (identity: StoredIdentity) => void;
+		onjoin: (identity: StoredIdentity, hello: string) => void;
+		/**
+		 * Whether this room admits by hand (UX-ID-3). Only then is a hello worth
+		 * asking for — in an open room nobody would ever read it, and a field
+		 * whose value is discarded is worse than no field.
+		 */
+		asks?: boolean;
 	}
 
-	let { onjoin }: Props = $props();
+	let { onjoin, asks = false }: Props = $props();
 
+	let hello = $state('');
 	let name = $state('');
 	let emoji = $state(suggestedEmoji());
 	let dialog = $state<HTMLDialogElement | null>(null);
@@ -39,7 +46,7 @@
 	function submit(event: SubmitEvent): void {
 		event.preventDefault();
 		if (!ready) return;
-		onjoin(createIdentity(name, emoji));
+		onjoin(createIdentity(name, emoji), hello);
 	}
 </script>
 
@@ -65,7 +72,21 @@
 			<EmojiPicker label="Your face" bind:value={emoji} choices={AVATAR_EMOJI} />
 		</fieldset>
 
-		<Button type="submit" variant="primary" disabled={!ready}>Join</Button>
+		{#if asks}
+			<!-- UX-ID-2. Optional on purpose: a required message is a barrier at
+			     the one moment the product promises there is none, and a host can
+			     always decide on the name alone. -->
+			<Field
+				label="Say hello (optional)"
+				bind:value={hello}
+				placeholder="Who you are, or why you're here"
+			/>
+			<p class="hint">A host will let you in. They'll see your name and this note.</p>
+		{/if}
+
+		<Button type="submit" variant="primary" disabled={!ready}>
+			{asks ? 'Ask to join' : 'Join'}
+		</Button>
 	</form>
 </dialog>
 

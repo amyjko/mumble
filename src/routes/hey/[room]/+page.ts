@@ -22,5 +22,9 @@ export const ssr = false;
  */
 export const load: PageLoad = ({ params, data }) => {
 	if (!isValidRoomName(params.room)) error(404, 'No such room');
-	return { room: canonicalRoomName(params.room), roomId: data.roomId };
+	return {
+		room: canonicalRoomName(params.room),
+		roomId: data.roomId,
+		asksAdmission: data.asksAdmission
+	};
 };

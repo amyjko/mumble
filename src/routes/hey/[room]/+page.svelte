@@ -8,6 +8,7 @@
 	import { saveMyProfile } from '$lib/auth/profile';
 	import { supabaseBrowser } from '$lib/auth/browser-client';
 	import Room from '$lib/canvas/Room.svelte';
+	import WaitingRoom from '$lib/ui/WaitingRoom.svelte';
 	import { SupabaseRoomStore } from '$lib/store/supabase-store.svelte';
 	import { deferredWork } from '$lib/canvas/deferred.svelte';
 
@@ -24,6 +25,8 @@
 
 	// ssr=false, so localStorage is available at init.
 	let identity = $state<StoredIdentity | null>(loadIdentity());
+	/** Held from the join prompt until the join RPC can carry it (UX-ID-2). */
+	let hello = $state('');
 
 	/**
 	 * Membership resolves asynchronously: an anonymous session is created, then
@@ -35,6 +38,14 @@
 	 * host controls to wait for.
 	 */
 	let isHost = $state(false);
+	/**
+	 * Whether the door let us in (UX-ID-3). Until the join RPC answers we do not
+	 * know, and 'admitted' is the safe assumption for the open rooms that are
+	 * the common case — the canvas is gated on `store.ready` anyway, and a
+	 * pending guest can never satisfy that, because every state table's RLS
+	 * refuses them.
+	 */
+	let status = $state<'pending' | 'admitted' | 'declined'>('admitted');
 
 	/**
 	 * The AUTHENTICATED user id, held separately from the identity.
@@ -144,10 +155,31 @@
 
 	$effect(() => {
 		const room = data.room;
+		/*
+		 * `hello` is TRACKED, `identity` is not, and the asymmetry is the point.
+		 *
+		 * This must run on mount even with no local identity, or an account
+		 * holder arriving on a new machine never fetches the profile that is
+		 * supposed to follow them (UX-ID-6) — they would sit at the join prompt
+		 * being asked to reinvent a name they already have.
+		 *
+		 * But a first-time visitor has no name at mount, so their knock would
+		 * reach the host anonymous and without the hello they are about to type
+		 * (UX-ID-2). Tracking `hello` re-runs this once the prompt supplies it;
+		 * `join_room` is idempotent and keeps a standing decision, so knocking
+		 * twice is safe and the second knock carries the note.
+		 *
+		 * `identity` stays UNTRACKED because this effect writes it — the roamed
+		 * profile lands here. Depending on it was a read-write loop, measured at
+		 * 381 mutate requests in seven seconds.
+		 */
+		const note = hello;
+
 		// `identity` is passed in so a name chosen in THIS browser seeds the
 		// stored profile on first sign-in, rather than being replaced by it.
-		void joinRoom(room, untrack(() => identity)).then((membership) => {
+		void joinRoom(room, untrack(() => identity), note).then((membership) => {
 			isHost = membership.isHost;
+			status = membership.status;
 			const current = untrack(() => identity);
 			authId = membership.userId ?? '';
 
@@ -180,7 +212,9 @@
 
 {#if identity === null}
 	<JoinPrompt
-		onjoin={(joined: StoredIdentity) => {
+		asks={data.asksAdmission}
+		onjoin={(joined: StoredIdentity, message: string) => {
+			hello = message;
 			// The id the server will check, not the one the prompt invented.
 			identity = { ...joined, id: authId !== '' ? authId : joined.id };
 			// Seed the profile HERE too, not only in the join effect above. That
@@ -189,6 +223,21 @@
 			// they just chose would never leave this browser.
 			void saveMyProfile(supabaseBrowser(), { name: joined.name, emoji: joined.emoji });
 		}}
+	/>
+{:else if status !== 'admitted'}
+	<!--
+		The door, not the room (UX-ID-3).
+
+		A pending guest is refused every state table by RLS, so `store.ready`
+		could never become true for them and this branch has to come FIRST — the
+		alternative is a permanently blank page, which is what would have
+		happened before this branch existed.
+	-->
+	<WaitingRoom
+		roomId={data.roomId}
+		guestId={authId}
+		{hello}
+		declined={status === 'declined'}
 	/>
 {:else if store !== null && store.ready}
 	<!--
@@ -208,5 +257,5 @@
 		since RLS authorizes on the JWT subject. So this waits on the join round
 		trip plus one read.
 	-->
-	<Room room={data.room} {identity} {isHost} {store} />
+	<Room room={data.room} roomId={data.roomId} {identity} {isHost} {store} />
 {/if}

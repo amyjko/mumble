@@ -25,8 +25,27 @@ export const load: PageServerLoad = async ({ params }) => {
 	if (!isValidRoomName(params.room)) error(404, 'No such room');
 	const name = canonicalRoomName(params.room);
 
-	const room = await supabaseAdmin().from('rooms').select('id').eq('name', name).maybeSingle();
+	const db = supabaseAdmin();
+	const room = await db.from('rooms').select('id').eq('name', name).maybeSingle();
 	if (room.data === null) error(404, 'No such room');
 
-	return { roomId: room.data.id };
+	/*
+	 * Whether the room asks before letting you in (UX-ID-3).
+	 *
+	 * Read HERE rather than in the browser, because a guest cannot read it for
+	 * themselves: `room_state` requires admitted-ness, which is the very thing
+	 * being decided. Without this the join prompt could not know whether to
+	 * offer the hello field (UX-ID-2) — it would have to ask everyone for a
+	 * message most rooms will never show anyone.
+	 *
+	 * Not a secret: it is the sign on the door, and the door is already visible
+	 * to anyone holding the link.
+	 */
+	const settings = await db
+		.from('room_state')
+		.select('admission')
+		.eq('room_id', room.data.id)
+		.maybeSingle();
+
+	return { roomId: room.data.id, asksAdmission: settings.data?.admission === 'ask' };
 };
