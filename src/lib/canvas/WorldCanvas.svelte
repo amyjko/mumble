@@ -46,6 +46,12 @@
 		 * would put somebody's screen on their face.
 		 */
 		screenStreams?: ReadonlyMap<string, MediaStream> | undefined;
+		/**
+		 * Signed URLs for image objects, keyed by Storage path (UX-OBJ-5). Minted
+		 * in Room (which owns the Supabase client) and threaded through, so this
+		 * renderer needs no live client of its own.
+		 */
+		imageUrls?: ReadonlyMap<string, string> | undefined;
 		/** This browser refused OUR camera. Only ever shown on our own tile. */
 		cameraDenied?: boolean;
 	}
@@ -60,6 +66,7 @@
 		drawColor,
 		videoStreams,
 		screenStreams,
+		imageUrls,
 		cameraDenied = false
 	}: Props = $props();
 
@@ -378,6 +385,7 @@
 				{identity}
 				{screenStreams}
 				names={participantNames}
+				{imageUrls}
 				obstacles={obstaclesFor(object.id)}
 				onFullscreen={(id: string) => {
 					fullscreenId = id;
@@ -435,6 +443,7 @@
 					{identity}
 					{screenStreams}
 					names={participantNames}
+					{imageUrls}
 					onexit={closeFullscreen}
 				/>
 			</div>

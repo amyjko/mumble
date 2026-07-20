@@ -75,5 +75,6 @@ export const ADD_EMOJI = {
 	timer: '\u{23F1}\u{FE0F}',
 	chat: '\u{1F4AC}',
 	drawing: '\u{270F}\u{FE0F}',
+	image: '\u{1F5BC}\u{FE0F}',
 	placer: '\u{1F4CD}'
 } as const;

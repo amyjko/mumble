@@ -13,7 +13,14 @@
 	import { AVATAR_SIZE, newParticipant } from '$lib/model/avatar';
 	import { SyncClient } from '$lib/store/sync-client.svelte';
 	import { Viewport } from '$lib/canvas/viewport.svelte';
-	import { newNote, newTimer, newChat, newScreenshare, maxZOf } from '$lib/model/create';
+	import { newNote, newTimer, newChat, newScreenshare, newImage, maxZOf } from '$lib/model/create';
+	import {
+		uploadImage,
+		ImageUploadError,
+		IMAGE_BUCKET,
+		SIGNED_URL_TTL_SECONDS
+	} from '$lib/media/image-upload';
+	import { MAX_IMAGES_PER_ROOM } from '$lib/model/image';
 	import { BACKGROUND_GRADIENTS, BACKGROUND_LEVELS } from '$lib/model/background';
 	import { DEFAULT_DRAW_COLOR } from '$lib/model/palette';
 	import { goto } from '$app/navigation';
@@ -547,6 +554,88 @@
 		void sync.commit({ kind: 'create_object', object: newChat(identity.id, centerWorld(), maxZOf(objects), store.state.border_default) });
 		sync.announce('Chat added');
 	}
+
+	/**
+	 * Signed URLs for image objects, keyed by Storage path (UX-OBJ-5).
+	 *
+	 * Minted here rather than in the renderer because Room owns the Supabase
+	 * client; WorldCanvas stays a pure renderer that only receives the map. The
+	 * bucket is private (image access rides the same room-membership RLS as every
+	 * object), so the render layer cannot use a stable public URL — each path is
+	 * signed on demand and dropped when its object leaves.
+	 */
+	const imageUrls = new SvelteMap<string, string>();
+	$effect(() => {
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- local, rebuilt each run and never a reactive source
+		const paths = new Set<string>();
+		for (const object of Object.values(store.state.objects)) {
+			if (object.type === 'image') paths.add(object.payload.path);
+		}
+		// Only `paths` (derived from room state) should drive this effect; reading
+		// and writing `imageUrls` inside it must not, or minting one URL would
+		// re-run the whole thing.
+		untrack(() => {
+			for (const path of paths) {
+				if (imageUrls.has(path)) continue;
+				void supabaseBrowser()
+					.storage.from(IMAGE_BUCKET)
+					.createSignedUrl(path, SIGNED_URL_TTL_SECONDS)
+					.then(({ data }) => {
+						if (data?.signedUrl !== undefined) imageUrls.set(path, data.signedUrl);
+					})
+					.catch(() => undefined);
+			}
+			for (const path of [...imageUrls.keys()]) {
+				if (!paths.has(path)) imageUrls.delete(path);
+			}
+		});
+	});
+
+	/**
+	 * Adding an image is the one creation that needs a file first (UX-OBJ-5), so
+	 * it goes through a hidden `<input type="file">` the button clicks. The bytes
+	 * upload straight to Storage (image-upload.ts); only the resulting object
+	 * goes through the control plane, like every other create.
+	 */
+	let imageInput = $state<HTMLInputElement | null>(null);
+	function pickImage(): void {
+		imageInput?.click();
+	}
+	async function onImagePicked(): Promise<void> {
+		// Read from the bound input rather than event.currentTarget, which avoids a
+		// cast and is the same element anyway.
+		const input = imageInput;
+		if (input === null) return;
+		const file = input.files?.[0];
+		// Clear so picking the SAME file again still fires a change event.
+		input.value = '';
+		if (file === undefined) return;
+		// Pre-check the room's image count so a full room refuses BEFORE uploading
+		// bytes it would only orphan. The rule engine is the real gate; this is
+		// the courtesy half (AR-SYNC-3), and it announces the same message.
+		const images = untrack(
+			() => Object.values(store.state.objects).filter((o) => o.type === 'image').length
+		);
+		if (images >= MAX_IMAGES_PER_ROOM) {
+			sync.announce(
+				`This room already holds the most images it can (${String(MAX_IMAGES_PER_ROOM)})`
+			);
+			return;
+		}
+		try {
+			const ref = await uploadImage(supabaseBrowser(), file, roomId);
+			const objects = untrack(() => Object.values(store.state.objects));
+			void sync.commit({
+				kind: 'create_object',
+				object: newImage(identity.id, centerWorld(), maxZOf(objects), ref, store.state.border_default)
+			});
+			sync.announce('Image added');
+		} catch (error) {
+			sync.announce(
+				error instanceof ImageUploadError ? error.message : 'That image could not be added'
+			);
+		}
+	}
 	/**
 	 * Change your own name/face (UX-ID-1, UX-AV-3). Writes BOTH the per-browser
 	 * identity and the room's participant record: the first is what you carry
@@ -817,6 +906,16 @@
 	<Button disabled={!mayCreate} onclick={addNote}>+ <Emoji glyph={ADD_EMOJI.note} /> note</Button>
 	<Button disabled={!mayCreate} onclick={addTimer}>+ <Emoji glyph={ADD_EMOJI.timer} /> timer</Button>
 	<Button disabled={!mayCreate} onclick={addChat}>+ <Emoji glyph={ADD_EMOJI.chat} /> chat</Button>
+	<Button disabled={!mayCreate} onclick={pickImage}>+ <Emoji glyph={ADD_EMOJI.image} /> image</Button>
+	<!-- The picker the image button opens. Hidden, pointer-free-reachable via the
+	     button (UX-A11Y-2), and accepting only the formats the bucket allows. -->
+	<input
+		bind:this={imageInput}
+		type="file"
+		accept="image/png,image/jpeg,image/webp,image/gif"
+		class="sr-only"
+		onchange={onImagePicked}
+	/>
 	<!-- A host tool, not content: placers say where NEWCOMERS land (UX-AV-2). -->
 	{#if canDesign}
 		<Button onclick={addPlacer}>+ <Emoji glyph={ADD_EMOJI.placer} /> newcomer spot</Button>
@@ -936,6 +1035,7 @@
 		{drawColor}
 		{videoStreams}
 		{screenStreams}
+		{imageUrls}
 		cameraDenied={session?.cameraDenied ?? false}
 	/>
 	<!-- Remote audio, off-canvas and unstyled.

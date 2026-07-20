@@ -7,6 +7,7 @@ import type {
 	chatMessageSchema,
 	drawingObjectSchema,
 	screenshareObjectSchema,
+	imageObjectSchema,
 	transformSchema,
 	clipSchema,
 	permissionSchema,
@@ -36,6 +37,7 @@ export type ChatCanvasObject = z.infer<typeof chatObjectSchema>;
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 export type DrawingCanvasObject = z.infer<typeof drawingObjectSchema>;
 export type ScreenshareCanvasObject = z.infer<typeof screenshareObjectSchema>;
+export type ImageCanvasObject = z.infer<typeof imageObjectSchema>;
 export type Participant = z.infer<typeof participantSchema>;
 /** One object's place in a configuration: position, size, and visibility. A layout is the set of poses. */
 export type Pose = z.infer<typeof poseSchema>;

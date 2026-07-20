@@ -41,6 +41,8 @@
 		screenStreams?: ReadonlyMap<string, MediaStream> | undefined;
 		/** Display names by participant id, for a share's accessible name. */
 		names?: ReadonlyMap<string, string> | undefined;
+		/** Signed URLs by Storage path (UX-OBJ-5); only an image reads it. */
+		imageUrls?: ReadonlyMap<string, string> | undefined;
 	}
 
 	let {
@@ -53,7 +55,8 @@
 		obstacles,
 		onFullscreen,
 		screenStreams,
-		names
+		names,
+		imageUrls
 	}: Props = $props();
 	const actorId = $derived(identity.id);
 
@@ -78,6 +81,12 @@
 			const owner = store.state.participants[object.payload.owner_id]?.name;
 			return owner === undefined ? 'A shared screen' : `${owner}’s shared screen`;
 		}
+		if (object.type === 'image') {
+			// The alt IS the accessible name (UX-A11Y-3); seeded from the filename
+			// on upload, so the empty case is a fallback rather than the norm.
+			const alt = object.payload.alt.trim();
+			return alt === '' ? 'Image' : `Image: ${alt}`;
+		}
 		// Note is what remains. Naming it rather than falling through: this chain
 		// read `object.payload.text` for "everything else", which silently became
 		// a type error the moment a fifth object type existed.
@@ -100,7 +109,9 @@
 					? 'drawing'
 					: object.type === 'screenshare'
 						? 'screen share'
-						: 'note'
+						: object.type === 'image'
+							? 'image'
+							: 'note'
 	);
 
 	const outerRadius = $derived(
@@ -423,6 +434,7 @@
 				{identity}
 				{screenStreams}
 				{names}
+				{imageUrls}
 				onexit={exitToFrame}
 			/>
 		</div>

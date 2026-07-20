@@ -23,9 +23,10 @@ export const MIN_SIZE = 40;
  *  - timer:   readout + the mode switch + the adjust row
  *  - chat:    a couple of log lines + the compose row
  *  - drawing: no controls at all, so the flat floor is fine
+ *  - image:   no controls either; the flat floor keeps a thumbnail legible
  */
 export function minSizeFor(
-	type: 'note' | 'timer' | 'chat' | 'drawing' | 'screenshare'
+	type: 'note' | 'timer' | 'chat' | 'drawing' | 'screenshare' | 'image'
 ): Size {
 	switch (type) {
 		case 'timer':
@@ -35,6 +36,10 @@ export function minSizeFor(
 		case 'note':
 			return { width: 140, height: 80 };
 		case 'drawing':
+			return { width: MIN_SIZE, height: MIN_SIZE };
+		case 'image':
+			// An image carries no controls, so it can shrink to the flat floor like
+			// a drawing — its aspect ratio is content-driven, not fixed here.
 			return { width: MIN_SIZE, height: MIN_SIZE };
 		case 'screenshare':
 			// Larger than anything else, and 16:9. A share shrunk below this is

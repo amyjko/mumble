@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { isSafeBackground } from './background';
 import { EMOTE_NAMES } from './emotes';
+import { ALLOWED_IMAGE_MIME, MAX_IMAGE_DIM } from './image';
 import { DEFAULT_CAPACITY } from './stage';
 
 /**
@@ -157,13 +158,40 @@ export const screenshareObjectSchema = objectBase.extend({
 	payload: z.object({ owner_id: z.uuid() })
 });
 
+/**
+ * An image (UX-OBJ-5). Like a note or a screen share, it inherits every
+ * manipulation from `ObjectFrame` and adds no interaction code.
+ *
+ * "Stored by reference": the payload carries the Storage `path`
+ * (`<room_id>/<object_id>`), never the bytes and never a signed URL — a signed
+ * URL expires, so persisting one into room state would rot. The render layer
+ * mints a fresh signed URL from the path.
+ *
+ * `width`/`height` are the image's NATURAL pixels, capped here so the mutate
+ * route (AR-SYNC-3) is the server-side gate for the dimension cap Storage cannot
+ * enforce (it never decodes the bytes — see model/image.ts). `alt` is the
+ * accessible name (UX-A11Y-3), initialised from the filename on upload so it is
+ * never empty by accident.
+ */
+export const imageObjectSchema = objectBase.extend({
+	type: z.literal('image'),
+	payload: z.object({
+		path: z.string().min(1),
+		width: z.number().int().positive().max(MAX_IMAGE_DIM),
+		height: z.number().int().positive().max(MAX_IMAGE_DIM),
+		mime: z.enum(ALLOWED_IMAGE_MIME),
+		alt: z.string().max(1000).default('')
+	})
+});
+
 /** Grows into a wider discriminated union as object types land (AR-CANVAS-3). */
 export const canvasObjectSchema = z.discriminatedUnion('type', [
 	noteObjectSchema,
 	timerObjectSchema,
 	chatObjectSchema,
 	drawingObjectSchema,
-	screenshareObjectSchema
+	screenshareObjectSchema,
+	imageObjectSchema
 ]);
 
 export const slotMediaSchema = z.enum(['video', 'audio', 'screen']);
@@ -406,6 +434,10 @@ export const mutationSchema = z.discriminatedUnion('kind', [
 	// UX-OBJ-8's per-object override, "subject to edit permission" — so this
 	// goes through requireEditable rather than being creator-only.
 	z.object({ kind: z.literal('set_border'), id: z.uuid(), width: z.number().nonnegative().max(40) }),
+	// An image's accessible name (UX-A11Y-3, UX-OBJ-5). Editable-gated like
+	// set_border, because alt text is content the object carries, not a personal
+	// expression.
+	z.object({ kind: z.literal('set_image_alt'), id: z.uuid(), alt: z.string().max(1000) }),
 	z.object({ kind: z.literal('set_room_border'), width: z.number().nonnegative().max(40) }),
 	// The room-level half of UX-OBJ-9.
 	z.object({ kind: z.literal('set_room_create_permission'), value: z.enum(['all', 'host']) }),

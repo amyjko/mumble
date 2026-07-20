@@ -33,6 +33,7 @@ import {
 } from './stage';
 import { shapeOfObject, shapeOfPlacer, shapeOfParticipant, participatesInCollision } from './shapes';
 import { CHAT_LOG_LIMIT } from './limits';
+import { MAX_IMAGES_PER_ROOM } from './image';
 
 /**
  * THE RULE ENGINE: every permission check, every validity check, and every
@@ -163,6 +164,22 @@ export function applyMutation(state: RoomState, m: Mutation, ctx: RuleContext): 
 			// else — placement should not be computed for a create that is
 			// about to be refused.
 			requireMayCreate(state);
+			// UX-OBJ-5: a room holds at most MAX_IMAGES_PER_ROOM images. There is
+			// no thumbnailing, so every image is a full-bytes download for every
+			// viewer; this is what bounds room load. The per-image byte cap alone
+			// does not — it limits one upload, not a hundred of them.
+			if (m.object.type === 'image') {
+				let images = 0;
+				for (const existing of Object.values(state.objects)) {
+					if (existing.type === 'image') images += 1;
+				}
+				if (images >= MAX_IMAGES_PER_ROOM) {
+					throw new StoreRejection(
+						'invalid',
+						`This room already holds the most images it can (${String(MAX_IMAGES_PER_ROOM)})`
+					);
+				}
+			}
 			// Exempt objects land exactly where they were made. Relocating a
 			// just-finished stroke off the ink the user drew was the most
 			// visible symptom of drawings taking part in collision.
@@ -210,6 +227,14 @@ export function applyMutation(state: RoomState, m: Mutation, ctx: RuleContext): 
 			requireEditable(existing, ctx);
 			if (existing.type !== 'timer') throw new StoreRejection('invalid', 'Not a timer');
 			existing.payload = m.payload;
+			existing.updated_at = nowIso();
+			break;
+		}
+		case 'set_image_alt': {
+			const existing = requireObject(state, m.id);
+			requireEditable(existing, ctx);
+			if (existing.type !== 'image') throw new StoreRejection('invalid', 'Not an image');
+			existing.payload = { ...existing.payload, alt: m.alt };
 			existing.updated_at = nowIso();
 			break;
 		}

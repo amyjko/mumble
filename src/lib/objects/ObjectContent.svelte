@@ -6,6 +6,7 @@
 	import ChatObject from './ChatObject.svelte';
 	import DrawingObject from './DrawingObject.svelte';
 	import ScreenshareObject from './ScreenshareObject.svelte';
+	import ImageObject from './ImageObject.svelte';
 
 	/**
 	 * Renders an object's inner content by type (AR-CANVAS-3 dispatch). Shared
@@ -29,9 +30,18 @@
 		screenStreams?: ReadonlyMap<string, MediaStream> | undefined;
 		/** Display names by participant id, for a share's accessible name. */
 		names?: ReadonlyMap<string, string> | undefined;
+		/**
+		 * Signed URLs for image objects, keyed by their Storage path (UX-OBJ-5).
+		 *
+		 * Passed down for the same reason as `screenStreams`: a signed URL is
+		 * per-viewer and expiring, not room state. Optional so non-image callers
+		 * are unaffected.
+		 */
+		imageUrls?: ReadonlyMap<string, string> | undefined;
 	}
 
-	let { object, sync, editable, identity, onexit, screenStreams, names }: Props = $props();
+	let { object, sync, editable, identity, onexit, screenStreams, names, imageUrls }: Props =
+		$props();
 </script>
 
 {#if object.type === 'note'}
@@ -49,4 +59,6 @@
 		ownerName={names?.get(object.payload.owner_id)}
 		isSelf={object.payload.owner_id === identity.id}
 	/>
+{:else if object.type === 'image'}
+	<ImageObject {object} src={imageUrls?.get(object.payload.path)} />
 {/if}

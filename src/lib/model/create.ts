@@ -1,4 +1,4 @@
-import type { CanvasObject, Point, ScreenshareCanvasObject } from './types';
+import type { CanvasObject, ImageCanvasObject, Point, ScreenshareCanvasObject } from './types';
 import type { Bounds } from './drawing';
 import { nowIso } from './types';
 import { DEFAULT_BORDER_WIDTH } from './schemas';
@@ -127,6 +127,65 @@ export function newScreenshare(
 		// Equal to creator_id here, and deliberately a separate field: one is a
 		// permission fact, the other is which peer's track feeds this tile.
 		payload: { owner_id: ownerId },
+		created_at: now,
+		updated_at: now
+	};
+}
+
+/** What an upload produces (media/image-upload.ts): the reference, plus the alt. */
+export interface ImageRef {
+	path: string;
+	/** Natural pixels, already capped and validated on upload. */
+	width: number;
+	height: number;
+	mime: ImageCanvasObject['payload']['mime'];
+	alt: string;
+}
+
+/** The longest side of a freshly-dropped image, in world units. */
+const IMAGE_DEFAULT_LONG_SIDE = 320;
+
+/**
+ * An image (UX-OBJ-5). The bytes are already in Storage — this only mints the
+ * object that references them (AR-CANVAS-3). The transform preserves the natural
+ * aspect ratio so an image is never born stretched, scaled so its longer side is
+ * `IMAGE_DEFAULT_LONG_SIDE`; the person resizes from there like any object.
+ */
+export function newImage(
+	creatorId: string,
+	center: Point,
+	maxZ: number,
+	ref: ImageRef,
+	border = DEFAULT_BORDER_WIDTH
+): ImageCanvasObject {
+	const now = nowIso();
+	const scale = IMAGE_DEFAULT_LONG_SIDE / Math.max(ref.width, ref.height);
+	const width = ref.width * scale;
+	const height = ref.height * scale;
+	const transform = {
+		x: center.x - width / 2,
+		y: center.y - height / 2,
+		width,
+		height,
+		rotation: 0,
+		z: maxZ + 1
+	};
+	return {
+		id: crypto.randomUUID(),
+		type: 'image',
+		creator_id: creatorId,
+		permission: 'all',
+		transform,
+		clip: { shape: 'rounded', radius: 8 },
+		border: { width: border },
+		hidden: false,
+		payload: {
+			path: ref.path,
+			width: ref.width,
+			height: ref.height,
+			mime: ref.mime,
+			alt: ref.alt
+		},
 		created_at: now,
 		updated_at: now
 	};
