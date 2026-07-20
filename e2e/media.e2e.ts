@@ -79,3 +79,62 @@ test('a departing peer takes its connection with it', async ({ browser }) => {
 
 	await hostCtx.close();
 });
+
+test('a slot holder is actually SEEN by the other participant (UX-AV-1)', async ({ browser }) => {
+	/*
+	 * The product promise, end to end: someone takes a slot, turns their camera
+	 * on, and the other person sees them.
+	 *
+	 * The assertions are about LIVENESS rather than presence, and that is the
+	 * whole point. A `<video>` element that exists proves markup. One with
+	 * dimensions proves a stream was attached. Neither distinguishes a live
+	 * camera from a black frame frozen at the first keyframe — so `currentTime`
+	 * must be seen ADVANCING between two samples, which nothing but decoding
+	 * frames produces.
+	 */
+	const room = roomName('seen');
+	const hostCtx = await browser.newContext();
+	const guestCtx = await browser.newContext();
+	const host = await hostCtx.newPage();
+	const guest = await guestCtx.newPage();
+
+	await hostRoom(host, room);
+	await settled(host);
+	await joinRoom(guest, room, 'OnCamera');
+	await settled(guest);
+
+	await expect(host.locator('html')).toHaveAttribute('data-media-peers', '1', { timeout: 60_000 });
+
+	// The guest takes the video slot.
+	await guest.getByRole('button', { name: /Turn camera on/ }).click();
+	await settled(guest);
+
+	// A video element appears in the HOST's view — on the guest's tile, not the
+	// host's own, which is what makes this a remote stream rather than a local
+	// preview.
+	const remote = host.locator('.avatar:not(.self) video');
+	await expect(remote).toHaveCount(1, { timeout: 60_000 });
+
+	// Decoding, with real dimensions.
+	await expect
+		.poll(
+			async () =>
+				remote.evaluate(
+					(node: HTMLVideoElement) => node.videoWidth > 0 && node.readyState >= 2
+				),
+			{ timeout: 60_000, intervals: [500] }
+		)
+		.toBe(true);
+
+	// ...and ADVANCING. A black-but-playing element passes every check above.
+	const first = await remote.evaluate((node: HTMLVideoElement) => node.currentTime);
+	await expect
+		.poll(async () => remote.evaluate((node: HTMLVideoElement) => node.currentTime), {
+			timeout: 30_000,
+			intervals: [500]
+		})
+		.toBeGreaterThan(first);
+
+	await hostCtx.close();
+	await guestCtx.close();
+});

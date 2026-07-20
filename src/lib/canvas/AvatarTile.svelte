@@ -36,9 +36,39 @@
 		viewport: Viewport;
 		obstacles: () => SolverShape[];
 		isSelf: boolean;
+		/**
+		 * This participant's live video, if any (UX-AV-1, UX-ROOM-1).
+		 *
+		 * A stream rather than a track: an element wants something to play, and
+		 * assembling one here would mean this component knew how media is carried.
+		 * Absent for everyone not currently publishing, which is most people most
+		 * of the time.
+		 */
+		videoStream?: MediaStream | undefined;
 	}
 
-	let { participant, store, sync, viewport, obstacles, isSelf }: Props = $props();
+	let { participant, store, sync, viewport, obstacles, isSelf, videoStream }: Props = $props();
+
+	/*
+	 * Attach the stream imperatively.
+	 *
+	 * `srcObject` is a property, not an attribute, so it cannot be bound in
+	 * markup — writing `srcobject={...}` silently does nothing at all.
+	 */
+	let videoElement = $state<HTMLVideoElement | null>(null);
+	$effect(() => {
+		const element = videoElement;
+		const stream = videoStream;
+		if (element === null) return;
+		if (stream === undefined) {
+			element.srcObject = null;
+			return;
+		}
+		element.srcObject = stream;
+		// Autoplay is granted by policy for muted media; a rejection here is a
+		// browser declining to start, not an error worth surfacing.
+		void element.play().catch(() => undefined);
+	});
 
 	/** UX-AV-6: the raised hand IS the queue entry. */
 	const queued = $derived(store.state.queue.includes(participant.id));
@@ -250,8 +280,21 @@
 	<!-- Clip on an inner layer, never on the tile: clip-path clips hit-testing
 	     for descendants, which would swallow the handles (the trap that
 	     ObjectFrame already hit). -->
-	<div class="skin" style:border-radius={outerRadius} style:clip-path={clipPath ?? 'none'}></div>
-	<span class="face"><Emoji glyph={participant.emoji} size="40px" /></span>
+	<div class="skin" style:border-radius={outerRadius} style:clip-path={clipPath ?? 'none'}>
+		<!-- Inside `.skin` so it takes the same clip and radius: a participant
+		     who chose a circular tile gets circular video, and one who cropped
+		     themselves stays cropped. UX-AV-3's camera-off state is simply the
+		     absence of this, which is why the face below is not conditional. -->
+		{#if videoStream !== undefined}
+			<video bind:this={videoElement} class="video" autoplay playsinline muted={isSelf}></video>
+		{/if}
+	</div>
+	<!-- Hidden while video is playing rather than removed: the emoji IS the
+	     camera-off appearance, and it must come back the instant the stream
+	     stops without waiting for anything to re-render. -->
+	<span class="face" class:behind-video={videoStream !== undefined}
+		><Emoji glyph={participant.emoji} size="40px" /></span
+	>
 	<!-- The name floats BELOW the avatar rather than inside it: within a round
 	     tile it had to be clamped to 84px and was clipped by the circle. -->
 	<span class="name">{participant.name}</span>
@@ -318,6 +361,24 @@
 		background: var(--sticker); /* sticker border, same idiom as objects (UX-AV-1) */
 		box-shadow: var(--shadow-1);
 		pointer-events: none;
+		/* So the video takes the tile's rounding rather than sitting square
+		   inside a round sticker. */
+		overflow: hidden;
+	}
+	.video {
+		width: 100%;
+		height: 100%;
+		/* COVER, not contain: a tile is a fixed shape the participant chose, and
+		   letterboxing it would put bars inside a circle. Cropping to fill is
+		   what makes an avatar read as a face rather than a photograph. */
+		object-fit: cover;
+		display: block;
+	}
+	/* The emoji stays in the DOM as the camera-off state (UX-AV-3), hidden only
+	   while there is something to show. `visibility` rather than `display` so
+	   nothing reflows when a camera goes on or off. */
+	.face.behind-video {
+		visibility: hidden;
 	}
 	.shape-control {
 		position: absolute;

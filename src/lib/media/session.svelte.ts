@@ -74,9 +74,32 @@ export class MediaSession {
 	/** Set while a reconcile is in flight, so plans queue instead of racing. */
 	private busy = false;
 	private again = false;
+	/**
+	 * Re-ask for a grant the server refused.
+	 *
+	 * The client applies a slot optimistically, so for a moment its own state
+	 * says "I hold video" while the server's does not — and the server is right,
+	 * because it is the only one that decides. Asking in that window earns a
+	 * legitimate 403.
+	 *
+	 * The bug was not the 403; it was that nothing ever asked again. A reconcile
+	 * only runs when its inputs change, and by then they already had, so a
+	 * publisher who lost that race stayed silent forever with the UI cheerfully
+	 * showing them as a holder. Bounded, and only while capture is still wanted.
+	 */
+	private grantRetry: ReturnType<typeof setTimeout> | null = null;
+	private grantAttempts = 0;
 
 	/** Live connection count, for the document attribute tests read. */
 	connected = $state(0);
+	/**
+	 * Your own camera, so you can see yourself (UX-AV-1).
+	 *
+	 * The same stream the transport is publishing, rendered locally — a
+	 * self-view is not a peer connection to yourself, and building one would be
+	 * a comically expensive way to look in a mirror.
+	 */
+	localVideo = $state<MediaStream | null>(null);
 
 	constructor(options: SessionOptions) {
 		this.options = options;
@@ -130,6 +153,25 @@ export class MediaSession {
 		// makes the next renegotiation fail, and the failure would look like a
 		// network problem.
 		this.grantExpiresAtMs = Date.now() + 120_000 - REFRESH_BEFORE_EXPIRY_MS;
+	}
+
+	private scheduleGrantRetry(tiles: ReadonlyMap<PeerId, TileSize>): void {
+		if (this.grantRetry !== null || this.disposed) return;
+		// Bounded: a participant who genuinely holds nothing must not poll the
+		// control plane for the rest of the meeting.
+		if (this.grantAttempts >= 5) return;
+		this.grantAttempts += 1;
+		this.grantRetry = setTimeout(() => {
+			this.grantRetry = null;
+			void this.reconcile(tiles);
+		}, 1_000);
+	}
+
+	private clearGrantRetry(): void {
+		this.grantAttempts = 0;
+		if (this.grantRetry === null) return;
+		clearTimeout(this.grantRetry);
+		this.grantRetry = null;
 	}
 
 	private get grantIsFresh(): boolean {
@@ -206,12 +248,18 @@ export class MediaSession {
 			// are not allowed to send would be the worst of both.
 			if (this.grant === null) {
 				await this.capture.reconcile({ video: false, audio: false });
+				this.scheduleGrantRetry(tiles);
 				return;
 			}
+			this.clearGrantRetry();
 			this.options.onGrant?.(this.grant);
 		}
 
 		const changed = await this.capture.reconcile(plan.capture);
+		const own = this.capture.get('video');
+		// A NEW MediaStream per track change rather than a mutated one: an element
+		// re-reads `srcObject` on identity, not on content.
+		this.localVideo = own === null ? null : new MediaStream([own]);
 		for (const kind of changed) {
 			const track = this.capture.get(kind);
 			if (track === null) {
@@ -248,6 +296,8 @@ export class MediaSession {
 
 	dispose(): void {
 		this.disposed = true;
+		this.localVideo = null;
+		this.clearGrantRetry();
 		this.capture.dispose();
 		this.transport.dispose();
 	}

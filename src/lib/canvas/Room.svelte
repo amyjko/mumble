@@ -166,8 +166,38 @@
 	 */
 	let session: MediaSession | null = $state(null);
 
-	/** Remote streams by peer, rendered by their tile. */
+	/**
+	 * Remote streams, keyed `<peer>:<kind>`.
+	 *
+	 * Audio is in here too and is deliberately NOT rendered by a tile: an audio
+	 * element per avatar would be a mixing decision made in the wrong place. It
+	 * plays through one element below, which is also where proximity mixing would
+	 * later live.
+	 */
 	const remoteStreams = new SvelteMap<string, MediaStream>();
+	/** Just the video, keyed by peer, which is what a tile wants. */
+	const videoStreams = $derived.by(() => {
+		const byPeer = new SvelteMap<string, MediaStream>();
+		for (const [key, stream] of remoteStreams) {
+			const [peer, kind] = key.split(':');
+			if (kind !== 'video' || peer === undefined) continue;
+			byPeer.set(peer, stream);
+		}
+		// Your own camera goes on your own tile. Everyone else's arrives over a
+		// connection; yours never leaves the machine.
+		const own = session?.localVideo;
+		if (own != null && identity.id !== '') byPeer.set(identity.id, own);
+		return byPeer;
+	});
+	/** Every remote audio stream, played through one element each. */
+	const audioStreams = $derived.by(() => {
+		const streams: { key: string; stream: MediaStream }[] = [];
+		for (const [key, stream] of remoteStreams) {
+			if (!key.endsWith(':audio')) continue;
+			streams.push({ key, stream });
+		}
+		return streams;
+	});
 
 	/*
 	 * The id alone, so the session is not rebuilt for an unrelated change.
@@ -178,6 +208,17 @@
 	 * a new object carrying the same id changes nothing.
 	 */
 	const selfId = $derived(identity.id);
+
+	/** `srcObject` is a property, not an attribute, so it cannot be set in markup. */
+	function attachStream(node: HTMLMediaElement, stream: MediaStream) {
+		node.srcObject = stream;
+		void node.play().catch(() => undefined);
+		return {
+			destroy() {
+				node.srcObject = null;
+			}
+		};
+	}
 
 	$effect(() => {
 		const current = store;
@@ -739,7 +780,15 @@
 </header>
 
 <main>
-	<WorldCanvas {store} {sync} {viewport} {identity} {isHost} {drawMode} {drawColor} />
+	<WorldCanvas {store} {sync} {viewport} {identity} {isHost} {drawMode} {drawColor} {videoStreams} />
+	<!-- Remote audio, off-canvas and unstyled.
+	     One element per peer rather than per tile: a tile is a position on a
+	     canvas and audio has no position yet, so mixing there would be a decision
+	     made in the wrong place. Proximity audio (Later) replaces this element,
+	     not the avatars. -->
+	{#each audioStreams as entry (entry.key)}
+		<audio use:attachStream={entry.stream} autoplay></audio>
+	{/each}
 	<!-- ONE bottom toolbar: emotes, camera, and theme. Three separate floating
 	     clusters used to compete for this corner and overlap each other. -->
 	<BottomBar {store} {sync} {identity} {viewport} />

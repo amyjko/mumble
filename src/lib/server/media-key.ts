@@ -80,12 +80,38 @@ async function load(): Promise<{ signing: CryptoKey; publicJwk: JsonWebKey }> {
 		);
 	}
 
-	console.warn(
-		'mumble: MEDIA_SIGNING_KEY unset; generating an EPHEMERAL key for this local stack. Grants will not verify across a restart.'
-	);
-	const pair = await crypto.subtle.generateKey(GRANT_ALGORITHM, true, ['sign', 'verify']);
-	const jwk = await crypto.subtle.exportKey('jwk', pair.publicKey);
-	return { signing: pair.privateKey, publicJwk: publicPartOf(jwk) };
+	/*
+	 * A FIXED local key, not a generated one — and the difference is the whole
+	 * point of this branch.
+	 *
+	 * Generating one per isolate was the original behaviour, and its comment
+	 * warned that grants "will not verify across a restart". That understated
+	 * it: the worker runs the key route and the session route in DIFFERENT
+	 * isolates, so a browser could fetch one public key and be handed a grant
+	 * signed by another, within a single page load. Every peer then refused
+	 * every offer with a signature failure — which looks exactly like a
+	 * networking problem and is not one. It cost an evening to find, from a
+	 * symptom two layers away.
+	 *
+	 * This key is PUBLIC KNOWLEDGE and deliberately so. It is committed, it is
+	 * in the repository, and it authorizes nothing beyond publishing into a
+	 * local room: `looksLocal()` above refuses to reach this line against any
+	 * non-local Supabase, and a deployment without MEDIA_SIGNING_KEY throws
+	 * rather than falling back here. Treating it as a secret would be a
+	 * misunderstanding — it exists so that a development stack is DETERMINISTIC,
+	 * the same reason the local Supabase ships well-known demo keys.
+	 */
+	const DEVELOPMENT_ONLY_KEY: JsonWebKey = {
+		kty: 'EC',
+		crv: 'P-256',
+		x: '1EmDobFC656X-9voSgKgp-VsYk3t2V_NlgCCcqw98yA',
+		y: 'gEgmhuifxnM5XwYkIJTIx0Y69umUNRo2ueIZktot5DE',
+		d: 'xKHuGJ2rc-beerfMU1MpPhxV2SfTeqboAAzIRqFW8Y4'
+	};
+	const signing = await crypto.subtle.importKey('jwk', DEVELOPMENT_ONLY_KEY, GRANT_ALGORITHM, false, [
+		'sign'
+	]);
+	return { signing, publicJwk: publicPartOf(DEVELOPMENT_ONLY_KEY) };
 }
 
 /** Memoized per isolate — importing a key on every request is pure overhead. */

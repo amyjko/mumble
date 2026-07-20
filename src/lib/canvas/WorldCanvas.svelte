@@ -29,9 +29,27 @@
 		isHost?: boolean | undefined;
 		drawMode: boolean;
 		drawColor: string;
+		/**
+		 * Live video by participant id (UX-AV-1, UX-ROOM-1).
+		 *
+		 * Passed down rather than read from a store, because a stream is not room
+		 * STATE — it is not persisted, not versioned, and not the same for two
+		 * people looking at the same room. Putting it in `room_state` would give
+		 * an avatar a creator and a permission, which UX-AV-7 explicitly rejects.
+		 */
+		videoStreams?: ReadonlyMap<string, MediaStream> | undefined;
 	}
 
-	let { store, sync, viewport, identity, isHost = false, drawMode, drawColor }: Props = $props();
+	let {
+		store,
+		sync,
+		viewport,
+		identity,
+		isHost = false,
+		drawMode,
+		drawColor,
+		videoStreams
+	}: Props = $props();
 
 	/** Placers are a host tool (UX-AV-2); the role is real now (room_members). */
 	const canDesign = $derived(canDesignRoom(isHost));
@@ -346,6 +364,7 @@
 				{viewport}
 				obstacles={obstaclesFor(participant.id)}
 				isSelf={participant.id === identity.id}
+				videoStream={videoStreams?.get(participant.id)}
 			/>
 		{/each}
 		{#if stroke !== null}

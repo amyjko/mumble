@@ -97,7 +97,7 @@ export class PublishAuthorizer {
 		if (kinds.length === 0) return true;
 		if (grant === undefined) return false;
 
-		const body = await verifyGrant(grant, await this.key, nowSeconds);
+		const body = await verifyGrant(grant, await this.key, nowSeconds).catch(() => null);
 		if (body === null) return false;
 
 		const seenStage = this.seen.get(peer) ?? 0;
