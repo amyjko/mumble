@@ -232,6 +232,7 @@ export type Database = {
           emoji: string
           fake: boolean
           id: string
+          last_seen: string
           location: Json
           muted: boolean
           name: string
@@ -245,6 +246,7 @@ export type Database = {
           emoji: string
           fake?: boolean
           id: string
+          last_seen?: string
           location: Json
           muted?: boolean
           name: string
@@ -258,6 +260,7 @@ export type Database = {
           emoji?: string
           fake?: boolean
           id?: string
+          last_seen?: string
           location?: Json
           muted?: boolean
           name?: string

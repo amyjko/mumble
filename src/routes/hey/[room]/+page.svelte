@@ -66,6 +66,9 @@
 	 */
 	let authId = $state('');
 
+	/** Beating before admission would be a write a pending guest may not make. */
+	const admitted = $derived(status === 'admitted' && authId !== '');
+
 	/**
 	 * The store, built ONCE PER ROOM and injected into the canvas.
 	 *
@@ -127,6 +130,38 @@
 	 * optimistic apply and lets the server be the sole judge — correct, just
 	 * less responsive for the moment it lasts.
 	 */
+	/**
+	 * "I am still here" (AR-CTRL-3, UX-STAGE-4).
+	 *
+	 * Presence reaps a departed holder in about a second and is the fast path.
+	 * This is the backstop it cannot be: presence-driven reaping is host-only,
+	 * so a room whose only host has left would keep its ghosts — and at
+	 * `max_av = 1` a ghost holds the conch, leaving the room silent.
+	 *
+	 * The beat also SWEEPS, server-side, which is why the interval belongs here
+	 * rather than in the canvas: anyone still in the room cleans it, and a room
+	 * with nobody in it needs no cleaning.
+	 *
+	 * Fifteen seconds, against a 45-second staleness cutoff — three missed beats
+	 * before anyone is reaped, because taking the conch from someone on a slow
+	 * network is worse than a ghost lingering a moment longer.
+	 */
+	$effect(() => {
+		const name = data.room;
+		if (!admitted) return;
+		const beat = () => {
+			void fetch(`/api/rooms/${name}/heartbeat`, { method: 'POST' }).catch(() => {
+				// A missed beat is not an error worth surfacing: the next one
+				// covers it, and 45 seconds of grace is three chances.
+			});
+		};
+		beat();
+		const timer = setInterval(beat, 15_000);
+		return () => {
+			clearInterval(timer);
+		};
+	});
+
 	/**
 	 * Mirror in-flight writes onto the document, beside `data-hydrated`.
 	 *

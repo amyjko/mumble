@@ -675,6 +675,28 @@ function requireObject(state: RoomState, id: string): CanvasObject {
  * (UX-AV-7) and now avatar size/shape (UX-AV-1) are all things only you may
  * change about your own representation, independent of object permissions.
  */
+/**
+ * Remove participants the SERVER has determined are gone (AR-CTRL-3).
+ *
+ * Not a mutation, and deliberately not reachable from the mutation union: this
+ * takes no `RuleContext` and performs no authorization, because it is not
+ * user-initiated. The caller is the control plane acting on objective staleness
+ * — timestamps the server itself wrote — rather than on anybody's claim, which
+ * is exactly why it must NOT be expressible as a request. `remove_participant`
+ * is the user-facing verb and stays self-or-host.
+ *
+ * Releasing through `participantLeft` rather than by deleting rows is the whole
+ * point: a vanished holder's slot goes back to the queue head, so the conch
+ * moves on instead of being held by nobody.
+ */
+export function reapParticipants(state: RoomState, ids: readonly string[]): void {
+	for (const id of ids) {
+		if (state.participants[id] === undefined) continue;
+		state.participants = omitKey(state.participants, id);
+		applyStage(state, participantLeft(stage(state), id));
+	}
+}
+
 function requireSelf(ctx: RuleContext, id: string, message: string): void {
 	if (id !== ctx.actorId) throw new StoreRejection('permission', message);
 }
