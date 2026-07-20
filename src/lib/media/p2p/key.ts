@@ -57,7 +57,3 @@ async function load(): Promise<CryptoKey> {
 	return crypto.subtle.importKey('jwk', jwk, GRANT_ALGORITHM, true, ['verify']);
 }
 
-/** Test seam: forget the cached key. */
-export function forgetMediaKey(): void {
-	cached = null;
-}

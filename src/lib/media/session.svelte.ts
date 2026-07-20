@@ -100,6 +100,14 @@ export class MediaSession {
 	 * a comically expensive way to look in a mirror.
 	 */
 	localVideo = $state<MediaStream | null>(null);
+	/**
+	 * The browser refused this person's camera (UX-AV-3).
+	 *
+	 * Distinct from "camera off": they hold the slot and are trying to be seen.
+	 * Without surfacing it their tile is simply blank, which looks like a bug in
+	 * the room rather than a permission they withheld a moment ago.
+	 */
+	cameraDenied = $state(false);
 
 	constructor(options: SessionOptions) {
 		this.options = options;
@@ -256,6 +264,7 @@ export class MediaSession {
 		}
 
 		const changed = await this.capture.reconcile(plan.capture);
+		this.cameraDenied = plan.capture.video && this.capture.denied;
 		const own = this.capture.get('video');
 		// A NEW MediaStream per track change rather than a mutated one: an element
 		// re-reads `srcObject` on identity, not on content.

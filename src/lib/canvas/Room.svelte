@@ -303,13 +303,12 @@
 	 *
 	 * The same reasoning as that attribute: a test needs one honest signal for
 	 * "the media plane is up", and inventing a per-test proxy is how fixed sleeps
-	 * get written. Nothing renders remote media yet, so this is the only
-	 * cross-context evidence available — and it stays true when tiles land.
+	 * get written. It says something the rendered tiles cannot — a connection is
+	 * established BEFORE anyone publishes (AR-TRANSPORT-9), so a peer count is
+	 * observable in a room where there is deliberately nothing to see.
 	 */
 	$effect(() => {
-		const live = session?.connected ?? 0;
-		document.documentElement.dataset['mediaPeers'] = String(live);
-		void live;
+		document.documentElement.dataset['mediaPeers'] = String(session?.connected ?? 0);
 	});
 
 	const count = $derived(Object.keys(store.state.participants).length);
@@ -780,7 +779,17 @@
 </header>
 
 <main>
-	<WorldCanvas {store} {sync} {viewport} {identity} {isHost} {drawMode} {drawColor} {videoStreams} />
+	<WorldCanvas
+		{store}
+		{sync}
+		{viewport}
+		{identity}
+		{isHost}
+		{drawMode}
+		{drawColor}
+		{videoStreams}
+		cameraDenied={session?.cameraDenied ?? false}
+	/>
 	<!-- Remote audio, off-canvas and unstyled.
 	     One element per peer rather than per tile: a tile is a position on a
 	     canvas and audio has no position yet, so mixing there would be a decision

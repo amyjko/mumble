@@ -76,8 +76,6 @@ export class PeerConnection {
 	private readonly wanted = new Map<MediaKind, Layer | null>();
 	private readonly announced = new Set<MediaKind>();
 
-	/** Set when an offer we initiated failed; surfaced through stats, not thrown. */
-	lastError = '';
 
 	/**
 	 * Re-send an unanswered offer.
@@ -156,9 +154,11 @@ export class PeerConnection {
 		});
 
 		this.pc.onnegotiationneeded = () => {
-			this.makeOffer().catch((error: unknown) => {
-				this.lastError = error instanceof Error ? error.message : String(error);
-			});
+			// Swallowed rather than surfaced: a failed renegotiation is recoverable
+			// (the offer retry below re-sends, and ICE restarts on failure), and
+			// there is no caller who could act on it that the state handler does
+			// not already inform.
+			this.makeOffer().catch(() => undefined);
 		};
 
 		this.pc.onicecandidate = (event) => {
@@ -274,9 +274,7 @@ export class PeerConnection {
 	 */
 	prewarm(): void {
 		if (this.options.polite || this.closed) return;
-		this.makeOffer().catch((error: unknown) => {
-			this.lastError = error instanceof Error ? error.message : String(error);
-		});
+		this.makeOffer().catch(() => undefined);
 	}
 
 	/** Attach to every subsequent offer. Set before publishing. */
@@ -570,6 +568,7 @@ export class PeerConnection {
 	 */
 
 
+	/** @see the buffering test — this is the only way it can observe the queue. */
 	get bufferedCandidateCount(): number {
 		return this.pendingCandidates.length;
 	}

@@ -47,6 +47,14 @@ export const AWAY_EMOJI = '💤';
 export const VIDEO_EMOJI = '\u{1F3A5}';
 export const MIC_EMOJI = '\u{1F3A4}';
 export const MUTED_EMOJI = '\u{1F507}';
+/**
+ * The browser refused the camera (UX-AV-3).
+ *
+ * Distinct from the muted glyph on purpose: muted is a choice this person made
+ * and can undo from the toolbar, while this is their browser saying no and
+ * needs a different fix in a different place.
+ */
+export const CAMERA_BLOCKED_EMOJI = '\u{1F6AB}';
 
 /**
  * Glyphs for the "add" controls. Data, not markup, so every render goes

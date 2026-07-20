@@ -24,7 +24,7 @@ export interface Holders {
 	readonly audio: readonly string[];
 }
 
-export const EMPTY_STAGE: Holders = { video: [], audio: [] };
+const EMPTY_STAGE: Holders = { video: [], audio: [] };
 
 export class PublishAuthorizer {
 	private readonly room: string;

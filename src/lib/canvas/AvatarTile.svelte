@@ -7,7 +7,15 @@
 	import { resolveDrag } from './geometry';
 	import { AVATAR_BORDER, shapeOfParticipant } from '$lib/store/memory-store.svelte';
 	import { AVATAR_Z } from './layers';
-	import { EMOTE_EMOJI, HAND_EMOJI, AWAY_EMOJI, VIDEO_EMOJI, MIC_EMOJI, MUTED_EMOJI } from '$lib/model/emotes';
+	import {
+		EMOTE_EMOJI,
+		HAND_EMOJI,
+		AWAY_EMOJI,
+		VIDEO_EMOJI,
+		MIC_EMOJI,
+		MUTED_EMOJI,
+		CAMERA_BLOCKED_EMOJI
+	} from '$lib/model/emotes';
 	import Emoji from '$lib/ui/Emoji.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import TransformHandles from './TransformHandles.svelte';
@@ -45,9 +53,28 @@
 		 * of the time.
 		 */
 		videoStream?: MediaStream | undefined;
+		/**
+		 * The browser refused OUR camera (UX-AV-3).
+		 *
+		 * Rendered only on our own tile, and that is a privacy decision rather
+		 * than a layout one: a peer looking at a blank tile learns nothing useful
+		 * from why it is blank, and whether somebody granted a permission is
+		 * theirs to know.
+		 */
+		cameraDenied?: boolean;
 	}
 
-	let { participant, store, sync, viewport, obstacles, isSelf, videoStream }: Props = $props();
+	let {
+		participant,
+		store,
+		sync,
+		viewport,
+		obstacles,
+		isSelf,
+		videoStream,
+		cameraDenied = false
+	}: Props = $props();
+
 
 	/*
 	 * Attach the stream imperatively.
@@ -75,6 +102,14 @@
 	/** UX-STAGE-9: who holds what is explicit, and shown on the avatar. */
 	const hasVideo = $derived(store.state.video_holders.includes(participant.id));
 	const hasAudio = $derived(store.state.audio_holders.includes(participant.id));
+	/**
+	 * Holding the slot while the browser refuses the camera.
+	 *
+	 * Both halves matter. Without the slot check this would shout at somebody who
+	 * simply has their camera off, and without `isSelf` it would tell the room
+	 * about a permission that is not its business.
+	 */
+	const blocked = $derived(isSelf && cameraDenied && hasVideo);
 
 	/** Placement is shared state (UX-AV-2); in-flight drags overlay it. */
 	const effective = $derived(sync.participantOverlays.get(participant.id) ?? participant.location);
@@ -311,6 +346,10 @@
 			{#if hasVideo}<Emoji glyph={VIDEO_EMOJI} label="holds a video slot" />{/if}
 			{#if hasAudio}<Emoji glyph={MIC_EMOJI} label="holds an audio slot" />{/if}
 			{#if participant.muted}<Emoji glyph={MUTED_EMOJI} label="muted" />{/if}
+			{#if blocked}<Emoji
+					glyph={CAMERA_BLOCKED_EMOJI}
+					label="your browser is blocking the camera"
+				/>{/if}
 		</span>
 	{/if}
 	{#if participant.away}

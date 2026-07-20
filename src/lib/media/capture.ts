@@ -72,6 +72,21 @@ export class Capture {
 			changed.push('audio');
 		}
 
+		/*
+		 * Wanting nothing CLEARS the refusal.
+		 *
+		 * The latch stops us re-prompting on every plan, which would flash the
+		 * permission dialog at somebody who has already said no. But it used to
+		 * be permanent, so a person who refused, then went and granted the camera
+		 * in their browser settings, stayed dark until they reloaded the page —
+		 * and nothing told them a reload was what they needed.
+		 *
+		 * Releasing the slot is the one moment we know they are no longer trying,
+		 * so it is the safe place to forget: turning the camera off and on again
+		 * retries, which is exactly what anyone would try first.
+		 */
+		if (!wanted.video && !wanted.audio) this.refused = false;
+
 		const needVideo = wanted.video && this.video === null;
 		const needAudio = wanted.audio && this.audio === null;
 		if ((!needVideo && !needAudio) || this.refused) return changed;

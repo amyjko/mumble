@@ -65,6 +65,8 @@ function isExempt(relative: string): boolean {
 		 * here by planting a name in a non-exempt file.
 		 */
 		relative === 'lib/media/capture.ts' ||
+		// Its test, necessarily: asserting when we prompt means naming the prompt.
+		relative === 'lib/media/capture.spec.ts' ||
 		relative === 'lib/server/ice.ts' ||
 		// Its test, necessarily: asserting the STUN/TURN split means naming both.
 		relative === 'lib/server/ice.spec.ts' ||

@@ -38,6 +38,8 @@
 		 * an avatar a creator and a permission, which UX-AV-7 explicitly rejects.
 		 */
 		videoStreams?: ReadonlyMap<string, MediaStream> | undefined;
+		/** This browser refused OUR camera. Only ever shown on our own tile. */
+		cameraDenied?: boolean;
 	}
 
 	let {
@@ -48,7 +50,8 @@
 		isHost = false,
 		drawMode,
 		drawColor,
-		videoStreams
+		videoStreams,
+		cameraDenied = false
 	}: Props = $props();
 
 	/** Placers are a host tool (UX-AV-2); the role is real now (room_members). */
@@ -365,6 +368,7 @@
 				obstacles={obstaclesFor(participant.id)}
 				isSelf={participant.id === identity.id}
 				videoStream={videoStreams?.get(participant.id)}
+				{cameraDenied}
 			/>
 		{/each}
 		{#if stroke !== null}
