@@ -58,6 +58,8 @@ function isExempt(relative: string): boolean {
 	return (
 		relative.startsWith('lib/media/p2p/') ||
 		relative === 'lib/server/ice.ts' ||
+		// Its test, necessarily: asserting the STUN/TURN split means naming both.
+		relative === 'lib/server/ice.spec.ts' ||
 		relative === 'routes/api/rooms/[room]/media/session/+server.ts' ||
 		// This file names them in order to ban them.
 		relative === 'lib/media/no-provider-names.spec.ts'

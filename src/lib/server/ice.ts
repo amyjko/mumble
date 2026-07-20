@@ -58,9 +58,13 @@ async function coturnCredentials(secret: string, urls: string[], ttlSeconds: num
  * that makes it one.
  */
 export async function iceServers(ttlSeconds = 600): Promise<IceServer[]> {
-	const secret = env['TURN_SHARED_SECRET'];
-	const urls = env['TURN_URLS'];
-	if (secret === undefined || secret === '' || urls === undefined || urls === '') {
+	// `unknown` for the same reason as media-key.ts: the generated types describe
+	// a build-time .env, not the platform's secret store at runtime.
+	const rawSecret: unknown = env['TURN_SHARED_SECRET'];
+	const rawUrls: unknown = env['TURN_URLS'];
+	const secret = typeof rawSecret === 'string' ? rawSecret.trim() : '';
+	const urls = typeof rawUrls === 'string' ? rawUrls.trim() : '';
+	if (secret === '' || urls === '') {
 		return STUN_ONLY;
 	}
 	const relay = await coturnCredentials(

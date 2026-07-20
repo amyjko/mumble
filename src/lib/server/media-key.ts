@@ -47,9 +47,20 @@ function publicPartOf(jwk: JsonWebKey): JsonWebKey {
 }
 
 async function load(): Promise<{ signing: CryptoKey; publicJwk: JsonWebKey }> {
-	const encoded = env['MEDIA_SIGNING_KEY'];
+	/*
+	 * Read as `unknown`, deliberately.
+	 *
+	 * `$env/dynamic/private`'s types are generated from whatever `.env` held at
+	 * build time, so a variable merely LISTED there types as always-present —
+	 * and the presence check becomes "unnecessary" to the linter. That is a
+	 * statement about a file, not about the running platform: in production this
+	 * comes from a secret store that may not have it. CI found this exact
+	 * disagreement, because it copies `.env.example` and I do not.
+	 */
+	const raw: unknown = env['MEDIA_SIGNING_KEY'];
+	const encoded = typeof raw === 'string' ? raw.trim() : '';
 
-	if (encoded !== undefined && encoded !== '') {
+	if (encoded !== '') {
 		const parsed: unknown = JSON.parse(atob(encoded));
 		if (typeof parsed !== 'object' || parsed === null) {
 			throw new Error('MEDIA_SIGNING_KEY is not a JWK');
