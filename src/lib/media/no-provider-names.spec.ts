@@ -35,10 +35,30 @@ const SRC = new URL('../..', import.meta.url).pathname;
 const PROVIDER_NOUNS =
 	/\bRTCPeerConnection\b|\bRTCSessionDescription\b|\bRTCIceCandidate\b|\bRTCRtpSender\b|\bRTCRtpReceiver\b|\bRTCRtpTransceiver\b|\bgetUserMedia\b|\bgetDisplayMedia\b|\biceServers\b|\bsimulcast\b|\bturn:|\bstun:/i;
 
-/** The one place WebRTC is allowed to exist, plus the seam's own prose. */
+/**
+ * Where transport vocabulary is allowed to exist.
+ *
+ * `lib/media/p2p/` is the implementation — the whole point of the seam.
+ *
+ * The two server modules are a narrower and more arguable exemption, so it is
+ * written down rather than assumed. ICE is not a PROVIDER concept: both
+ * transports use it, an SFU no less than a mesh, and credentials for it can
+ * only be minted server-side because the shared secret must never reach a
+ * browser (AR-TRANSPORT-8, AR-DEPLOY-6). Those two files are the control
+ * plane's transport plumbing, and the alternative — inventing a neutral synonym
+ * for `iceServers` and translating it back inside p2p/ — would add a layer of
+ * indirection that hides a W3C shape behind a private one.
+ *
+ * The exemption stays PATH-BASED and short on purpose. What this rule is really
+ * protecting is the canvas and the rule engine: a `turn:` URL appearing in
+ * Room.svelte is exactly the leak that makes "swap the SFU" an audit instead of
+ * a contained change, and that still fails.
+ */
 function isExempt(relative: string): boolean {
 	return (
 		relative.startsWith('lib/media/p2p/') ||
+		relative === 'lib/server/ice.ts' ||
+		relative === 'routes/api/rooms/[room]/media/session/+server.ts' ||
 		// This file names them in order to ban them.
 		relative === 'lib/media/no-provider-names.spec.ts'
 	);
