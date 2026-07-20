@@ -38,6 +38,17 @@ export interface ConnectionOptions {
 	readonly actor: PeerId;
 	readonly polite: boolean;
 	readonly ice: readonly IceServer[];
+	/**
+	 * Refuse anything but a relayed path when `true`.
+	 *
+	 * Not merely a test hook, though that is what it is used for today: forcing
+	 * relay is how you verify the TURN path at all, because a direct route will
+	 * always win otherwise — on one machine it wins instantly and the relay code
+	 * never executes. A product could also use it deliberately, to hide
+	 * participants' addresses from each other at the cost of paying for every
+	 * byte.
+	 */
+	readonly relayOnly?: boolean;
 	readonly send: (signal: Signal) => void;
 	readonly onTrack: (track: RemoteTrack) => void;
 	readonly onEnded: (peer: PeerId, kind: MediaKind) => void;
@@ -137,7 +148,12 @@ export class PeerConnection {
 
 	constructor(options: ConnectionOptions) {
 		this.options = options;
-		this.pc = new RTCPeerConnection({ iceServers: toRtcIceServers(options.ice) });
+		this.pc = new RTCPeerConnection({
+			iceServers: toRtcIceServers(options.ice),
+			// `relay` makes the browser gather ONLY relay candidates, so a
+			// connection that establishes has provably traversed TURN.
+			...(options.relayOnly === true ? { iceTransportPolicy: 'relay' as const } : {})
+		});
 
 		this.pc.onnegotiationneeded = () => {
 			this.makeOffer().catch((error: unknown) => {

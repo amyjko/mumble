@@ -27,7 +27,9 @@
 		"test:e2e": "playwright install && playwright test",
 		"lint": "eslint .",
 		"gen:db": "supabase gen types typescript --local > src/lib/database.types.ts",
-		"check:bundle": "node scripts/check-bundle.mjs"
+		"check:bundle": "node scripts/check-bundle.mjs",
+		"coturn": "bash scripts/coturn.sh",
+		"test:relay": "vitest --run --project relay"
 	},
 	"devDependencies": {
 		"@axe-core/playwright": "^4.12.1",

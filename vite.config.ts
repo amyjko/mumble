@@ -52,13 +52,38 @@ export default defineConfig({
 				}
 			},
 
+			/*
+			 * Relay: needs a local coturn. NOT in the default run, for the same
+			 * reason `integration` is not — a developer without it should not see
+			 * red — but it is the ONLY evidence that the TURN path works at all,
+			 * so CI runs it explicitly rather than letting it quietly never run.
+			 * Start coturn with `pnpm run coturn`, then `pnpm run test:relay`.
+			 */
+			{
+				extends: './vite.config.ts',
+				test: {
+					name: 'relay',
+					browser: {
+						enabled: true,
+						provider: playwright(),
+						instances: [{ browser: 'chromium', headless: true }]
+					},
+					include: ['src/**/*.relay.spec.ts']
+				}
+			},
+
 			{
 				extends: './vite.config.ts',
 				test: {
 					name: 'server',
 					environment: 'node',
 					include: ['src/**/*.{test,spec}.{js,ts}'],
-					exclude: ['src/**/*.svelte.{test,spec}.{js,ts}', 'src/**/*.integration.spec.ts']
+					exclude: [
+						'src/**/*.svelte.{test,spec}.{js,ts}',
+						'src/**/*.integration.spec.ts',
+						// Needs a browser AND coturn; the `relay` project owns it.
+						'src/**/*.relay.spec.ts'
+					]
 				}
 			}
 		]

@@ -36,6 +36,8 @@ export interface P2PTransportOptions {
 	/** Endpoints currently connected, and whose they are. From the store. */
 	readonly endpoints: () => readonly { readonly endpoint: string; readonly actor: string }[];
 	readonly send: (to: string, payload: unknown) => void;
+	/** Forbid direct paths; see `ConnectionOptions.relayOnly`. */
+	readonly relayOnly?: boolean;
 }
 
 /**
@@ -152,6 +154,7 @@ export class P2PTransport implements MediaTransport {
 			actor,
 			polite: isPolite(this.options.self, endpoint),
 			ice: this.ice,
+			...(this.options.relayOnly === true ? { relayOnly: true } : {}),
 			send: (signal) => {
 				this.options.send(endpoint, signal);
 			},

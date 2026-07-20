@@ -86,6 +86,26 @@ jobs:
       - name: Unit and component tests
         run: pnpm exec vitest --run --project client --project server
 
+      # The TURN relay is the only thing this product spends money on, and until
+      # 2026-07-20 nothing had ever exercised it: every media test runs on
+      # loopback, where a direct path always wins, so the relay code never ran
+      # and `relayed` only ever reported false. `iceTransportPolicy: 'relay'`
+      # forces it — but needs something to relay through.
+      #
+      # apt rather than a container: on macOS neither Docker published ports nor
+      # host networking reaches a browser on the host, so a developer runs the
+      # binary natively. Running it the same way here means CI exercises the
+      # path someone can actually debug, instead of a second configuration that
+      # only exists in CI.
+      - name: Install coturn (the relay under test)
+        run: sudo apt-get update && sudo apt-get install -y coturn
+
+      - name: Start coturn
+        run: pnpm run coturn
+
+      - name: Relay path (AR-TRANSPORT-8, AR-COST-9)
+        run: pnpm run test:relay
+
       # An EXPLICIT build. check:bundle measures `wrangler deploy --dry-run`,
       # which needs .svelte-kit/cloudflare/_worker.js to exist — and until now
       # that was a side effect of the E2E step's `build && preview` running
