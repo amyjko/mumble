@@ -106,6 +106,12 @@ jobs:
       - name: Relay path (AR-TRANSPORT-8, AR-COST-9)
         run: pnpm run test:relay
 
+      # Without this a relay failure here is undebuggable from a laptop: the
+      # interesting evidence is coturn's own view, and it is on the runner.
+      - name: coturn log (on failure)
+        if: failure()
+        run: tail -60 /tmp/mumble-coturn.log || true
+
       # An EXPLICIT build. check:bundle measures `wrangler deploy --dry-run`,
       # which needs .svelte-kit/cloudflare/_worker.js to exist — and until now
       # that was a side effect of the E2E step's `build && preview` running

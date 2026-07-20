@@ -36,6 +36,9 @@ turnserver -n --log-file=stdout \
 	`# every check fails at 'checking' with nothing logged to say why — which` \
 	`# reads exactly like a broken credential and is not one.` \
 	--allow-loopback-peers \
+	`# Belt and braces: some builds ship default denied-peer ranges that include` \
+	`# loopback, and --allow-loopback-peers alone does not clear them.` \
+	--allowed-peer-ip=127.0.0.1 \
 	`# Required BY SOME BUILDS alongside --allow-loopback-peers: Ubuntu's coturn` \
 	`# refuses to start with "allow_loopback_peers and empty cli password cannot` \
 	`# be used together", while Homebrew's starts happily. Setting one satisfies` \
