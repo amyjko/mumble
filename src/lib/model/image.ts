@@ -1,3 +1,7 @@
+// Type-only, so no runtime cycle with types.ts (which re-exports schema types
+// that reference the constants below).
+import type { RoomState } from './types';
+
 /**
  * Image caps (UX-OBJ-5), single-sourced here so the client pre-check, the zod
  * schema (the server gate for dimensions), and the Storage bucket migration all
@@ -53,3 +57,54 @@ export const MAX_IMAGES_PER_ROOM = 25;
 export const ALLOWED_IMAGE_MIME = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const;
 
 export type ImageMime = (typeof ALLOWED_IMAGE_MIME)[number];
+
+/**
+ * The Storage bucket for image bytes (UX-OBJ-5, AR-BACKEND-1). Private: read is
+ * gated by the same room-membership RLS as every other object, so image access
+ * cannot outrun room access. The migration is `..._image_storage.sql`.
+ *
+ * Lives HERE, in the dependency-free constants module, rather than in
+ * `image-upload.ts`: both the client (upload) and the server route (delete a
+ * blob when its object is deleted) need it, and the server route must not pull
+ * the client upload code (`createImageBitmap`) into the worker bundle to get a
+ * bucket name.
+ */
+export const IMAGE_BUCKET = 'room-images';
+
+/**
+ * A signed URL that errors sooner than this after being minted is treated as a
+ * genuine failure (a deleted blob, a network fault) rather than an expiry — so
+ * the render layer does NOT re-mint it, which would loop forever on a dead blob.
+ * Comfortably shorter than the TTL (SIGNED_URL_TTL_SECONDS), so a real ~1 h
+ * expiry always reads as an expiry and refreshes. See `shouldRefreshSignedUrl`.
+ */
+export const SIGNED_URL_MIN_AGE_BEFORE_REFRESH_MS = 30_000;
+
+/**
+ * Whether an image whose `<img>` just errored should have its signed URL
+ * re-minted. True only if the current URL is old enough to have plausibly
+ * expired; a fresh URL that already fails is a dead blob, and re-minting it
+ * would produce another URL that fails immediately — an infinite loop. Pure, so
+ * the decision is testable without the render layer.
+ */
+export function shouldRefreshSignedUrl(mintedAt: number | undefined, now: number): boolean {
+	if (mintedAt === undefined) return true;
+	return now - mintedAt >= SIGNED_URL_MIN_AGE_BEFORE_REFRESH_MS;
+}
+
+/**
+ * The Storage keys to delete when a set of objects is removed (UX-OBJ-5).
+ *
+ * An image's bytes live outside room state, so deleting the object must delete
+ * the blob too — otherwise it orphans. The removed ids carry no payload (the
+ * diff drops the whole record), so the path is read from the PRE-mutation state.
+ * Pure, so the server route's cleanup is testable without Storage.
+ */
+export function imageBlobsToDelete(before: RoomState, removedIds: readonly string[]): string[] {
+	const paths: string[] = [];
+	for (const id of removedIds) {
+		const object = before.objects[id];
+		if (object?.type === 'image') paths.push(object.payload.path);
+	}
+	return paths;
+}

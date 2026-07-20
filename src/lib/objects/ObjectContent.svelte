@@ -38,10 +38,21 @@
 		 * are unaffected.
 		 */
 		imageUrls?: ReadonlyMap<string, string> | undefined;
+		/** An image tile's URL failed to load; ask Room to re-mint it (UX-OBJ-5). */
+		onImageExpired?: ((path: string) => void) | undefined;
 	}
 
-	let { object, sync, editable, identity, onexit, screenStreams, names, imageUrls }: Props =
-		$props();
+	let {
+		object,
+		sync,
+		editable,
+		identity,
+		onexit,
+		screenStreams,
+		names,
+		imageUrls,
+		onImageExpired
+	}: Props = $props();
 </script>
 
 {#if object.type === 'note'}
@@ -60,5 +71,11 @@
 		isSelf={object.payload.owner_id === identity.id}
 	/>
 {:else if object.type === 'image'}
-	<ImageObject {object} src={imageUrls?.get(object.payload.path)} />
+	<ImageObject
+		{object}
+		{sync}
+		{editable}
+		src={imageUrls?.get(object.payload.path)}
+		onexpired={onImageExpired}
+	/>
 {/if}

@@ -20,7 +20,7 @@
 		IMAGE_BUCKET,
 		SIGNED_URL_TTL_SECONDS
 	} from '$lib/media/image-upload';
-	import { MAX_IMAGES_PER_ROOM } from '$lib/model/image';
+	import { MAX_IMAGES_PER_ROOM, shouldRefreshSignedUrl } from '$lib/model/image';
 	import { BACKGROUND_GRADIENTS, BACKGROUND_LEVELS } from '$lib/model/background';
 	import { DEFAULT_DRAW_COLOR } from '$lib/model/palette';
 	import { goto } from '$app/navigation';
@@ -565,6 +565,24 @@
 	 * signed on demand and dropped when its object leaves.
 	 */
 	const imageUrls = new SvelteMap<string, string>();
+	// When each URL was minted, so an expiry (old) can be told from a dead blob
+	// (fresh but already failing). Plain Map: only read/written in these helpers,
+	// never in markup or a derived, so it needs no reactivity.
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- non-reactive bookkeeping, never rendered
+	const imageMintedAt = new Map<string, number>();
+
+	/** Sign one path and record when, overwriting any prior URL for it. */
+	function mintSignedUrl(path: string): void {
+		imageMintedAt.set(path, Date.now());
+		void supabaseBrowser()
+			.storage.from(IMAGE_BUCKET)
+			.createSignedUrl(path, SIGNED_URL_TTL_SECONDS)
+			.then(({ data }) => {
+				if (data?.signedUrl !== undefined) imageUrls.set(path, data.signedUrl);
+			})
+			.catch(() => undefined);
+	}
+
 	$effect(() => {
 		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- local, rebuilt each run and never a reactive source
 		const paths = new Set<string>();
@@ -576,20 +594,28 @@
 		// re-run the whole thing.
 		untrack(() => {
 			for (const path of paths) {
-				if (imageUrls.has(path)) continue;
-				void supabaseBrowser()
-					.storage.from(IMAGE_BUCKET)
-					.createSignedUrl(path, SIGNED_URL_TTL_SECONDS)
-					.then(({ data }) => {
-						if (data?.signedUrl !== undefined) imageUrls.set(path, data.signedUrl);
-					})
-					.catch(() => undefined);
+				if (!imageUrls.has(path)) mintSignedUrl(path);
 			}
 			for (const path of [...imageUrls.keys()]) {
-				if (!paths.has(path)) imageUrls.delete(path);
+				if (!paths.has(path)) {
+					imageUrls.delete(path);
+					imageMintedAt.delete(path);
+				}
 			}
 		});
 	});
+
+	/**
+	 * An image tile whose URL just failed to load (UX-OBJ-5). A signed URL lives
+	 * an hour; a tile open longer than that would otherwise break for good. Re-mint
+	 * ONLY if the URL is old enough to have plausibly expired — a fresh URL that
+	 * already fails is a dead blob, and re-minting it loops forever
+	 * (`shouldRefreshSignedUrl`). A new URL flows down as a fresh `src`, which
+	 * ImageObject retries automatically.
+	 */
+	function onImageExpired(path: string): void {
+		if (shouldRefreshSignedUrl(imageMintedAt.get(path), Date.now())) mintSignedUrl(path);
+	}
 
 	/**
 	 * Adding an image is the one creation that needs a file first (UX-OBJ-5), so
@@ -1036,6 +1062,7 @@
 		{videoStreams}
 		{screenStreams}
 		{imageUrls}
+		{onImageExpired}
 		cameraDenied={session?.cameraDenied ?? false}
 	/>
 	<!-- Remote audio, off-canvas and unstyled.

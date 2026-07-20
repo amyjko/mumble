@@ -52,6 +52,8 @@
 		 * renderer needs no live client of its own.
 		 */
 		imageUrls?: ReadonlyMap<string, string> | undefined;
+		/** An image tile's URL failed to load; ask Room to re-mint it (UX-OBJ-5). */
+		onImageExpired?: ((path: string) => void) | undefined;
 		/** This browser refused OUR camera. Only ever shown on our own tile. */
 		cameraDenied?: boolean;
 	}
@@ -67,6 +69,7 @@
 		videoStreams,
 		screenStreams,
 		imageUrls,
+		onImageExpired,
 		cameraDenied = false
 	}: Props = $props();
 
@@ -386,6 +389,7 @@
 				{screenStreams}
 				names={participantNames}
 				{imageUrls}
+				{onImageExpired}
 				obstacles={obstaclesFor(object.id)}
 				onFullscreen={(id: string) => {
 					fullscreenId = id;
@@ -444,6 +448,7 @@
 					{screenStreams}
 					names={participantNames}
 					{imageUrls}
+					{onImageExpired}
 					onexit={closeFullscreen}
 				/>
 			</div>

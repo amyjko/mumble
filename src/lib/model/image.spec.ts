@@ -5,7 +5,13 @@ import { newImage, type ImageRef } from './create';
 import { newParticipant } from './avatar';
 import { StoreRejection } from './types';
 import type { ImageCanvasObject, RoomState } from './types';
-import { MAX_IMAGE_DIM, MAX_IMAGES_PER_ROOM } from './image';
+import {
+	MAX_IMAGE_DIM,
+	MAX_IMAGES_PER_ROOM,
+	SIGNED_URL_MIN_AGE_BEFORE_REFRESH_MS,
+	imageBlobsToDelete,
+	shouldRefreshSignedUrl
+} from './image';
 
 /**
  * Image objects (UX-OBJ-5).
@@ -204,5 +210,44 @@ describe('set_image_alt', () => {
 		expect(() => {
 			applyMutation(state, { kind: 'set_image_alt', id: noteId, alt: 'nope' }, asAlice);
 		}).toThrow(StoreRejection);
+	});
+});
+
+describe('shouldRefreshSignedUrl', () => {
+	const now = 1_000_000;
+
+	it('refreshes a URL old enough to have expired', () => {
+		expect(shouldRefreshSignedUrl(now - SIGNED_URL_MIN_AGE_BEFORE_REFRESH_MS - 1, now)).toBe(true);
+	});
+
+	it('does NOT refresh a fresh URL that already failed — a dead blob, not an expiry', () => {
+		// The loop guard: re-minting this would produce another URL that fails at
+		// once, forever.
+		expect(shouldRefreshSignedUrl(now - 1, now)).toBe(false);
+	});
+
+	it('refreshes when nothing was ever minted', () => {
+		expect(shouldRefreshSignedUrl(undefined, now)).toBe(true);
+	});
+});
+
+describe('imageBlobsToDelete', () => {
+	it('returns the Storage path of a removed image', () => {
+		const state = room();
+		const object = newImage(ALICE, at, 0, ref({ path: 'room-x/blob-1' }));
+		applyMutation(state, { kind: 'create_object', object }, asAlice);
+		expect(imageBlobsToDelete(state, [object.id])).toEqual(['room-x/blob-1']);
+	});
+
+	it('ignores removed objects that are not images', () => {
+		const state = room();
+		const object = newImage(ALICE, at, 0, ref());
+		applyMutation(state, { kind: 'create_object', object }, asAlice);
+		// A random id that is not an image object contributes no blob.
+		expect(imageBlobsToDelete(state, [crypto.randomUUID()])).toEqual([]);
+	});
+
+	it('returns nothing when nothing was removed', () => {
+		expect(imageBlobsToDelete(room(), [])).toEqual([]);
 	});
 });

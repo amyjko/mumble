@@ -84,6 +84,16 @@ test('an uploaded image becomes an object with its filename as alt (UX-OBJ-5)', 
 	await a.keyboard.press('Escape');
 	await expect(a.getByRole('dialog')).toHaveCount(0);
 
+	// Deleting the image removes it for everyone. Server-side the same request
+	// also deletes the blob (asserted directly in
+	// image-cleanup.integration.spec.ts); here we exercise the delete path end to
+	// end, which is what runs that cleanup.
+	const frame = a.getByRole('group', { name: /^Image/ });
+	await frame.hover();
+	await a.getByRole('button', { name: 'Delete image' }).click();
+	await expect(image).toHaveCount(0, { timeout: APPEAR });
+	await expect(b.locator('[data-object-type="image"]')).toHaveCount(0, { timeout: APPEAR });
+
 	await context.close();
 });
 

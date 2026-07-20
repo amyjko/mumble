@@ -23,7 +23,7 @@ export const MIN_SIZE = 40;
  *  - timer:   readout + the mode switch + the adjust row
  *  - chat:    a couple of log lines + the compose row
  *  - drawing: no controls at all, so the flat floor is fine
- *  - image:   no controls either; the flat floor keeps a thumbnail legible
+ *  - image:   an always-visible alt caption strip plus a legible thumbnail
  */
 export function minSizeFor(
 	type: 'note' | 'timer' | 'chat' | 'drawing' | 'screenshare' | 'image'
@@ -38,9 +38,10 @@ export function minSizeFor(
 		case 'drawing':
 			return { width: MIN_SIZE, height: MIN_SIZE };
 		case 'image':
-			// An image carries no controls, so it can shrink to the flat floor like
-			// a drawing — its aspect ratio is content-driven, not fixed here.
-			return { width: MIN_SIZE, height: MIN_SIZE };
+			// Taller than the flat floor because the alt caption (UX-A11Y-3) sits
+			// above the picture and both have to stay legible; the aspect ratio of
+			// the picture itself is content-driven, not fixed here.
+			return { width: 160, height: 120 };
 		case 'screenshare':
 			// Larger than anything else, and 16:9. A share shrunk below this is
 			// unreadable, and the ladder picks its rung from the rendered width —

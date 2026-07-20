@@ -2,20 +2,19 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ImageRef } from '$lib/model/create';
 import {
 	ALLOWED_IMAGE_MIME,
+	IMAGE_BUCKET,
 	MAX_IMAGE_BYTES,
 	MAX_IMAGE_DIM,
 	type ImageMime
 } from '$lib/model/image';
 
-/**
- * The Storage bucket for image bytes (UX-OBJ-5, AR-BACKEND-1). Private: read is
- * gated by the same room-membership RLS as every other object, so image access
- * cannot outrun room access. The migration is `..._image_storage.sql`.
- */
-export const IMAGE_BUCKET = 'room-images';
+// IMAGE_BUCKET now lives in model/image.ts (dependency-free, shared with the
+// server route that deletes blobs). Re-exported here so existing importers of
+// `$lib/media/image-upload` keep working.
+export { IMAGE_BUCKET };
 
 /** How long a minted signed URL stays valid. Long enough to sit open in a
-    meeting; refreshed by the render layer when it lapses. */
+    meeting; refreshed by the render layer when it lapses (shouldRefreshSignedUrl). */
 export const SIGNED_URL_TTL_SECONDS = 60 * 60;
 
 /**

@@ -4,6 +4,7 @@ import { StoreRejection } from '$lib/model/types';
 import { applyMutation } from '$lib/model/rules';
 import { diffRoomState } from '$lib/model/diff';
 import { needsGuard, movesSomething } from '$lib/server/guard';
+import { deleteImageBlobs } from '$lib/server/image-cleanup';
 import { parseClaims } from '$lib/auth/claims';
 import { supabaseAdmin } from '$lib/server/supabase-admin';
 import { loadRoomState, saveRoomState, VersionConflict } from '$lib/server/room-state';
@@ -110,6 +111,11 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 				// produce an overlap neither would be allowed alone (UX-OBJ-12).
 				movesSomething(parsed.data.kind) ? room_state.geometryVersion : null
 			);
+
+			// An image's bytes live in Storage, not room state, so a deleted image
+			// object would orphan its blob unless we remove it too (UX-OBJ-5). After
+			// the row commit, from the PRE-mutation state (the diff carries only ids).
+			await deleteImageBlobs(db, before, diff.objects.remove);
 			return json({ ok: true, version });
 		} catch (conflict) {
 			// Someone committed between our read and our write. Re-read and

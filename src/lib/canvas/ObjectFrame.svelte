@@ -43,6 +43,8 @@
 		names?: ReadonlyMap<string, string> | undefined;
 		/** Signed URLs by Storage path (UX-OBJ-5); only an image reads it. */
 		imageUrls?: ReadonlyMap<string, string> | undefined;
+		/** An image tile's URL failed; ask Room to re-mint (UX-OBJ-5). */
+		onImageExpired?: ((path: string) => void) | undefined;
 	}
 
 	let {
@@ -56,7 +58,8 @@
 		onFullscreen,
 		screenStreams,
 		names,
-		imageUrls
+		imageUrls,
+		onImageExpired
 	}: Props = $props();
 	const actorId = $derived(identity.id);
 
@@ -435,6 +438,7 @@
 				{screenStreams}
 				{names}
 				{imageUrls}
+				{onImageExpired}
 				onexit={exitToFrame}
 			/>
 		</div>
