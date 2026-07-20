@@ -125,22 +125,76 @@ describe('what a verifier refuses', () => {
 
 describe('grantAllows', () => {
 	it('accepts the offer it was issued for', () => {
-		expect(grantAllows(body(), { room: ROOM, peer: PEER, kind: 'video' })).toBe(true);
+		expect(grantAllows(body(), { room: ROOM, peer: PEER, kind: 'video', seenStage: 0 })).toBe(true);
 	});
 
 	it('refuses a grant for another room', () => {
 		// A valid grant is a real thing an attacker holds — for THEIR room.
-		expect(grantAllows(body(), { room: OTHER, peer: PEER, kind: 'video' })).toBe(false);
+		expect(grantAllows(body(), { room: OTHER, peer: PEER, kind: 'video', seenStage: 0 })).toBe(false);
 	});
 
 	it('refuses a grant naming another peer', () => {
-		expect(grantAllows(body(), { room: ROOM, peer: OTHER, kind: 'video' })).toBe(false);
+		expect(grantAllows(body(), { room: ROOM, peer: OTHER, kind: 'video', seenStage: 0 })).toBe(false);
 	});
 
 	it('refuses a kind it does not cover', () => {
 		// Muted, or audio-only: holding one does not imply the other.
 		const audioOnly = body({ publish: { video: false, audio: true } });
-		expect(grantAllows(audioOnly, { room: ROOM, peer: PEER, kind: 'audio' })).toBe(true);
-		expect(grantAllows(audioOnly, { room: ROOM, peer: PEER, kind: 'video' })).toBe(false);
+		expect(grantAllows(audioOnly, { room: ROOM, peer: PEER, kind: 'audio', seenStage: 0 })).toBe(true);
+		expect(grantAllows(audioOnly, { room: ROOM, peer: PEER, kind: 'video', seenStage: 0 })).toBe(false);
+	});
+});
+
+describe('replay after a revoke', () => {
+	/*
+	 * The hole this closes: `stage` was documented as making a grant minted
+	 * before a revoke unreplayable after it, and NOTHING read the field. A
+	 * revoked holder's grant stayed good for its full 120s TTL.
+	 *
+	 * The obvious repair — compare `stage` to the room's current version — is
+	 * worse than the hole, and that is the whole reason for the shape below.
+	 */
+
+	it('refuses a grant older than one already seen from that peer', () => {
+		const stale = body({ stage: 7 });
+		// The receiver has already accepted stage 9 from this peer. Whatever 7
+		// authorized, it was superseded.
+		expect(grantAllows(stale, { room: ROOM, peer: PEER, kind: 'video', seenStage: 9 })).toBe(false);
+	});
+
+	it('accepts the same stage twice', () => {
+		// Not a replay: one grant legitimately covers video AND audio, and any
+		// renegotiation inside its TTL. Refusing equality would break honest peers.
+		const g = body({ stage: 9 });
+		expect(grantAllows(g, { room: ROOM, peer: PEER, kind: 'video', seenStage: 9 })).toBe(true);
+		expect(grantAllows(g, { room: ROOM, peer: PEER, kind: 'audio', seenStage: 9 })).toBe(true);
+	});
+
+	it('accepts a newer grant and does not care how much newer', () => {
+		expect(grantAllows(body({ stage: 400 }), { room: ROOM, peer: PEER, kind: 'video', seenStage: 9 })).toBe(true);
+	});
+
+	it('does NOT reject an honest grant just because the room moved on', () => {
+		/*
+		 * THE regression this shape exists to prevent, and the reason the obvious
+		 * fix was rejected. `save_room_state` bumps `rooms.version` on every
+		 * mutation — dragging a note, editing text, changing the background. A
+		 * receiver comparing `stage` against the room's CURRENT version would
+		 * refuse every honest grant the instant anybody touched anything.
+		 *
+		 * `seenStage` is per-peer history, not room time, so an unrelated edit
+		 * cannot make a valid grant look stale.
+		 */
+		const honest = body({ stage: 12 });
+		// Nothing has been accepted from this peer yet, so nothing is superseded.
+		expect(grantAllows(honest, { room: ROOM, peer: PEER, kind: 'video', seenStage: 0 })).toBe(true);
+		// And a second, newer grant from the same peer still lands.
+		expect(grantAllows(body({ stage: 13 }), { room: ROOM, peer: PEER, kind: 'video', seenStage: 12 })).toBe(true);
+	});
+
+	it('tracks staleness per peer, not globally', () => {
+		// A busy peer at stage 900 must not render a quiet peer's stage-10 grant
+		// unusable. Two peers, two clocks.
+		expect(grantAllows(body({ peer: PEER, stage: 10 }), { room: ROOM, peer: PEER, kind: 'video', seenStage: 10 })).toBe(true);
 	});
 });

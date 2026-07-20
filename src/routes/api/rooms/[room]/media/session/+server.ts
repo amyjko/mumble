@@ -69,6 +69,22 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 	const present = Object.keys(room_state.state.participants).length;
 	if (present < 2) error(409, 'Nobody else is here yet');
 
+	/*
+	 * `muted: false` is deliberate, and it looked like a bug to me on review, so
+	 * it is written down rather than left to be re-litigated.
+	 *
+	 * A grant states what the stage AUTHORIZES, not what a client is currently
+	 * transmitting. `planMedia` passes the real mute state because it decides
+	 * whether to capture; this decides whether capture would be permitted, and
+	 * those are different questions.
+	 *
+	 * Nothing is lost by not asking. Mute is client-local state the server cannot
+	 * observe — and where it is server-visible it is ALREADY in the holder lists:
+	 * `mutedAudio` releases the audio slot outright (UX-STAGE-10), so a muted
+	 * audio holder fails `canPublishAudio` here on the holder check regardless of
+	 * this argument. A muted VIDEO holder keeps their slot by design, and should:
+	 * unmuting must not cost them a round trip to the door.
+	 */
 	const publish = {
 		video: canPublishVideo(stage(room_state.state), claims.sub),
 		audio: canPublishAudio(stage(room_state.state), claims.sub, false)

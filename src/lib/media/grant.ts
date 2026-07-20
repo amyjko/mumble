@@ -39,8 +39,23 @@ export const grantBodySchema = z.object({
 	peer: z.uuid(),
 	publish: z.object({ video: z.boolean(), audio: z.boolean() }),
 	/**
-	 * `rooms.version` at issue. Binds the grant to a moment in the stage's
-	 * history, so one minted before a revoke cannot be replayed after it.
+	 * `rooms.version` at issue — a moment in the room's history.
+	 *
+	 * This field used to claim, right here, that it made a grant minted before a
+	 * revoke unreplayable after it. Nothing enforced that. `grantAllows` did not
+	 * read the field and no caller compared it to anything, so a revoked holder's
+	 * grant stayed good for its full TTL.
+	 *
+	 * The obvious repair is worse than the hole: `save_room_state` bumps
+	 * `rooms.version` on EVERY mutation, so a receiver comparing this against its
+	 * own current version would refuse every honest grant the moment somebody
+	 * dragged a note. What it supports instead is per-peer MONOTONIC
+	 * NON-REGRESSION — see `grantAllows`. Replay is refused because a replayed
+	 * grant is necessarily older than one already seen from that peer, and no
+	 * unrelated edit can make an honest grant look stale.
+	 *
+	 * It is not, on its own, revocation. The live holder list is what makes
+	 * authorization current; this only stops the clock running backwards.
 	 */
 	stage: z.number(),
 	/** Seconds since the epoch, both. */
@@ -127,12 +142,23 @@ export async function verifyGrant(
  * valid grant for another room, another peer, or audio-when-video-was-offered
  * is a real thing an attacker can hold, and each is a different mistake to
  * make.
+ *
+ * `seenStage` is the highest `stage` this receiver has already accepted FROM
+ * THIS PEER — not the room's current version, which would reject every honest
+ * grant after any unrelated edit (see `stage` above). Callers record
+ * `max(seenStage, body.stage)` on acceptance, so a grant captured before a
+ * revoke cannot be replayed after a newer one has been seen: it is strictly
+ * older, and time only moves one way per peer.
+ *
+ * Equal is allowed. A peer legitimately reuses one grant for video and audio,
+ * and for renegotiation within its TTL.
  */
 export function grantAllows(
 	body: GrantBody,
-	claim: { room: string; peer: string; kind: 'video' | 'audio' }
+	claim: { room: string; peer: string; kind: 'video' | 'audio'; seenStage: number }
 ): boolean {
 	if (body.room !== claim.room) return false;
 	if (body.peer !== claim.peer) return false;
+	if (body.stage < claim.seenStage) return false;
 	return claim.kind === 'video' ? body.publish.video : body.publish.audio;
 }
