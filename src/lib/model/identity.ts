@@ -42,11 +42,23 @@ export function suggestedEmoji(): string {
 	return AVATAR_EMOJI[Math.floor(Math.random() * AVATAR_EMOJI.length)] ?? '🐙';
 }
 
-/** Mint an identity for a name the participant actually chose. */
+/**
+ * Mint an identity for a name the participant actually chose.
+ *
+ * Deliberately does NOT persist it. The id here is a placeholder: the real one
+ * is the authenticated user id, which the join RPC returns a moment later, and
+ * this function has no way to know it. Persisting the placeholder left
+ * localStorage holding an id that matches nothing — not the participant row,
+ * not the membership row, not the actor the server enforces against.
+ *
+ * That was harmless in practice, and only because of an ordering accident: the
+ * canvas cannot mount until the store has read the room, which cannot happen
+ * until the actor is known, by which point the caller has already replaced this
+ * id. Relying on that is a trap for the next person who mounts something
+ * earlier. The caller persists once the id is authoritative.
+ */
 export function createIdentity(name: string, emoji: string): StoredIdentity {
-	const identity: StoredIdentity = { id: crypto.randomUUID(), name: name.trim(), emoji };
-	saveIdentity(identity);
-	return identity;
+	return { id: crypto.randomUUID(), name: name.trim(), emoji };
 }
 
 export function saveIdentity(identity: StoredIdentity): void {

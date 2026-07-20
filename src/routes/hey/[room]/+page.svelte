@@ -216,7 +216,14 @@
 		onjoin={(joined: StoredIdentity, message: string) => {
 			hello = message;
 			// The id the server will check, not the one the prompt invented.
-			identity = { ...joined, id: authId !== '' ? authId : joined.id };
+			const chosen = { ...joined, id: authId !== '' ? authId : joined.id };
+			identity = chosen;
+			// Persisted HERE rather than by `createIdentity`, which cannot know
+			// the authenticated id. If the session has not resolved yet this
+			// stores the placeholder, and the join handler below corrects and
+			// re-saves it — so the stored value converges on the real one
+			// instead of staying wrong forever.
+			saveIdentity(chosen);
 			// Seed the profile HERE too, not only in the join effect above. That
 			// effect runs on mount, before a first-time visitor has answered this
 			// prompt — so it sees no local identity, seeds nothing, and the name
