@@ -62,6 +62,65 @@ describe('parsing what a peer sent', () => {
 		expect(parsed.success).toBe(false);
 	});
 
+	it('accepts a description carrying the mid→kind map (UX-OBJ-6)', () => {
+		const parsed = signalSchema.safeParse({
+			kind: 'description',
+			type: 'offer',
+			sdp: 'v=0',
+			tracks: [
+				{ mid: '0', media: 'video' },
+				{ mid: '1', media: 'screen' }
+			]
+		});
+		expect(parsed.success).toBe(true);
+	});
+
+	it('accepts a description with NO map, so an older peer still connects', () => {
+		// The field is optional precisely so a peer running earlier code is not
+		// cut off. An unmapped mid reads as 'video' — the stricter holder list.
+		const parsed = signalSchema.safeParse({ kind: 'description', type: 'offer', sdp: 'v=0' });
+		expect(parsed.success).toBe(true);
+		if (parsed.success && parsed.data.kind === 'description') {
+			expect(parsed.data.tracks).toBeUndefined();
+		}
+	});
+
+	it('drops the whole signal when a map entry is malformed', () => {
+		// Partial trust is not a thing at a parse boundary: half a map would mean
+		// classifying some tracks by declaration and others by accident.
+		const parsed = signalSchema.safeParse({
+			kind: 'description',
+			type: 'offer',
+			sdp: 'v=0',
+			tracks: [{ mid: '0', media: 'hologram' }]
+		});
+		expect(parsed.success).toBe(false);
+	});
+
+	it('accepts a want for a screen share', () => {
+		const parsed = signalSchema.safeParse({ kind: 'want', media: 'screen', layer: 'high' });
+		expect(parsed.success).toBe(true);
+	});
+
+	it('accepts a share’s own audio in both vocabularies (UX-OBJ-16)', () => {
+		// Both the mid→kind map and the `want` message must know the kind, or a
+		// share's sound is either unclassifiable or unrequestable.
+		expect(
+			signalSchema.safeParse({
+				kind: 'description',
+				type: 'offer',
+				sdp: 'v=0',
+				tracks: [
+					{ mid: '0', media: 'screen' },
+					{ mid: '1', media: 'screenaudio' }
+				]
+			}).success
+		).toBe(true);
+		expect(
+			signalSchema.safeParse({ kind: 'want', media: 'screenaudio', layer: 'low' }).success
+		).toBe(true);
+	});
+
 	it('accepts candidates with explicit nulls', () => {
 		// `.nullable()` rather than `.optional()`: these map onto W3C dictionaries
 		// whose fields are `string | null`, and under exactOptionalPropertyTypes an

@@ -20,6 +20,7 @@ import {
 	admits,
 	applyCapacity,
 	grantSlot,
+	holdsScreen,
 	lowerHand,
 	mutedAudio,
 	participantLeft,
@@ -89,6 +90,7 @@ export function stage(state: RoomState): StageState {
 		capacity: state.capacity,
 		video_holders: state.video_holders,
 		audio_holders: state.audio_holders,
+		screen_holders: state.screen_holders,
 		queue: state.queue
 	};
 }
@@ -97,7 +99,29 @@ function applyStage(state: RoomState, next: StageState): void {
 	state.capacity = next.capacity;
 	state.video_holders = next.video_holders;
 	state.audio_holders = next.audio_holders;
+	state.screen_holders = next.screen_holders;
 	state.queue = next.queue;
+
+	/*
+	 * A screenshare object may not outlive its slot (UX-OBJ-6).
+	 *
+	 * Enforced HERE, in the one function every stage transition passes through,
+	 * rather than in each mutation that could end a share. The list of those is
+	 * longer than it looks — stop_screenshare, revoke_slot, remove_participant,
+	 * the liveness sweep, a host grant preempting the last share, and lowering
+	 * max_av — and per-case cleanup would have meant six chances to forget one,
+	 * each leaving a tile subscribed to a track that will never arrive.
+	 *
+	 * The reverse direction is NOT enforced here: a slot with no object is a
+	 * legitimate instant during `start_screenshare`, which takes the slot before
+	 * it inserts the object.
+	 */
+	const sharing = new Set(next.screen_holders);
+	for (const [id, object] of Object.entries(state.objects)) {
+		if (object.type !== 'screenshare') continue;
+		if (sharing.has(object.payload.owner_id)) continue;
+		state.objects = omitKey(state.objects, id);
+	}
 }
 
 /** Solver view of current occupancy (objects + avatars), minus exclusions. */
@@ -123,6 +147,18 @@ export function applyMutation(state: RoomState, m: Mutation, ctx: RuleContext): 
 	const outcome: ApplyOutcome = { droppedMessages: 0 };
 	switch (m.kind) {
 		case 'create_object': {
+			/*
+			 * A screen share is not creatable this way (UX-OBJ-6).
+			 *
+			 * `start_screenshare` is the only door, because it is the only one that
+			 * takes the slot in the same breath. Left open, this mutation would let
+			 * anyone fabricate a share object naming anyone at all as its owner —
+			 * making every peer subscribe to a track that does not exist, and
+			 * putting a tile on the canvas that its supposed owner never started.
+			 */
+			if (m.object.type === 'screenshare') {
+				throw new StoreRejection('invalid', 'A screen share is started, not created');
+			}
 			// UX-OBJ-9: creation is gated by a ROOM setting, before anything
 			// else — placement should not be computed for a create that is
 			// about to be refused.
@@ -263,6 +299,20 @@ export function applyMutation(state: RoomState, m: Mutation, ctx: RuleContext): 
 			const existing = requireObject(state, m.id);
 			requireEditable(existing, ctx);
 			state.objects = omitKey(state.objects, m.id);
+			/*
+			 * Deleting a share ENDS it, rather than stranding the slot (UX-OBJ-6).
+			 *
+			 * Note what this permits: an object born `permission: 'all'`, so anyone
+			 * with edit rights can stop your share. That is deliberate. A share is
+			 * CONTENT on a shared canvas, which UX-PERM-1 governs — not
+			 * self-expression, which is what UX-AV-7 protects when it makes an
+			 * avatar self-only. Someone who can delete your note can delete your
+			 * screen; if that is wrong, the fix is the object's permission, not a
+			 * special case here.
+			 */
+			if (existing.type === 'screenshare') {
+				applyStage(state, releaseSlot(stage(state), existing.payload.owner_id, 'screen'));
+			}
 			break;
 		}
 		case 'upsert_participant': {
@@ -366,6 +416,49 @@ export function applyMutation(state: RoomState, m: Mutation, ctx: RuleContext): 
 			requireSelf(ctx, m.id, 'You can only release your own slot');
 			requireParticipant(state, m.id);
 			applyStage(state, releaseSlot(stage(state), m.id, m.media));
+			break;
+		}
+		case 'start_screenshare': {
+			/*
+			 * Slot and object, or neither (UX-OBJ-6).
+			 *
+			 * The refusal check is `holdsScreen` AFTER the take rather than
+			 * `freeSlots` before it, because `takeSlot` is the authority on whether
+			 * a screen slot was obtainable — it refuses a full pool outright rather
+			 * than queueing (see stage.ts). Asking it and believing the answer
+			 * keeps one implementation of the rule.
+			 */
+			requireSelf(ctx, m.id, 'You can only share your own screen');
+			requireParticipant(state, m.id);
+			// UX-OBJ-9 still governs: a room where members may not create objects
+			// is a room where they may not put a screen on the canvas either.
+			requireMayCreate(state);
+			if (m.object.payload.owner_id !== m.id) {
+				throw new StoreRejection('invalid', 'A screen share must name its own owner');
+			}
+
+			const taken = takeSlot(stage(state), m.id, 'screen');
+			if (!holdsScreen(taken, m.id)) {
+				throw new StoreRejection('permission', 'No video slots are free for a screen share');
+			}
+			applyStage(state, taken);
+
+			const spot = nearestLegal(shapeOfObject(m.object), shapes(state, m.object.id));
+			state.objects[m.object.id] = {
+				...m.object,
+				transform: { ...m.object.transform, x: spot.x, y: spot.y }
+			};
+			break;
+		}
+		case 'stop_screenshare': {
+			// Self, or a host stopping someone (the same shape as
+			// `remove_participant`, and for the same reason: moderation is real,
+			// and so is reaping a share whose owner's tab died).
+			if (m.id !== ctx.actorId && !ctx.isHost) {
+				throw new StoreRejection('permission', 'Only a host can stop someone else’s screen share');
+			}
+			// Releasing the slot is what deletes the object — see `applyStage`.
+			applyStage(state, releaseSlot(stage(state), m.id, 'screen'));
 			break;
 		}
 		case 'set_muted': {

@@ -3,7 +3,7 @@ import type { RoomStore } from '$lib/store/room-store';
 import { stage } from '$lib/model/rules';
 import { grantSchema, type Grant } from './grant';
 import { planMedia, type MediaPlan, type TileSize } from './plan';
-import { Capture } from './capture';
+import { Capture, ScreenCapture } from './capture';
 import type { MediaKind, MediaTransport, PeerId, RemoteTrack } from './transport';
 import { NullTransport } from './null-transport';
 
@@ -59,13 +59,26 @@ export interface SessionOptions {
 	readonly onGrant?: (grant: Grant) => void;
 	/** The whole session response, for the transport to take what it needs. */
 	readonly onCredentials?: (raw: unknown) => void;
-	readonly onStage?: (holders: { video: string[]; audio: string[] }) => void;
+	readonly onStage?: (holders: { video: string[]; audio: string[]; screen: string[] }) => void;
+	/**
+	 * The BROWSER ended this person's screen share — its own "Stop sharing" bar.
+	 *
+	 * No state changed anywhere, so a reconcile pass would never notice. The
+	 * wiring site commits `stop_screenshare` in response, which releases the slot
+	 * and deletes the object.
+	 */
+	readonly onScreenEnded?: () => void;
 }
 
 export class MediaSession {
 	private readonly options: SessionOptions;
 	private readonly transport: MediaTransport;
 	private readonly capture = new Capture();
+	private readonly screenCapture = new ScreenCapture();
+	/** Whether the screen track is currently on the wire. */
+	private publishedScreen = false;
+	/** ...and its sound, which is separately optional (UX-OBJ-16). */
+	private publishedScreenAudio = false;
 
 	private applied: MediaPlan | null = null;
 	private grant: Grant | null = null;
@@ -108,10 +121,42 @@ export class MediaSession {
 	 * the room rather than a permission they withheld a moment ago.
 	 */
 	cameraDenied = $state(false);
+	/**
+	 * Your own screen, so you can see what you are showing (UX-OBJ-6).
+	 *
+	 * Same reasoning as `localVideo`: a self-view is not a peer connection to
+	 * yourself. It matters more here than for a camera — people check their own
+	 * share to confirm they picked the right window.
+	 */
+	localScreen = $state<MediaStream | null>(null);
 
 	constructor(options: SessionOptions) {
 		this.options = options;
 		this.transport = options.transport ?? new NullTransport();
+
+		if (options.onScreenEnded !== undefined) {
+			this.screenCapture.onEnded(options.onScreenEnded);
+		}
+		// Cleared locally too: the self-view must go the moment the browser's own
+		// "Stop sharing" is pressed, without waiting for a mutation to round-trip.
+		this.screenCapture.onEnded(() => {
+			this.localScreen = null;
+		});
+
+		/*
+		 * The share's sound ending on its own (UX-OBJ-16) — switching which tab is
+		 * shared, most often.
+		 *
+		 * Handled here rather than by the reconcile loop for the same reason
+		 * `onEnded` is: NO plan input changes, so a pass would never run, and if
+		 * one did it would see the same stage it saw before. The track simply has
+		 * to be taken off the wire when it dies. The picture is untouched.
+		 */
+		this.screenCapture.onAudioEnded(() => {
+			if (!this.publishedScreenAudio) return;
+			this.publishedScreenAudio = false;
+			void this.transport.unpublish('screenaudio');
+		});
 
 		if (options.onRemoteTrack !== undefined) {
 			this.transport.onRemoteTrack(options.onRemoteTrack);
@@ -163,7 +208,10 @@ export class MediaSession {
 		this.grantExpiresAtMs = Date.now() + 120_000 - REFRESH_BEFORE_EXPIRY_MS;
 	}
 
-	private scheduleGrantRetry(tiles: ReadonlyMap<PeerId, TileSize>): void {
+	private scheduleGrantRetry(
+		tiles: ReadonlyMap<PeerId, TileSize>,
+		screenTiles: ReadonlyMap<PeerId, TileSize>
+	): void {
 		if (this.grantRetry !== null || this.disposed) return;
 		// Bounded: a participant who genuinely holds nothing must not poll the
 		// control plane for the rest of the meeting.
@@ -171,7 +219,7 @@ export class MediaSession {
 		this.grantAttempts += 1;
 		this.grantRetry = setTimeout(() => {
 			this.grantRetry = null;
-			void this.reconcile(tiles);
+			void this.reconcile(tiles, screenTiles);
 		}, 1_000);
 	}
 
@@ -192,7 +240,11 @@ export class MediaSession {
 	 * Serialized rather than concurrent: two reconciles interleaving would
 	 * publish and unpublish the same track, and the second would win by accident.
 	 */
-	async reconcile(tiles: ReadonlyMap<PeerId, TileSize>): Promise<void> {
+	async reconcile(
+		tiles: ReadonlyMap<PeerId, TileSize>,
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- an empty default, never mutated
+		screenTiles: ReadonlyMap<PeerId, TileSize> = new Map()
+	): Promise<void> {
 		if (this.disposed) return;
 		if (this.busy) {
 			this.again = true;
@@ -200,24 +252,28 @@ export class MediaSession {
 		}
 		this.busy = true;
 		try {
-			await this.apply(tiles);
+			await this.apply(tiles, screenTiles);
 		} finally {
 			this.busy = false;
 			if (this.again) {
 				this.again = false;
-				void this.reconcile(tiles);
+				void this.reconcile(tiles, screenTiles);
 			}
 		}
 	}
 
-	private async apply(tiles: ReadonlyMap<PeerId, TileSize>): Promise<void> {
+	private async apply(
+		tiles: ReadonlyMap<PeerId, TileSize>,
+		screenTiles: ReadonlyMap<PeerId, TileSize>
+	): Promise<void> {
 		const state = this.options.store.state;
 		const plan = planMedia({
 			self: this.options.self,
 			stage: stage(state),
 			present: this.options.store.present,
 			muted: state.participants[this.options.self]?.muted ?? false,
-			tiles
+			tiles,
+			screenTiles
 		});
 
 		// The stage is pushed down on every pass, which is what makes revocation
@@ -250,13 +306,13 @@ export class MediaSession {
 			await this.transport.removePeer(peer);
 		}
 
-		if (plan.capture.video || plan.capture.audio) {
+		if (plan.capture.video || plan.capture.audio || plan.capture.screen) {
 			if (!this.grantIsFresh) await this.refreshGrant();
 			// A publisher with no grant does not capture: prompting for a camera we
 			// are not allowed to send would be the worst of both.
 			if (this.grant === null) {
 				await this.capture.reconcile({ video: false, audio: false });
-				this.scheduleGrantRetry(tiles);
+				this.scheduleGrantRetry(tiles, screenTiles);
 				return;
 			}
 			this.clearGrantRetry();
@@ -278,6 +334,54 @@ export class MediaSession {
 			}
 		}
 
+		/*
+		 * The screen arm. Note what it does NOT do: it never calls
+		 * `screenCapture.start()`.
+		 *
+		 * `plan.capture.screen` is permission to publish, not an instruction to
+		 * acquire — `getDisplayMedia` needs a user gesture, and by the time this
+		 * runs (an effect, an addPeer loop, possibly a grant fetch) activation is
+		 * long gone. Acquisition is imperative, from the click handler, via
+		 * `startScreenShare`. If you are here to "fix" the asymmetry by moving the
+		 * picker into this loop, it will throw for every user.
+		 *
+		 * What this DOES own is the stopping. A revoked slot, a lowered capacity,
+		 * or a host ending your share all arrive as `capture.screen` going false,
+		 * and this is what makes the track actually stop rather than merely
+		 * becoming unauthorized.
+		 */
+		const screenTrack = this.screenCapture.current;
+		const wantScreen = plan.capture.screen && screenTrack !== null;
+		if (wantScreen && !this.publishedScreen) {
+			await this.transport.publish('screen', screenTrack);
+			this.publishedScreen = true;
+			/*
+			 * The self-view is the PICTURE only, never the sound (UX-OBJ-16).
+			 *
+			 * You already hear the tab you are sharing, from the tab itself. Putting
+			 * the captured audio on your own element would play it a second time,
+			 * slightly behind — and `muted={isSelf}` would have to be right forever
+			 * for that never to happen. Leaving the track out makes it structural.
+			 */
+			this.localScreen = new MediaStream([screenTrack]);
+		} else if (!wantScreen && this.publishedScreen) {
+			await this.transport.unpublish('screen');
+			this.publishedScreen = false;
+			this.screenCapture.stop();
+			this.localScreen = null;
+		}
+
+		// The sound follows the picture's authorization, and its own availability.
+		const screenAudioTrack = this.screenCapture.currentAudio;
+		const wantScreenAudio = wantScreen && screenAudioTrack !== null;
+		if (wantScreenAudio && !this.publishedScreenAudio) {
+			await this.transport.publish('screenaudio', screenAudioTrack);
+			this.publishedScreenAudio = true;
+		} else if (!wantScreenAudio && this.publishedScreenAudio) {
+			await this.transport.unpublish('screenaudio');
+			this.publishedScreenAudio = false;
+		}
+
 		// Subscriptions: whatever the plan asks for, at the rung it asks for.
 		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- local, not state
 		const wanted = new Map<string, { peer: PeerId; kind: MediaKind }>();
@@ -293,11 +397,44 @@ export class MediaSession {
 		await this.countConnections();
 	}
 
+	/**
+	 * Open the screen picker (UX-OBJ-6).
+	 *
+	 * MUST be called directly from a click handler, awaiting nothing first, or
+	 * the browser refuses for want of user activation. Returns null when the
+	 * person cancelled, which is an ordinary answer.
+	 *
+	 * Deliberately does NOT take the slot: the caller commits
+	 * `start_screenshare` once it has a track, so a cancelled picker cannot
+	 * strand capacity. Ordering matters and is spelled out at the call site.
+	 */
+	async startScreenShare(): Promise<MediaStreamTrack | null> {
+		return this.screenCapture.start();
+	}
+
+	/** Give up the track. The slot and the object are the caller's business. */
+	stopScreenShare(): void {
+		this.screenCapture.stop();
+		this.localScreen = null;
+		// Each flag checked separately. An early return on the picture's flag
+		// would strand the SOUND on the wire whenever the two were out of step —
+		// which they are, briefly, every time tab audio ends on its own.
+		if (this.publishedScreenAudio) {
+			this.publishedScreenAudio = false;
+			void this.transport.unpublish('screenaudio');
+		}
+		if (this.publishedScreen) {
+			this.publishedScreen = false;
+			void this.transport.unpublish('screen');
+		}
+	}
+
 	private pushStage(): void {
 		const state = this.options.store.state;
 		this.options.onStage?.({
 			video: [...state.video_holders],
-			audio: [...state.audio_holders]
+			audio: [...state.audio_holders],
+			screen: [...state.screen_holders]
 		});
 	}
 
@@ -306,8 +443,10 @@ export class MediaSession {
 	dispose(): void {
 		this.disposed = true;
 		this.localVideo = null;
+		this.localScreen = null;
 		this.clearGrantRetry();
 		this.capture.dispose();
+		this.screenCapture.dispose();
 		this.transport.dispose();
 	}
 }

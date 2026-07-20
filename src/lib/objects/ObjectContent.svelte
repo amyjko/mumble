@@ -5,6 +5,7 @@
 	import TimerObject from './TimerObject.svelte';
 	import ChatObject from './ChatObject.svelte';
 	import DrawingObject from './DrawingObject.svelte';
+	import ScreenshareObject from './ScreenshareObject.svelte';
 
 	/**
 	 * Renders an object's inner content by type (AR-CANVAS-3 dispatch). Shared
@@ -18,9 +19,19 @@
 		identity: StoredIdentity;
 		/** Escape hands focus back to the caller's context (no keyboard trap). */
 		onexit: () => void;
+		/**
+		 * Live screen shares, keyed by the OWNER's participant id (UX-OBJ-6).
+		 *
+		 * Passed down rather than read from a store: a MediaStream is not room
+		 * state. Optional so every existing caller keeps working — an object that
+		 * is not a screenshare never looks at it.
+		 */
+		screenStreams?: ReadonlyMap<string, MediaStream> | undefined;
+		/** Display names by participant id, for a share's accessible name. */
+		names?: ReadonlyMap<string, string> | undefined;
 	}
 
-	let { object, sync, editable, identity, onexit }: Props = $props();
+	let { object, sync, editable, identity, onexit, screenStreams, names }: Props = $props();
 </script>
 
 {#if object.type === 'note'}
@@ -31,4 +42,11 @@
 	<ChatObject {object} {sync} {identity} {onexit} />
 {:else if object.type === 'drawing'}
 	<DrawingObject {object} />
+{:else if object.type === 'screenshare'}
+	<ScreenshareObject
+		{object}
+		stream={screenStreams?.get(object.payload.owner_id)}
+		ownerName={names?.get(object.payload.owner_id)}
+		isSelf={object.payload.owner_id === identity.id}
+	/>
 {/if}

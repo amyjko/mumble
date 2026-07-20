@@ -57,6 +57,13 @@ export const MUTED_EMOJI = '\u{1F507}';
 export const CAMERA_BLOCKED_EMOJI = '\u{1F6AB}';
 
 /**
+ * A screen share (UX-OBJ-6). A desktop computer rather than a second camera
+ * glyph: a share spends a video slot but is not a face, and the two controls
+ * sit next to each other in the same bar.
+ */
+export const SCREEN_EMOJI = '\u{1F5A5}\u{FE0F}';
+
+/**
  * Glyphs for the "add" controls. Data, not markup, so every render goes
  * through <Emoji> and therefore --font-emoji — enforced by no-raw-emoji.spec.
  *

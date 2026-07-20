@@ -40,7 +40,11 @@ describe('the >=2-present rule (AR-CTRL-3, UX-ROOM-1)', () => {
 		// never called, so the first person into a room is never shown a camera
 		// prompt for a call that is not happening — and somebody is always first.
 		const plan = planMedia(input({ present: [ME], stage: takeSlot(conch(), ME, 'video') }));
-		expect(plan).toEqual({ capture: { video: false, audio: false }, peers: [], subscriptions: [] });
+		expect(plan).toEqual({
+			capture: { video: false, audio: false, screen: false },
+			peers: [],
+			subscriptions: []
+		});
 	});
 
 	it('holding a slot alone still yields nothing', () => {
@@ -67,7 +71,7 @@ describe('the >=2-present rule (AR-CTRL-3, UX-ROOM-1)', () => {
 describe('what this client sends', () => {
 	it('publishes nothing while holding no slot', () => {
 		const plan = planMedia(input());
-		expect(plan.capture).toEqual({ video: false, audio: false });
+		expect(plan.capture).toEqual({ video: false, audio: false, screen: false });
 	});
 
 	it('a video holder also sends audio, without an audio slot (UX-STAGE-3)', () => {
@@ -75,13 +79,13 @@ describe('what this client sends', () => {
 		// to hold, so a naive implementation would publish video in silence.
 		const stage = takeSlot(conch(), ME, 'video');
 		expect(stage.audio_holders).toEqual([]);
-		expect(planMedia(input({ stage })).capture).toEqual({ video: true, audio: true });
+		expect(planMedia(input({ stage })).capture).toEqual({ video: true, audio: true, screen: false });
 	});
 
 	it('muting silences audio but keeps the video slot (UX-STAGE-10)', () => {
 		const stage = takeSlot(conch(), ME, 'video');
 		const plan = planMedia(input({ stage, muted: true }));
-		expect(plan.capture).toEqual({ video: true, audio: false });
+		expect(plan.capture).toEqual({ video: true, audio: false, screen: false });
 	});
 
 	it('stops publishing when a lowered cap takes the slot away', () => {
@@ -149,13 +153,106 @@ describe('what this client receives', () => {
 	});
 });
 
+describe('screen shares (UX-OBJ-6)', () => {
+	/** A stage with room for two, so a camera and a share can coexist. */
+	function roomy(): StageState {
+		return applyCapacity(freshStage(), { max_participants: 20, max_av: 2, max_audio: 0 });
+	}
+
+	it('authorizes publishing when the slot is held', () => {
+		const stage = takeSlot(roomy(), ME, 'screen');
+		expect(planMedia(input({ stage })).capture.screen).toBe(true);
+	});
+
+	it('does NOT authorize a share for a camera holder', () => {
+		// Separate slots, separate authorization. If these ever collapse, any
+		// video holder could publish a share and quietly exceed max_av.
+		const stage = takeSlot(roomy(), ME, 'video');
+		expect(planMedia(input({ stage })).capture.screen).toBe(false);
+	});
+
+	it('subscribes to a peer’s share', () => {
+		const stage = takeSlot(roomy(), YOU, 'screen');
+		const plan = planMedia(input({ stage }));
+		expect(plan.subscriptions.some((s) => s.peer === YOU && s.kind === 'screen')).toBe(true);
+	});
+
+	it('subscribes to the share’s SOUND under the same guard (UX-OBJ-16)', () => {
+		/*
+		 * Unconditionally, because whether a share has sound is not knowable from
+		 * the stage — it depends on a checkbox in the sharer's own picker. A
+		 * subscription for a track nobody sends costs one message; the alternative
+		 * is silence that appears for some shares and not others.
+		 */
+		const stage = takeSlot(roomy(), YOU, 'screen');
+		const plan = planMedia(input({ stage }));
+		expect(plan.subscriptions.some((s) => s.peer === YOU && s.kind === 'screenaudio')).toBe(true);
+	});
+
+	it('does not subscribe to a share’s sound from a non-holder', () => {
+		const stage = takeSlot(roomy(), YOU, 'video');
+		expect(planMedia(input({ stage })).subscriptions.some((s) => s.kind === 'screenaudio')).toBe(
+			false
+		);
+	});
+
+	it('has no fourth CAPTURE field — the screen slot authorizes both tracks', () => {
+		// Pinning a deliberate absence. `capture.screen` is the single
+		// authorization; a `capture.screenaudio` would imply a second decision
+		// that nothing makes.
+		const stage = takeSlot(roomy(), ME, 'screen');
+		expect(Object.keys(planMedia(input({ stage })).capture).sort()).toEqual([
+			'audio',
+			'screen',
+			'video'
+		]);
+	});
+
+	it('does not subscribe to a share nobody holds a slot for', () => {
+		const stage = takeSlot(roomy(), YOU, 'video');
+		const plan = planMedia(input({ stage }));
+		expect(plan.subscriptions.some((s) => s.kind === 'screen')).toBe(false);
+	});
+
+	it('picks the rung from the SHARE’s size, not the sharer’s avatar', () => {
+		/*
+		 * The concrete bug this rules out: a share filling the canvas requested at
+		 * thumbnail quality because its owner's face happens to be small.
+		 */
+		const stage = takeSlot(takeSlot(roomy(), YOU, 'video'), YOU, 'screen');
+		const plan = planMedia(
+			input({
+				stage,
+				tiles: new Map([[YOU, { deviceWidth: 100 }]]),
+				screenTiles: new Map([[YOU, { deviceWidth: 1280 }]])
+			})
+		);
+		expect(plan.subscriptions.find((s) => s.kind === 'screen')?.layer).toBe('high');
+		// The avatar keeps its own, much smaller rung.
+		expect(plan.subscriptions.find((s) => s.kind === 'video')?.layer).toBe('low');
+	});
+
+	it('treats an unmeasured share as the CHEAPEST rung, not the dearest', () => {
+		// A share object exists a beat before it has been laid out. Defaulting up
+		// would make every new share momentarily the most expensive thing around.
+		const stage = takeSlot(roomy(), YOU, 'screen');
+		const plan = planMedia(input({ stage, screenTiles: new Map() }));
+		expect(plan.subscriptions.find((s) => s.kind === 'screen')?.layer).toBe('low');
+	});
+
+	it('is still nothing at all for a lone occupant', () => {
+		const stage = takeSlot(roomy(), ME, 'screen');
+		expect(planMedia(input({ present: [ME], stage })).capture.screen).toBe(false);
+	});
+});
+
 describe('connections', () => {
 	it('connects to peers publishing nothing, so a handoff is pre-warmed', () => {
 		// AR-TRANSPORT-9: a connection that appears only when someone starts
 		// publishing cannot be warm — negotiation would begin at exactly the
 		// moment the media is wanted.
 		const plan = planMedia(input({ present: [ME, YOU, THIRD] }));
-		expect(plan.capture).toEqual({ video: false, audio: false });
+		expect(plan.capture).toEqual({ video: false, audio: false, screen: false });
 		expect([...plan.peers].sort()).toEqual([YOU, THIRD].sort());
 	});
 });

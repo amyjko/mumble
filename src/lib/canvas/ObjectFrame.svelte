@@ -37,9 +37,24 @@
 		obstacles: () => SolverShape[];
 		/** Per-viewer fullscreen request (UX-CANVAS-4) — local, never synced. */
 		onFullscreen: (id: string) => void;
+		/** Live screen shares by owner id (UX-OBJ-6); only a screenshare reads it. */
+		screenStreams?: ReadonlyMap<string, MediaStream> | undefined;
+		/** Display names by participant id, for a share's accessible name. */
+		names?: ReadonlyMap<string, string> | undefined;
 	}
 
-	let { object, store, sync, viewport, identity, isHost = false, obstacles, onFullscreen }: Props = $props();
+	let {
+		object,
+		store,
+		sync,
+		viewport,
+		identity,
+		isHost = false,
+		obstacles,
+		onFullscreen,
+		screenStreams,
+		names
+	}: Props = $props();
 	const actorId = $derived(identity.id);
 
 	const editable = $derived(canEdit(object, actorId, isHost));
@@ -59,6 +74,13 @@
 			return `Chat, ${String(n)} message${n === 1 ? '' : 's'}`;
 		}
 		if (object.type === 'drawing') return 'Drawing';
+		if (object.type === 'screenshare') {
+			const owner = store.state.participants[object.payload.owner_id]?.name;
+			return owner === undefined ? 'A shared screen' : `${owner}’s shared screen`;
+		}
+		// Note is what remains. Naming it rather than falling through: this chain
+		// read `object.payload.text` for "everything else", which silently became
+		// a type error the moment a fifth object type existed.
 		const text = object.payload.text.trim();
 		return text === '' ? 'Empty note' : `Note: ${text.slice(0, 40)}`;
 	});
@@ -76,7 +98,9 @@
 				? 'chat'
 				: object.type === 'drawing'
 					? 'drawing'
-					: 'note'
+					: object.type === 'screenshare'
+						? 'screen share'
+						: 'note'
 	);
 
 	const outerRadius = $derived(
@@ -392,7 +416,15 @@
 			fine: border-radius already applies to both layers.)
 		-->
 		<div class="content" style:border-radius={innerRadius} style:clip-path={clipPath ?? 'none'}>
-			<ObjectContent {object} {sync} {editable} {identity} onexit={exitToFrame} />
+			<ObjectContent
+				{object}
+				{sync}
+				{editable}
+				{identity}
+				{screenStreams}
+				{names}
+				onexit={exitToFrame}
+			/>
 		</div>
 	</div>
 	<!--

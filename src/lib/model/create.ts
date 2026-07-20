@@ -1,4 +1,4 @@
-import type { CanvasObject, Point } from './types';
+import type { CanvasObject, Point, ScreenshareCanvasObject } from './types';
 import type { Bounds } from './drawing';
 import { nowIso } from './types';
 import { DEFAULT_BORDER_WIDTH } from './schemas';
@@ -88,6 +88,45 @@ export function newChat(creatorId: string, center: Point, maxZ: number, border =
 		border: { width: border },
 		hidden: false,
 		payload: { messages: [] },
+		created_at: now,
+		updated_at: now
+	};
+}
+
+/**
+ * A screen share (UX-OBJ-6).
+ *
+ * 16:9 and large, because a share is read rather than glanced at — and the
+ * ladder picks a rung from the rendered width, so a small default would quietly
+ * request a rung too low to read the thing being shared.
+ */
+export function newScreenshare(
+	ownerId: string,
+	center: Point,
+	maxZ: number,
+	border = DEFAULT_BORDER_WIDTH
+): ScreenshareCanvasObject {
+	const now = nowIso();
+	const transform = {
+		x: center.x - 320,
+		y: center.y - 180,
+		width: 640,
+		height: 360,
+		rotation: 0,
+		z: maxZ + 1
+	};
+	return {
+		id: crypto.randomUUID(),
+		type: 'screenshare',
+		creator_id: ownerId,
+		permission: 'all',
+		transform,
+		clip: { shape: 'rounded', radius: 8 },
+		border: { width: border },
+		hidden: false,
+		// Equal to creator_id here, and deliberately a separate field: one is a
+		// permission fact, the other is which peer's track feeds this tile.
+		payload: { owner_id: ownerId },
 		created_at: now,
 		updated_at: now
 	};

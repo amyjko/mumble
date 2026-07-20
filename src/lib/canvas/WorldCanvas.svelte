@@ -38,6 +38,14 @@
 		 * an avatar a creator and a permission, which UX-AV-7 explicitly rejects.
 		 */
 		videoStreams?: ReadonlyMap<string, MediaStream> | undefined;
+		/**
+		 * Live screen shares, keyed by the OWNER's participant id (UX-OBJ-6).
+		 *
+		 * Separate from `videoStreams` because they are keyed the same way and
+		 * mean different things — a person can appear in both, and merging them
+		 * would put somebody's screen on their face.
+		 */
+		screenStreams?: ReadonlyMap<string, MediaStream> | undefined;
 		/** This browser refused OUR camera. Only ever shown on our own tile. */
 		cameraDenied?: boolean;
 	}
@@ -51,8 +59,23 @@
 		drawMode,
 		drawColor,
 		videoStreams,
+		screenStreams,
 		cameraDenied = false
 	}: Props = $props();
+
+	/**
+	 * Display names by participant id, so a share can say whose screen it is.
+	 * Derived here rather than threaded from Room: the participants are already
+	 * in hand, and a second prop carrying the same fact would drift.
+	 */
+	const participantNames = $derived.by(() => {
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- rebuilt by the derived, not mutated
+		const names = new Map<string, string>();
+		for (const participant of Object.values(store.state.participants)) {
+			names.set(participant.id, participant.name);
+		}
+		return names;
+	});
 
 	/** Placers are a host tool (UX-AV-2); the role is real now (room_members). */
 	const canDesign = $derived(canDesignRoom(isHost));
@@ -353,6 +376,8 @@
 				{sync}
 				{viewport}
 				{identity}
+				{screenStreams}
+				names={participantNames}
 				obstacles={obstaclesFor(object.id)}
 				onFullscreen={(id: string) => {
 					fullscreenId = id;
@@ -408,6 +433,8 @@
 					{sync}
 					editable={canEdit(fullscreenObject, identity.id, isHost)}
 					{identity}
+					{screenStreams}
+					names={participantNames}
 					onexit={closeFullscreen}
 				/>
 			</div>

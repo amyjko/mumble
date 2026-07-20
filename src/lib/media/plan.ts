@@ -1,5 +1,10 @@
 import type { StageState } from '$lib/model/stage';
-import { audioPublishers, canPublishAudio, canPublishVideo } from '$lib/model/stage';
+import {
+	audioPublishers,
+	canPublishAudio,
+	canPublishScreen,
+	canPublishVideo
+} from '$lib/model/stage';
 import { layerForWidth, type Layer } from './ladder';
 import type { MediaKind, PeerId } from './transport';
 
@@ -34,6 +39,15 @@ export interface PlanInput {
 	readonly muted: boolean;
 	/** How big each peer's tile is being drawn, for AR-MEDIA-5. */
 	readonly tiles: ReadonlyMap<PeerId, TileSize>;
+	/**
+	 * How big each peer's SCREEN SHARE object is being drawn (UX-OBJ-6).
+	 *
+	 * A second map keyed by the sharing peer rather than a wider key on `tiles`:
+	 * one share per person makes the key unambiguous, and every existing caller
+	 * and test keeps working. A share and its owner's avatar are different sizes
+	 * on the canvas and must choose rungs independently.
+	 */
+	readonly screenTiles?: ReadonlyMap<PeerId, TileSize>;
 }
 
 export interface Subscription {
@@ -43,15 +57,33 @@ export interface Subscription {
 }
 
 export interface MediaPlan {
-	/** Whether to ask for a camera and a microphone AT ALL. */
-	readonly capture: { readonly video: boolean; readonly audio: boolean };
+	/**
+	 * Whether to ask for a camera and a microphone AT ALL — and whether a screen
+	 * share MAY be published.
+	 *
+	 * `screen` reads differently from the other two, and the difference is
+	 * load-bearing. `video` and `audio` are instructions: true means acquire.
+	 * `screen` is an AUTHORIZATION: true means publish the track if one is held,
+	 * false means stop. Nothing acts on it by opening a picker, because
+	 * `getDisplayMedia` needs a user gesture that no reconcile loop has. See
+	 * `ScreenCapture`.
+	 */
+	readonly capture: {
+		readonly video: boolean;
+		readonly audio: boolean;
+		readonly screen: boolean;
+	};
 	/** Peers to hold a connection to, whether or not anything flows yet. */
 	readonly peers: readonly PeerId[];
 	readonly subscriptions: readonly Subscription[];
 }
 
 /** Nothing to do: no capture, no connections, no subscriptions. */
-const IDLE: MediaPlan = { capture: { video: false, audio: false }, peers: [], subscriptions: [] };
+const IDLE: MediaPlan = {
+	capture: { video: false, audio: false, screen: false },
+	peers: [],
+	subscriptions: []
+};
 
 /**
  * Audio has no tile, so it has no size to choose a rung from. It takes the
@@ -84,7 +116,8 @@ export function planMedia(input: PlanInput): MediaPlan {
 	 */
 	const capture = {
 		video: canPublishVideo(input.stage, input.self),
-		audio: canPublishAudio(input.stage, input.self, input.muted)
+		audio: canPublishAudio(input.stage, input.self, input.muted),
+		screen: canPublishScreen(input.stage, input.self)
 	};
 
 	/*
@@ -122,6 +155,33 @@ export function planMedia(input: PlanInput): MediaPlan {
 				kind: 'video',
 				layer: layerForWidth(tile?.deviceWidth ?? 0)
 			});
+		}
+		if (canPublishScreen(input.stage, peer)) {
+			/*
+			 * The rung follows the SHARE's own size, not the sharer's avatar.
+			 *
+			 * They are different objects at different scales — someone's face may
+			 * be a thumbnail while their screen fills half the canvas — and reading
+			 * the avatar's width here would send a full-screen share at thumbnail
+			 * quality. AR-MEDIA-5 still binds: no rung above what the layout shows.
+			 */
+			const tile = input.screenTiles?.get(peer);
+			subscriptions.push({
+				peer,
+				kind: 'screen',
+				layer: layerForWidth(tile?.deviceWidth ?? 0)
+			});
+			/*
+			 * The share's own sound (UX-OBJ-16), under the SAME guard — holding a
+			 * screen slot is what authorizes both halves.
+			 *
+			 * Subscribed unconditionally, because whether a share HAS sound is not
+			 * knowable from the stage: it depends on a checkbox in the sharer's own
+			 * picker. A subscription for a track nobody sends costs one message and
+			 * delivers nothing, which is the right way round — the alternative is
+			 * silence that only appears for some shares and nobody can explain.
+			 */
+			subscriptions.push({ peer, kind: 'screenaudio', layer: AUDIO_LAYER });
 		}
 		if (speakers.has(peer)) {
 			subscriptions.push({ peer, kind: 'audio', layer: AUDIO_LAYER });

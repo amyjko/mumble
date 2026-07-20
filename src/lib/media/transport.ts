@@ -50,7 +50,25 @@ export type PeerId = string;
 /** An opaque handle minted by an implementation. Do not parse it. */
 export type PublicationId = string;
 
-export type MediaKind = 'video' | 'audio';
+/**
+ * `screen` is a third kind rather than a second video publication (UX-OBJ-6).
+ *
+ * It works because a person has at most one share, so `(peer, 'screen')` names
+ * it uniquely and every one-publication-per-kind assumption below this line
+ * stays true. If that ever stops holding, publications must grow real opaque
+ * handles and this union is the wrong shape — see `PublicationId`.
+ *
+ * It is a KIND and not a flavour of video because the two differ in ways the
+ * transport must act on: a share is authorized by a different holder list, and
+ * it is encoded for detail rather than motion.
+ *
+ * `screenaudio` is the share's OWN sound — a tab's audio, not a microphone
+ * (UX-OBJ-16). Same argument: one share per person, so the pair is unique. It
+ * rides the SCREEN slot rather than an audio one, which is why it is a separate
+ * kind from `audio` and not a second audio publication: they are authorized
+ * against different holder lists, and priced for music rather than speech.
+ */
+export type MediaKind = 'video' | 'audio' | 'screen' | 'screenaudio';
 
 /**
  * Connection lifecycle, normalised across transports.

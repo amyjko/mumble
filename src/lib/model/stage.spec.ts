@@ -4,7 +4,9 @@ import {
 	audioPublishers,
 	admits,
 	canPublishAudio,
+	canPublishScreen,
 	counts,
+	freeSlots,
 	freshStage,
 	grantSlot,
 	holdsAudio,
@@ -18,6 +20,7 @@ import {
 	queuePosition,
 	raiseHand,
 	releaseSlot,
+	revokeSlot,
 	takeSlot,
 	unmutedAudio,
 	type StageState
@@ -247,8 +250,10 @@ describe('invariants hold across a long mixed sequence', () => {
 		const ops: ((state: StageState, id: string) => StageState)[] = [
 			(state, id) => takeSlot(state, id, 'video'),
 			(state, id) => takeSlot(state, id, 'audio'),
+			(state, id) => takeSlot(state, id, 'screen'),
 			(state, id) => releaseSlot(state, id, 'video'),
 			(state, id) => releaseSlot(state, id, 'audio'),
+			(state, id) => releaseSlot(state, id, 'screen'),
 			(state, id) => raiseHand(state, id),
 			(state, id) => lowerHand(state, id),
 			(state, id) => mutedAudio(state, id),
@@ -262,10 +267,16 @@ describe('invariants hold across a long mixed sequence', () => {
 			if (op === undefined) continue;
 			s = op(s, person);
 
-			expect(s.video_holders.length).toBeLessThanOrEqual(s.capacity.max_av);
+			// The POOL is what max_av bounds, so this is the invariant that matters
+			// now — asserting on video_holders alone would pass while a room sat
+			// over capacity on shares.
+			expect(s.video_holders.length + s.screen_holders.length).toBeLessThanOrEqual(
+				s.capacity.max_av
+			);
 			expect(s.audio_holders.length).toBeLessThanOrEqual(s.capacity.max_audio);
 			expect(new Set(s.video_holders).size).toBe(s.video_holders.length);
 			expect(new Set(s.audio_holders).size).toBe(s.audio_holders.length);
+			expect(new Set(s.screen_holders).size).toBe(s.screen_holders.length);
 			expect(new Set(s.queue).size).toBe(s.queue.length);
 			for (const queued of s.queue) {
 				// Queued means waiting, not holding — either kind would mean the
@@ -285,7 +296,165 @@ describe('the UX-STAGE-9 readout', () => {
 		});
 		expect(counts(s)).toEqual({
 			video: { held: 2, max: 3 },
+			screen: { held: 0 },
 			audio: { held: 4, max: 6 }
 		});
+	});
+
+	it('counts a share against the video pool, not beside it', () => {
+		// The readout must agree with `freeSlots`, or it tells someone there is
+		// room a moment before the take is refused.
+		const s = stage({
+			capacity: { max_participants: 10, max_av: 3, max_audio: 6 },
+			video_holders: [A, B],
+			screen_holders: [A]
+		});
+		expect(counts(s)).toEqual({
+			video: { held: 3, max: 3 },
+			screen: { held: 1 },
+			audio: { held: 0, max: 6 }
+		});
+		expect(freeSlots(s, 'video')).toBe(0);
+	});
+});
+
+describe('screen shares spend the max_av pool (UX-OBJ-6)', () => {
+	it('a camera and a share by ONE person cost the room two', () => {
+		// The whole reason `screen_holders` is a third list: a set of ids cannot
+		// record the same person twice, and the capacity is genuinely two.
+		let s = stage({ capacity: { max_participants: 10, max_av: 2, max_audio: 0 } });
+		s = takeSlot(s, A, 'video');
+		s = takeSlot(s, A, 'screen');
+		expect(s.video_holders).toEqual([A]);
+		expect(s.screen_holders).toEqual([A]);
+		expect(freeSlots(s, 'video')).toBe(0);
+		// ...so B cannot join the stage at all, despite being nobody's duplicate.
+		expect(takeSlot(s, B, 'video').queue).toEqual([B]);
+	});
+
+	it('video and screen report the SAME free count, because it is one pool', () => {
+		const s = stage({
+			capacity: { max_participants: 10, max_av: 3, max_audio: 0 },
+			video_holders: [A],
+			screen_holders: [B]
+		});
+		expect(freeSlots(s, 'screen')).toBe(freeSlots(s, 'video'));
+		expect(freeSlots(s, 'screen')).toBe(1);
+	});
+
+	it('a full pool REFUSES a share rather than queueing it', () => {
+		// The sharp one. A queued screen slot would be handed over minutes later
+		// to someone who cannot use it without clicking share again — the gesture
+		// `getDisplayMedia` needs cannot be replayed on their behalf.
+		const s = stage({
+			capacity: { max_participants: 10, max_av: 1, max_audio: 0 },
+			video_holders: [A]
+		});
+		const after = takeSlot(s, B, 'screen');
+		expect(after).toBe(s); // identity: nothing allocated, nothing queued
+		expect(after.queue).toEqual([]);
+	});
+
+	it('ending a share hands the freed capacity to the queue as VIDEO', () => {
+		// There is no queue of screen requests to drain, so the pool's next
+		// claimant is the head of the ordinary queue.
+		const s = stage({
+			capacity: { max_participants: 10, max_av: 1, max_audio: 0 },
+			screen_holders: [A],
+			queue: [B, C]
+		});
+		const after = releaseSlot(s, A, 'screen');
+		expect(after.screen_holders).toEqual([]);
+		expect(after.video_holders).toEqual([B]);
+		expect(after.queue).toEqual([C]);
+	});
+
+	it('sharing a screen does NOT grant the floor', () => {
+		// Deliberate: someone showing a slide has not asked to speak.
+		const s = stage({ screen_holders: [A] });
+		expect(canPublishAudio(s, A, false)).toBe(false);
+		expect(audioPublishers(s)).toEqual([]);
+	});
+
+	it('canPublishScreen follows the holder list', () => {
+		const s = stage({ video_holders: [B], screen_holders: [A] });
+		expect(canPublishScreen(s, A)).toBe(true);
+		// Holding video is not holding screen — the authorization gate depends on
+		// these being distinct, or a camera holder could publish a share.
+		expect(canPublishScreen(s, B)).toBe(false);
+	});
+
+	it('leaving ends your share and frees the pool', () => {
+		const s = stage({
+			capacity: { max_participants: 10, max_av: 1, max_audio: 0 },
+			screen_holders: [A],
+			queue: [B]
+		});
+		const after = participantLeft(s, A);
+		expect(after.screen_holders).toEqual([]);
+		expect(after.video_holders).toEqual([B]);
+	});
+});
+
+describe('hosts may stop a share, but never start one', () => {
+	it('granting a screen slot is a no-op', () => {
+		// There is no gesture a host can perform on someone else's behalf, so a
+		// granted screen slot would occupy max_av and publish nothing.
+		const s = stage({ capacity: { max_participants: 10, max_av: 2, max_audio: 0 } });
+		expect(grantSlot(s, A, 'screen')).toBe(s);
+	});
+
+	it('revoking a screen slot works, and drains the pool', () => {
+		const s = stage({
+			capacity: { max_participants: 10, max_av: 1, max_audio: 0 },
+			screen_holders: [A],
+			queue: [B]
+		});
+		const after = revokeSlot(s, A, 'screen');
+		expect(after.screen_holders).toEqual([]);
+		expect(after.video_holders).toEqual([B]);
+	});
+
+	it('a video grant preempts a SHARE when no video holder can yield', () => {
+		// Otherwise UX-STAGE-4's escape hatch silently fails to open in a room
+		// whose max_av is entirely screen shares.
+		const s = stage({
+			capacity: { max_participants: 10, max_av: 1, max_audio: 0 },
+			screen_holders: [A]
+		});
+		const after = grantSlot(s, B, 'video');
+		expect(after.video_holders).toEqual([B]);
+		expect(after.screen_holders).toEqual([]);
+		// The preempted SHARER is not queued: see takeSlot.
+		expect(after.queue).toEqual([]);
+	});
+});
+
+describe('lowering max_av trims the pool, shares first', () => {
+	it('ends shares before it blanks a face', () => {
+		// Both are over the limit, so something has to choose. A share can be put
+		// back with one click; a revoked camera cannot be re-taken unilaterally
+		// in a room that just got smaller.
+		const s = stage({
+			capacity: { max_participants: 10, max_av: 3, max_audio: 0 },
+			video_holders: [A, B],
+			screen_holders: [C]
+		});
+		const after = applyCapacity(s, { max_participants: 10, max_av: 2, max_audio: 0 });
+		expect(after.screen_holders).toEqual([]);
+		expect(after.video_holders).toEqual([A, B]);
+		expect(after.queue).toEqual([]); // the displaced SHARER does not queue
+	});
+
+	it('falls through to video once the shares are gone, and those DO queue', () => {
+		const s = stage({
+			capacity: { max_participants: 10, max_av: 3, max_audio: 0 },
+			video_holders: [A, B],
+			screen_holders: [C]
+		});
+		const after = applyCapacity(s, { max_participants: 10, max_av: 1, max_audio: 0 });
+		expect(after.screen_holders).toEqual([]);
+		expect(after.video_holders).toEqual([A]);
+		expect(after.queue).toEqual([B]);
 	});
 });

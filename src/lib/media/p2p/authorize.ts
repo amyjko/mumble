@@ -16,15 +16,25 @@ import type { MediaKind, PeerId } from '$lib/media/transport';
  * every client is patched can carry whatever it likes. This makes an
  * unauthorized publisher refused by any peer running our code, which is a real
  * property and a smaller one than "cannot publish".
+ *
+ * One kind is weaker still, and it is not visible from this file: `screenaudio`
+ * cannot be VERIFIED at all. No browser API distinguishes a microphone from a
+ * tab's audio at the receiver, so the gate has to trust the sender's declared
+ * kind for an audio mid. See `kindOf` in `connection.ts` (UX-OBJ-16) for the
+ * full statement and its bound — the escalation is one stream per screen
+ * holder, so audible participants are capped at `max_audio + max_av`.
  */
 
 /** What the receiver believes the stage to be, read from its own room state. */
 export interface Holders {
 	readonly video: readonly string[];
 	readonly audio: readonly string[];
+	/** UX-OBJ-6. A separate list from `video`, and the gate depends on it: a
+	 * camera holder is not thereby authorized to publish a share. */
+	readonly screen: readonly string[];
 }
 
-const EMPTY_STAGE: Holders = { video: [], audio: [] };
+const EMPTY_STAGE: Holders = { video: [], audio: [], screen: [] };
 
 export class PublishAuthorizer {
 	private readonly room: string;
@@ -68,7 +78,23 @@ export class PublishAuthorizer {
 
 	/** Whether this peer is authorized RIGHT NOW, independent of any grant. */
 	holds(peer: PeerId, kind: MediaKind): boolean {
-		return kind === 'video' ? this.stage.video.includes(peer) : this.stage.audio.includes(peer);
+		switch (kind) {
+			case 'video':
+				return this.stage.video.includes(peer);
+			case 'audio':
+				return this.stage.audio.includes(peer);
+			case 'screen':
+				return this.stage.screen.includes(peer);
+			// Rides the screen slot, not an audio one (UX-OBJ-16). This is also
+			// the one kind whose CLAIM cannot be verified at the receiver — see
+			// the honest limit in `kindOf` in connection.ts.
+			case 'screenaudio':
+				return this.stage.screen.includes(peer);
+			default: {
+				const exhaustive: never = kind;
+				return exhaustive;
+			}
+		}
 	}
 
 	/**

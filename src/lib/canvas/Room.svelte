@@ -2,6 +2,7 @@
 	import { untrack } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import { MediaSession } from '$lib/media/session.svelte';
+	import { StreamCombiner } from '$lib/media/combine';
 	import { P2PTransport } from '$lib/media/p2p/p2p-transport';
 	import { PublishAuthorizer } from '$lib/media/p2p/authorize';
 	import { mediaPublicKey } from '$lib/media/p2p/key';
@@ -12,7 +13,7 @@
 	import { AVATAR_SIZE, newParticipant } from '$lib/model/avatar';
 	import { SyncClient } from '$lib/store/sync-client.svelte';
 	import { Viewport } from '$lib/canvas/viewport.svelte';
-	import { newNote, newTimer, newChat, maxZOf } from '$lib/model/create';
+	import { newNote, newTimer, newChat, newScreenshare, maxZOf } from '$lib/model/create';
 	import { BACKGROUND_GRADIENTS, BACKGROUND_LEVELS } from '$lib/model/background';
 	import { DEFAULT_DRAW_COLOR } from '$lib/model/palette';
 	import { goto } from '$app/navigation';
@@ -175,6 +176,8 @@
 	 * later live.
 	 */
 	const remoteStreams = new SvelteMap<string, MediaStream>();
+	/** Holds a share's picture and sound together at a STABLE identity. */
+	const combiner = new StreamCombiner();
 	/** Just the video, keyed by peer, which is what a tile wants. */
 	const videoStreams = $derived.by(() => {
 		const byPeer = new SvelteMap<string, MediaStream>();
@@ -189,11 +192,55 @@
 		if (own != null && identity.id !== '') byPeer.set(identity.id, own);
 		return byPeer;
 	});
-	/** Every remote audio stream, played through one element each. */
+	/**
+	 * Screen shares, keyed by the OWNER (UX-OBJ-6).
+	 *
+	 * A separate map from `videoStreams` rather than a merge: one person can be
+	 * on camera AND sharing, and the two are keyed identically, so merging them
+	 * would put somebody's screen on their own face. `videoStreams` above filters
+	 * on `kind !== 'video'`, which already excludes these.
+	 */
+	const screenStreams = $derived.by(() => {
+		const byPeer = new SvelteMap<string, MediaStream>();
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- local, rebuilt by the derived
+		const sound = new Map<string, MediaStream>();
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- local, rebuilt by the derived
+		const picture = new Map<string, MediaStream>();
+		for (const [key, stream] of remoteStreams) {
+			const [peer, kind] = key.split(':');
+			if (peer === undefined) continue;
+			if (kind === 'screen') picture.set(peer, stream);
+			if (kind === 'screenaudio') sound.set(peer, stream);
+		}
+		/*
+		 * Joined through the combiner, never with a `new MediaStream(...)` here
+		 * (UX-OBJ-16). This derivation re-runs whenever ANY peer's ANY track
+		 * moves, so minting inline would hand the element a fresh `srcObject`
+		 * every time somebody unrelated switched their camera on — restarting
+		 * playback and resetting the viewer's mute, with nothing failing.
+		 */
+		for (const [peer, video] of picture) {
+			byPeer.set(peer, combiner.combine(peer, video, sound.get(peer)));
+		}
+		// Your own screen never leaves the machine; you see it locally, and it is
+		// deliberately picture-only — see `localScreen` in session.svelte.ts.
+		const own = session?.localScreen;
+		if (own != null && identity.id !== '') byPeer.set(identity.id, own);
+		return byPeer;
+	});
+
+	/**
+	 * Every remote VOICE, played through one element each.
+	 *
+	 * Split on the key rather than tested with `endsWith(':audio')`, which was
+	 * correct only by the accident that `':screenaudio'` does not end with
+	 * `':audio'`. A share's sound belongs to its object, not to this loop.
+	 */
 	const audioStreams = $derived.by(() => {
 		const streams: { key: string; stream: MediaStream }[] = [];
 		for (const [key, stream] of remoteStreams) {
-			if (!key.endsWith(':audio')) continue;
+			const [, kind] = key.split(':');
+			if (kind !== 'audio') continue;
 			streams.push({ key, stream });
 		}
 		return streams;
@@ -259,6 +306,17 @@
 			},
 			onStage: (holders) => {
 				transport.setStage(holders);
+			},
+			/*
+			 * The browser's own "Stop sharing" bar (UX-OBJ-6).
+			 *
+			 * Nothing else can observe this — the track simply dies, no state
+			 * changes, and a reconcile pass has no reason to run. Committing the
+			 * mutation here is what releases the slot and removes the object for
+			 * everyone else.
+			 */
+			onScreenEnded: () => {
+				void sync.commit({ kind: 'stop_screenshare', id: me }).catch(() => undefined);
 			}
 		});
 
@@ -272,6 +330,8 @@
 			active.dispose();
 			session = null;
 			remoteStreams.clear();
+			// The memo outlives nothing: a rejoin must not replay a dead share.
+			combiner.clear();
 		};
 	});
 
@@ -291,11 +351,97 @@
 		for (const [id, participant] of Object.entries(store.state.participants)) {
 			tiles.set(id, { deviceWidth: Math.round(participant.size.width) });
 		}
+		/*
+		 * Share sizes come from the SHARE OBJECT, not the sharer's avatar
+		 * (UX-OBJ-6). They are separate objects at separate scales, and reading
+		 * the avatar here would send a full-screen share at thumbnail quality.
+		 */
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- local, not state
+		const screenTiles = new Map<string, { deviceWidth: number }>();
+		for (const object of Object.values(store.state.objects)) {
+			if (object.type !== 'screenshare') continue;
+			screenTiles.set(object.payload.owner_id, {
+				deviceWidth: Math.round(object.transform.width)
+			});
+		}
 		// Tracked explicitly so the effect re-runs on the things the plan reads.
 		void store.present.length;
 		void store.state.video_holders.length;
 		void store.state.audio_holders.length;
-		void untrack(() => active.reconcile(tiles));
+		void store.state.screen_holders.length;
+		void untrack(() => active.reconcile(tiles, screenTiles));
+	});
+
+	/**
+	 * Start sharing (UX-OBJ-6). The ORDER of these four steps is the whole trick.
+	 *
+	 * The picker comes FIRST, as the very first statement, because
+	 * `getDisplayMedia` needs user activation and any await before it spends the
+	 * gesture. That rules out the otherwise-obvious "take the slot, then prompt":
+	 * it loses activation across the commit AND strands a slot when somebody
+	 * opens the picker and changes their mind.
+	 *
+	 * The cost of this order is a wasted picker when the room is full — we ask
+	 * what to share and only then discover there is no room for it. The button is
+	 * disabled when the pool is full, which closes all of that but the race.
+	 */
+	async function onShareScreen(): Promise<void> {
+		const active = session;
+		if (active === null) return;
+
+		const track = await active.startScreenShare();
+		// They cancelled. Not an error, and nothing to undo.
+		if (track === null) return;
+
+		const objects = untrack(() => Object.values(store.state.objects));
+		try {
+			await sync.commit({
+				kind: 'start_screenshare',
+				id: identity.id,
+				object: newScreenshare(
+					identity.id,
+					centerWorld(),
+					maxZOf(objects),
+					store.state.border_default
+				)
+			});
+			sync.announce('Sharing your screen');
+		} catch {
+			// Refused — someone took the last slot between the click and the
+			// commit. Give the capture back rather than leaving the browser's
+			// "Stop sharing" bar up for a share that does not exist.
+			active.stopScreenShare();
+		}
+	}
+
+	function onStopScreenShare(): void {
+		// The mutation releases the slot and deletes the object; the local track
+		// is dropped immediately so the hardware indicator goes out at once
+		// rather than after a round trip.
+		session?.stopScreenShare();
+		void sync.commit({ kind: 'stop_screenshare', id: identity.id }).catch(() => undefined);
+	}
+
+	/*
+	 * My share object is gone, so give the hardware back (UX-OBJ-6).
+	 *
+	 * The rule engine guarantees the STATE invariant — a screenshare object never
+	 * outlives its slot. This guarantees the other half of it, which no amount of
+	 * shared state can: that the browser stops capturing. Someone with edit
+	 * permission deleting my share, or a host revoking it, both land here, and
+	 * without it the "Stop sharing" bar would linger over a share nobody can see.
+	 */
+	$effect(() => {
+		const active = session;
+		if (active === null) return;
+		if (active.localScreen === null) return;
+		const mine = Object.values(store.state.objects).some(
+			(object) => object.type === 'screenshare' && object.payload.owner_id === identity.id
+		);
+		if (mine) return;
+		untrack(() => {
+			active.stopScreenShare();
+		});
 	});
 
 	/*
@@ -349,6 +495,7 @@
 		capacity: store.state.capacity,
 		video_holders: store.state.video_holders,
 		audio_holders: store.state.audio_holders,
+		screen_holders: store.state.screen_holders,
 		queue: store.state.queue
 	});
 	const slots = $derived(stageCounts(stage));
@@ -788,6 +935,7 @@
 		{drawMode}
 		{drawColor}
 		{videoStreams}
+		{screenStreams}
 		cameraDenied={session?.cameraDenied ?? false}
 	/>
 	<!-- Remote audio, off-canvas and unstyled.
@@ -800,7 +948,7 @@
 	{/each}
 	<!-- ONE bottom toolbar: emotes, camera, and theme. Three separate floating
 	     clusters used to compete for this corner and overlap each other. -->
-	<BottomBar {store} {sync} {identity} {viewport} />
+	<BottomBar {store} {sync} {identity} {viewport} {onShareScreen} {onStopScreenShare} />
 	<!-- Teaches Shift-to-snap at the only moment it matters: mid-gesture. -->
 	<HintBar />
 	<!-- Stub-only: the panel injects latency and forces rejections, levers that

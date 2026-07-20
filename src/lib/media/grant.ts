@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { MediaKind } from './transport';
 
 /**
  * The publish capability (AR-MEDIA-2, UX-STAGE-6). Pure and node-tested.
@@ -37,7 +38,16 @@ export const grantBodySchema = z.object({
 	room: z.uuid(),
 	/** The participant authorized to publish — the actor id, not a tab. */
 	peer: z.uuid(),
-	publish: z.object({ video: z.boolean(), audio: z.boolean() }),
+	/**
+	 * `screen` defaults rather than being required (UX-OBJ-6): a grant minted by
+	 * a worker deployed a minute earlier must still parse. Defaulting to false
+	 * fails CLOSED — an old grant authorizes no share.
+	 */
+	publish: z.object({
+		video: z.boolean(),
+		audio: z.boolean(),
+		screen: z.boolean().default(false)
+	}),
 	/**
 	 * `rooms.version` at issue — a moment in the room's history.
 	 *
@@ -155,10 +165,32 @@ export async function verifyGrant(
  */
 export function grantAllows(
 	body: GrantBody,
-	claim: { room: string; peer: string; kind: 'video' | 'audio'; seenStage: number }
+	claim: { room: string; peer: string; kind: MediaKind; seenStage: number }
 ): boolean {
 	if (body.room !== claim.room) return false;
 	if (body.peer !== claim.peer) return false;
 	if (body.stage < claim.seenStage) return false;
-	return claim.kind === 'video' ? body.publish.video : body.publish.audio;
+	/*
+	 * A switch with an exhaustive default rather than a ternary chain: a fourth
+	 * kind added later must be a TYPE ERROR here, not a silent verdict. Getting
+	 * that wrong in an authorization predicate fails open or closed by accident,
+	 * and neither is discoverable from a passing test suite.
+	 */
+	switch (claim.kind) {
+		case 'video':
+			return body.publish.video;
+		case 'audio':
+			return body.publish.audio;
+		case 'screen':
+			return body.publish.screen;
+		// A share's own sound rides the SCREEN grant — there is no separate
+		// field, because there is no separate slot. Holding a screen slot is
+		// what authorizes both halves of the share (UX-OBJ-16).
+		case 'screenaudio':
+			return body.publish.screen;
+		default: {
+			const exhaustive: never = claim.kind;
+			return exhaustive;
+		}
+	}
 }

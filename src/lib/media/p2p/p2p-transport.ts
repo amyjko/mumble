@@ -239,8 +239,41 @@ export class P2PTransport implements MediaTransport {
 		return Promise.resolve(kind);
 	}
 
+	/**
+	 * Whether a kind is currently on the wire.
+	 *
+	 * Not on `MediaTransport`: nothing above the seam asks, and putting it there
+	 * would invite callers to poll the transport for state the plan already
+	 * owns. It sits beside `setGrant` and `setStage` as an implementation-side
+	 * query, and it is what lets a test assert that stopping a share left the
+	 * camera alone.
+	 */
+	publishing(kind: MediaKind): boolean {
+		return this.published.has(kind);
+	}
+
 	async unpublish(publication: PublicationId): Promise<void> {
-		const kind: MediaKind = publication === 'audio' ? 'audio' : 'video';
+		/*
+		 * Narrowed exhaustively, never by falling through to 'video'.
+		 *
+		 * This used to read `publication === 'audio' ? 'audio' : 'video'`, which
+		 * was correct only while there were exactly two kinds. The moment screen
+		 * shares existed it meant `unpublish('screen')` stopped the CAMERA and
+		 * left the share running — a bug with no error and no failing assertion
+		 * anywhere, presenting as "my video cut out when I stopped sharing".
+		 *
+		 * An unrecognised handle now unpublishes nothing, which is the safe half
+		 * of the mistake: a stale id cannot take down a live track.
+		 */
+		if (
+			publication !== 'video' &&
+			publication !== 'audio' &&
+			publication !== 'screen' &&
+			publication !== 'screenaudio'
+		) {
+			return;
+		}
+		const kind: MediaKind = publication;
 		this.published.delete(kind);
 		for (const connection of this.connections.values()) connection.stopSending(kind);
 		return Promise.resolve();

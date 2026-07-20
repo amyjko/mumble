@@ -26,9 +26,12 @@
 		sync: SyncClient;
 		identity: StoredIdentity;
 		viewport: Viewport;
+		/** Passed through to EmoteBar; the picker must open from its click. */
+		onShareScreen?: (() => void) | undefined;
+		onStopScreenShare?: (() => void) | undefined;
 	}
 
-	let { store, sync, identity, viewport }: Props = $props();
+	let { store, sync, identity, viewport, onShareScreen, onStopScreenShare }: Props = $props();
 
 	const zoomPercent = $derived(Math.round(viewport.camera.scale * 100));
 	/** Within a percent of 1:1 — a readout of "100%" that is not quite 1:1 reads as broken. */
@@ -40,7 +43,7 @@
 
 	<span class="divider" aria-hidden="true"></span>
 
-	<EmoteBar {store} {sync} {identity} />
+	<EmoteBar {store} {sync} {identity} {onShareScreen} {onStopScreenShare} />
 
 	<span class="divider" aria-hidden="true"></span>
 

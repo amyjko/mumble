@@ -69,7 +69,14 @@ function toRtcIceServers(servers: readonly IceServer[]): RTCIceServer[] {
 export class PeerConnection {
 	private readonly options: ConnectionOptions;
 	private readonly pc: RTCPeerConnection;
-	private readonly senders = new Map<MediaKind, RTCRtpSender>();
+	/**
+	 * The TRANSCEIVER per kind, not just its sender: a transceiver carries the
+	 * `mid`, which is how the far side learns a video track is a screen share
+	 * rather than a camera (see `publishDescription`).
+	 */
+	private readonly transceivers = new Map<MediaKind, RTCRtpTransceiver>();
+	/** What the remote said each of ITS mids carries. See the `tracks` signal. */
+	private readonly remoteKinds = new Map<string, MediaKind>();
 	/** Capture width per kind, so a rung can be expressed as a downscale. */
 	private readonly captureWidth = new Map<MediaKind, number>();
 	/** What each subscriber asked us to send. Re-applied after renegotiation. */
@@ -183,7 +190,10 @@ export class PeerConnection {
 
 		this.pc.ontrack = (event) => {
 			const track = event.track;
-			const kind: MediaKind = track.kind === 'audio' ? 'audio' : 'video';
+			// `event.transceiver.mid` is assigned by the `setRemoteDescription`
+			// call this fires from, and the sender's map was stashed just before
+			// it — so a share is known to be a share the moment it arrives.
+			const kind = this.kindOf(event.transceiver);
 			const stream = event.streams[0] ?? new MediaStream([track]);
 			const arrival: RemoteTrack = { peer: this.options.actor, kind, stream };
 			if (this.gatePassed) {
@@ -286,11 +296,27 @@ export class PeerConnection {
 	private publishDescription(): void {
 		const description = this.pc.localDescription;
 		if (description === null) return;
+		/*
+		 * Declare what each of our mids carries (UX-OBJ-6).
+		 *
+		 * A mid exists only once `setLocalDescription` has run, which is why this
+		 * is built here rather than in `send()`. Kinds the receiver can derive for
+		 * itself are still sent: one uniform map is easier to reason about than a
+		 * map of exceptions, and the receiver trusts the browser over this anyway.
+		 */
+		const tracks: { mid: string; media: MediaKind }[] = [];
+		for (const [kind, transceiver] of this.transceivers) {
+			const mid = transceiver.mid;
+			if (mid === null) continue;
+			tracks.push({ mid, media: kind });
+		}
+
 		this.options.send({
 			kind: 'description',
 			type: description.type === 'answer' ? 'answer' : 'offer',
 			sdp: description.sdp,
-			...(this.grant === undefined ? {} : { grant: this.grant })
+			...(this.grant === undefined ? {} : { grant: this.grant }),
+			...(tracks.length === 0 ? {} : { tracks })
 		});
 		if (description.type === 'offer') this.armOfferRetry();
 	}
@@ -354,21 +380,21 @@ export class PeerConnection {
 		const width = track.getSettings().width;
 		this.captureWidth.set(kind, width ?? 0);
 
-		const existing = this.senders.get(kind);
+		const existing = this.transceivers.get(kind);
 		if (existing !== undefined) {
-			void existing.replaceTrack(track);
+			void existing.sender.replaceTrack(track);
 			this.applyWanted(kind);
 			return;
 		}
 		const transceiver = this.pc.addTransceiver(track, { direction: 'sendonly' });
-		this.senders.set(kind, transceiver.sender);
+		this.transceivers.set(kind, transceiver);
 		this.applyWanted(kind);
 	}
 
 	stopSending(kind: MediaKind): void {
-		const sender = this.senders.get(kind);
-		if (sender === undefined) return;
-		void sender.replaceTrack(null);
+		const transceiver = this.transceivers.get(kind);
+		if (transceiver === undefined) return;
+		void transceiver.sender.replaceTrack(null);
 		// The transceiver stays: reusing it on the next publish avoids a
 		// renegotiation that would otherwise cost a round trip at exactly the
 		// moment someone is trying to be seen.
@@ -383,13 +409,17 @@ export class PeerConnection {
 	 * disturbs the connection.
 	 */
 	private applyWanted(kind: MediaKind, override?: Layer | null): void {
-		const sender = this.senders.get(kind);
+		const sender = this.transceivers.get(kind)?.sender;
 		if (sender === undefined) return;
 		const layer = override === undefined ? (this.wanted.get(kind) ?? 'med') : override;
 		if (override !== undefined) this.wanted.set(kind, override);
 
 		const parameters = sender.getParameters();
 		const encoding = encodingFor(kind, layer, this.captureWidth.get(kind) ?? 0);
+		// Per-SENDER, not per-encoding — which is why it is set here rather than
+		// mapped into the array below. Left alone when `encodingFor` says nothing,
+		// so a camera keeps the browser's own (correct) preference.
+		if (encoding.degradation !== undefined) parameters.degradationPreference = encoding.degradation;
 		// `encodings` can be empty before the first negotiation; writing into an
 		// empty array is ignored by the browser, so seed one.
 		const encodings = parameters.encodings.length > 0 ? parameters.encodings : [{}];
@@ -411,6 +441,78 @@ export class PeerConnection {
 		this.options.send({ kind: 'want', media: kind, layer });
 	}
 
+	/** Whether the remote declared a share in the description we are holding. */
+	private hasRemoteScreen(): boolean {
+		for (const media of this.remoteKinds.values()) {
+			if (media === 'screen') return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Which kind an incoming transceiver carries.
+	 *
+	 * The browser's own view decides audio-versus-video, because a peer must not
+	 * be able to relabel what it is sending — that is the property
+	 * `incomingKinds` was written to have. But there are two distinctions the
+	 * browser cannot make, and both are read from the sender's declared map:
+	 * a camera from a share (both are `track.kind === 'video'`), and a microphone
+	 * from a share's own sound (both are `track.kind === 'audio'`).
+	 *
+	 * Only `'screen'` and `'screenaudio'` are honoured from that map. Anything
+	 * else video falls back to `'video'`; anything else audio falls back to
+	 * `'audio'`.
+	 *
+	 * The video fallback is the STRICTER list, so a declaration can only tighten
+	 * it. The audio fallback is not — `audio_holders` and `screen_holders` are
+	 * disjoint, neither a subset of the other — so its justification is different
+	 * and simpler: **an unmapped audio mid is a microphone, because that is what
+	 * every peer running older code is sending.** Getting that backwards would
+	 * route real microphones onto the screen holder list and refuse honest speech.
+	 *
+	 * ## The hole this opens, stated rather than hidden (UX-OBJ-16)
+	 *
+	 * Consulting the map for AUDIO is a real widening of the gate, and it cannot
+	 * be closed here. No browser API tells a receiver whether an inbound Opus
+	 * stream came from a microphone or a tab: a remote track's `label` is empty
+	 * and its settings say nothing about its source. So a PATCHED client holding
+	 * a screen slot and no audio slot can publish its microphone labelled
+	 * `'screenaudio'` and be heard. Before screen audio existed it could not, and
+	 * pretending otherwise would be worse than saying so.
+	 *
+	 * What is still true, and is the bound worth quoting: they must hold a
+	 * server-signed grant with `publish.screen`; revoking the share stops the
+	 * audio within one broadcast round trip, because `setStage` re-evaluates live
+	 * subscriptions; and the escalation is exactly one stream per screen holder —
+	 * so the number of people who can be heard is bounded by
+	 * `max_audio + max_av` rather than `max_audio`. A bounded weakening, not an
+	 * unbounded one.
+	 *
+	 * `hasRemoteScreen` raises the cost without closing it: a share's sound is
+	 * honoured only from a description that ALSO declares a share, so the label
+	 * swap alone is not enough — a fabricated video track is needed too. That
+	 * turns "screen audio rides a share" from a sentence into a checked
+	 * invariant, and it is deterministic: `setRemoteDescription` creates every
+	 * transceiver before any `ontrack` fires, and this reads `remoteKinds`, which
+	 * the sender populates from its transceiver map whether or not a track is
+	 * currently attached — so it survives `replaceTrack(null)` and renegotiation.
+	 *
+	 * This is the same honest limit `authorize.ts` already records: a room in
+	 * which every client is patched can carry whatever it likes. Structural to
+	 * P2P, not a defect here.
+	 */
+	private kindOf(transceiver: RTCRtpTransceiver): MediaKind {
+		const track = transceiver.receiver.track;
+		const mid = transceiver.mid;
+		const claimed = mid === null ? undefined : this.remoteKinds.get(mid);
+
+		// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- absent mid-negotiation in some browsers
+		if (track !== null && track !== undefined && track.kind === 'audio') {
+			return claimed === 'screenaudio' && this.hasRemoteScreen() ? 'screenaudio' : 'audio';
+		}
+		return claimed === 'screen' ? 'screen' : 'video';
+	}
+
 	/** What the remote is proposing to SEND us, read from the browser's own view. */
 	private incomingKinds(): MediaKind[] {
 		const kinds = new Set<MediaKind>();
@@ -422,7 +524,7 @@ export class PeerConnection {
 			const track = transceiver.receiver.track;
 			// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- absent mid-negotiation in some browsers
 			if (track === null || track === undefined) continue;
-			kinds.add(track.kind === 'audio' ? 'audio' : 'video');
+			kinds.add(this.kindOf(transceiver));
 		}
 		return [...kinds];
 	}
@@ -478,6 +580,19 @@ export class PeerConnection {
 
 		this.ignoreOffer = !this.options.polite && collision;
 		if (this.ignoreOffer) return;
+
+		/*
+		 * Stash the mid→kind map BEFORE setting the description, not after.
+		 *
+		 * `ontrack` fires DURING `setRemoteDescription`, so a map recorded
+		 * afterwards arrives too late to classify the track it describes — a share
+		 * would surface as a camera and be checked against the wrong holder list.
+		 * The ordering is the whole mechanism.
+		 */
+		if (signal.tracks !== undefined) {
+			this.remoteKinds.clear();
+			for (const entry of signal.tracks) this.remoteKinds.set(entry.mid, entry.media);
+		}
 
 		// Rollback is implicit: setting a remote offer while a local one is
 		// pending rolls ours back.

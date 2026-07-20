@@ -24,7 +24,9 @@ export const MIN_SIZE = 40;
  *  - chat:    a couple of log lines + the compose row
  *  - drawing: no controls at all, so the flat floor is fine
  */
-export function minSizeFor(type: 'note' | 'timer' | 'chat' | 'drawing'): Size {
+export function minSizeFor(
+	type: 'note' | 'timer' | 'chat' | 'drawing' | 'screenshare'
+): Size {
 	switch (type) {
 		case 'timer':
 			return { width: 190, height: 170 };
@@ -34,6 +36,11 @@ export function minSizeFor(type: 'note' | 'timer' | 'chat' | 'drawing'): Size {
 			return { width: 140, height: 80 };
 		case 'drawing':
 			return { width: MIN_SIZE, height: MIN_SIZE };
+		case 'screenshare':
+			// Larger than anything else, and 16:9. A share shrunk below this is
+			// unreadable, and the ladder picks its rung from the rendered width —
+			// so a tiny share would also quietly request a tiny encode.
+			return { width: 320, height: 180 };
 	}
 }
 

@@ -136,15 +136,48 @@ export const drawingObjectSchema = objectBase.extend({
 	})
 });
 
+/**
+ * A screen share (UX-OBJ-6). An object like any other, so it inherits drag,
+ * resize, clip, z-order and fullscreen without a line of new interaction code —
+ * which is UX-CANVAS-4's own stated use case ("making a shared screen full
+ * screen") finally being exercised.
+ *
+ * `owner_id` is whose screen this shows, and is deliberately NOT `creator_id`.
+ * They are equal at creation and will stay so in practice, but they answer
+ * different questions: `creator_id` is a permission fact (UX-PERM-2, immutable),
+ * `owner_id` is a media-routing fact. Keeping them apart means the media layer
+ * never reads a permissions field to decide what to subscribe to.
+ *
+ * The payload carries no stream and never will: a MediaStream is not room state
+ * — not persisted, not versioned, and not the same for two people looking at the
+ * same room.
+ */
+export const screenshareObjectSchema = objectBase.extend({
+	type: z.literal('screenshare'),
+	payload: z.object({ owner_id: z.uuid() })
+});
+
 /** Grows into a wider discriminated union as object types land (AR-CANVAS-3). */
 export const canvasObjectSchema = z.discriminatedUnion('type', [
 	noteObjectSchema,
 	timerObjectSchema,
 	chatObjectSchema,
-	drawingObjectSchema
+	drawingObjectSchema,
+	screenshareObjectSchema
 ]);
 
-export const slotMediaSchema = z.enum(['video', 'audio']);
+export const slotMediaSchema = z.enum(['video', 'audio', 'screen']);
+
+/**
+ * The kinds a HOST may hand out. Narrower than `slotMediaSchema` on purpose.
+ *
+ * A screen slot cannot be granted: `getDisplayMedia` needs a gesture from the
+ * person sharing, so a granted one would occupy `max_av` and publish nothing.
+ * Refused at the parse boundary rather than in the rule engine, because "this
+ * mutation cannot express that" is a stronger statement than "the rules happen
+ * to ignore it". Revoking stays wide — stopping needs no gesture.
+ */
+export const grantableSlotMediaSchema = z.enum(['video', 'audio']);
 
 /**
  * UX-STAGE-1's three numbers. Publish caps may not exceed the room size.
@@ -307,6 +340,12 @@ export const roomStateSchema = z.object({
 	capacity: capacitySchema.default(DEFAULT_CAPACITY),
 	video_holders: z.array(z.uuid()).default([]),
 	audio_holders: z.array(z.uuid()).default([]),
+	/**
+	 * Screen shares (UX-OBJ-6). Drawn from the SAME `max_av` pool as
+	 * `video_holders`, not a pool of their own — a third list only because one
+	 * person may hold both, and a set of ids cannot record that in one array.
+	 */
+	screen_holders: z.array(z.uuid()).default([]),
 	queue: z.array(z.uuid()).default([]),
 	transport: z.enum(['p2p', 'promoting', 'sfu', 'demoting']).default('p2p'),
 	/** UX-OBJ-8's room default. New objects inherit it; each may override. */
@@ -393,8 +432,27 @@ export const mutationSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('set_hand'), id: z.uuid(), raised: z.boolean() }),
 	z.object({ kind: z.literal('take_slot'), id: z.uuid(), media: slotMediaSchema }),
 	z.object({ kind: z.literal('release_slot'), id: z.uuid(), media: slotMediaSchema }),
+	/*
+	 * Starting and stopping a share are ATOMIC (UX-OBJ-6): one mutation takes the
+	 * slot and creates the object, the other releases and deletes.
+	 *
+	 * The obvious alternative — the client commits `take_slot` then
+	 * `create_object` — can land half of itself. A slot with no object is
+	 * capacity nobody can see or reclaim; an object with no slot is a tile
+	 * subscribing to a track that will never come. Fusing them makes "the object
+	 * never outlives the track" an invariant of the rule engine, which holds on
+	 * the server too because `rules.ts` is the single rulebook.
+	 */
+	z.object({
+		kind: z.literal('start_screenshare'),
+		id: z.uuid(),
+		object: screenshareObjectSchema
+	}),
+	z.object({ kind: z.literal('stop_screenshare'), id: z.uuid() }),
 	z.object({ kind: z.literal('set_muted'), id: z.uuid(), muted: z.boolean() }),
-	z.object({ kind: z.literal('grant_slot'), id: z.uuid(), media: slotMediaSchema }),
+	// Narrower than the others: a screen slot cannot be granted. See the note on
+	// `grantableSlotMediaSchema`.
+	z.object({ kind: z.literal('grant_slot'), id: z.uuid(), media: grantableSlotMediaSchema }),
 	z.object({ kind: z.literal('revoke_slot'), id: z.uuid(), media: slotMediaSchema }),
 	z.object({ kind: z.literal('set_capacity'), capacity: capacitySchema }),
 	/**

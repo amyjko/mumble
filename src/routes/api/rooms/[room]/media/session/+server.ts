@@ -3,7 +3,7 @@ import { parseClaims } from '$lib/auth/claims';
 import { supabaseAdmin } from '$lib/server/supabase-admin';
 import { canonicalRoomName } from '$lib/model/room-name';
 import { loadRoomState } from '$lib/server/room-state';
-import { canPublishAudio, canPublishVideo } from '$lib/model/stage';
+import { canPublishAudio, canPublishScreen, canPublishVideo } from '$lib/model/stage';
 import { stage } from '$lib/model/rules';
 import { mediaKey } from '$lib/server/media-key';
 import { iceServers } from '$lib/server/ice';
@@ -87,7 +87,8 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 	 */
 	const publish = {
 		video: canPublishVideo(stage(room_state.state), claims.sub),
-		audio: canPublishAudio(stage(room_state.state), claims.sub, false)
+		audio: canPublishAudio(stage(room_state.state), claims.sub, false),
+		screen: canPublishScreen(stage(room_state.state), claims.sub)
 	};
 
 	/*
@@ -97,7 +98,8 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 	 * and handing it a signed statement of its own powerlessness would invite a
 	 * caller to treat "I have a grant" as "I may publish".
 	 */
-	if (!publish.video && !publish.audio) error(403, 'You hold no slot in this room');
+	if (!publish.video && !publish.audio && !publish.screen)
+		error(403, 'You hold no slot in this room');
 
 	const issued = Math.floor(Date.now() / 1000);
 	const body: GrantBody = {

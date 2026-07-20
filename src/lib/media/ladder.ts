@@ -53,11 +53,48 @@ export const LAYERS: Readonly<Record<Layer, LayerSpec>> = {
 };
 
 /**
+ * The same rungs, priced for a SCREEN (UX-OBJ-6).
+ *
+ * Same rung NAMES deliberately — one vocabulary, so a subscriber still says
+ * "med" and nothing above the seam learns that shares are metered differently.
+ * The numbers differ because screen content differs: it is detail over motion.
+ * A slide changes twice a minute and a code editor never needs 30fps, but text
+ * at 180px wide is not small text, it is unreadable text.
+ *
+ * So framerate is spent to buy resolution and bitrate. The camera ladder applied
+ * to a screen renders an editor as grey mush at exactly the rung a thumbnail
+ * would use, and the failure is silent — the video plays, it simply cannot be
+ * read, which reads as "the share is broken" rather than "the rung is wrong".
+ */
+export const SCREEN_LAYERS: Readonly<Record<Layer, LayerSpec>> = {
+	high: { maxBitrateBps: 1_200_000, maxFramerate: 5, nominalWidth: 1280 },
+	med: { maxBitrateBps: 600_000, maxFramerate: 5, nominalWidth: 960 },
+	low: { maxBitrateBps: 300_000, maxFramerate: 3, nominalWidth: 640 }
+};
+
+/**
  * Opus voice (AR-MEDIA-3). Not a `Layer`: audio has one rung, it is never
  * chosen by tile size, and giving it a place in the same union would invite
  * code that asks a tile how loud it should be.
  */
 export const AUDIO = { maxBitrateBps: 32_000 } as const;
+
+/**
+ * A screen share's OWN sound (UX-OBJ-16) — a tab playing music or a video,
+ * not a voice.
+ *
+ * Three times `AUDIO`, and the two constants must never be collapsed: 32 kbps
+ * is a SPEECH budget, and Opus spends it on the frequencies a voice occupies.
+ * Applied to music it produces the artefact everyone recognises as "the share's
+ * audio is broken", which reads as a bug in the room rather than a budget.
+ *
+ * MONO, and that is forced rather than chosen. Stereo lives only in the SDP
+ * `a=fmtp` line (`stereo=1;sprop-stereo=1`) — `RTCRtpEncodingParameters` has no
+ * channel field and `setCodecPreferences` picks a codec, not its parameters. So
+ * the choice is "munge SDP" or "mono", and this codebase has no SDP munging
+ * anywhere and is better for it. A stated limit, not an oversight.
+ */
+export const SCREEN_AUDIO = { maxBitrateBps: 96_000 } as const;
 
 /** Largest rung first, so the search below can stop at the first that fits. */
 const DESCENDING: readonly Layer[] = ['high', 'med', 'low'];
@@ -96,8 +133,8 @@ export function layerForWidth(deviceWidth: number): Layer {
  * width. Never below 1: upscaling a small capture to fill a big tile spends
  * bitrate inventing detail that was never captured.
  */
-export function scaleDownFor(captureWidth: number, layer: Layer): number {
-	const target = LAYERS[layer].nominalWidth;
+export function scaleDownFor(captureWidth: number, layer: Layer, screen = false): number {
+	const target = (screen ? SCREEN_LAYERS : LAYERS)[layer].nominalWidth;
 	if (!Number.isFinite(captureWidth) || captureWidth <= target) return 1;
 	return captureWidth / target;
 }

@@ -28,7 +28,25 @@ export const signalSchema = z.discriminatedUnion('kind', [
 		 * Present on an offer that adds a sending track; verified by the receiver
 		 * against the live holder list before it is answered.
 		 */
-		grant: grantSchema.optional()
+		grant: grantSchema.optional(),
+		/**
+		 * Which kind each transceiver carries, keyed by mid (UX-OBJ-6).
+		 *
+		 * SDP cannot answer this. A screen track's `track.kind` is `'video'`, the
+		 * same as a camera's, so a receiver reading only the track would call a
+		 * share a camera — and since the same reading feeds the publish gate, it
+		 * would check the sender against `video_holders` and let a camera holder
+		 * publish a share with no screen slot. That is an authorization hole, not
+		 * a cosmetic one.
+		 *
+		 * Optional, and an unmapped mid reads as `'video'`. That keeps a peer
+		 * running older code working, and it fails CLOSED: unmapped means the
+		 * stricter check, never the looser one.
+		 */
+		tracks: z
+			.array(z.object({ mid: z.string().max(32), media: z.enum(['video', 'audio', 'screen', 'screenaudio']) }))
+			.max(8)
+			.optional()
 	}),
 	z.object({
 		kind: z.literal('candidates'),
@@ -67,7 +85,7 @@ export const signalSchema = z.discriminatedUnion('kind', [
 	 */
 	z.object({
 		kind: z.literal('want'),
-		media: z.enum(['video', 'audio']),
+		media: z.enum(['video', 'audio', 'screen', 'screenaudio']),
 		layer: z.enum(['high', 'med', 'low']).nullable()
 	}),
 	z.object({ kind: z.literal('bye') })

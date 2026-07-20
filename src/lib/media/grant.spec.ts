@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	GRANT_ALGORITHM,
 	grantAllows,
+	grantBodySchema,
 	grantSchema,
 	signGrant,
 	verifyGrant,
@@ -30,7 +31,7 @@ function body(over: Partial<GrantBody> = {}): GrantBody {
 	return {
 		room: ROOM,
 		peer: PEER,
-		publish: { video: true, audio: true },
+		publish: { video: true, audio: true, screen: false },
 		stage: 7,
 		iat: NOW,
 		exp: NOW + 120,
@@ -67,11 +68,11 @@ describe('what a verifier refuses', () => {
 
 	it('a body edited after signing', async () => {
 		const pair = await keys();
-		const grant = await signGrant(body({ publish: { video: false, audio: false } }), pair.privateKey);
+		const grant = await signGrant(body({ publish: { video: false, audio: false, screen: false } }), pair.privateKey);
 
 		// Re-encode a body that grants video, keeping the original signature.
 		const tampered: Grant = {
-			body: btoa(JSON.stringify(body({ publish: { video: true, audio: true } })))
+			body: btoa(JSON.stringify(body({ publish: { video: true, audio: true, screen: false } })))
 				.replace(/\+/g, '-')
 				.replace(/\//g, '_')
 				.replace(/=+$/, ''),
@@ -139,9 +140,55 @@ describe('grantAllows', () => {
 
 	it('refuses a kind it does not cover', () => {
 		// Muted, or audio-only: holding one does not imply the other.
-		const audioOnly = body({ publish: { video: false, audio: true } });
+		const audioOnly = body({ publish: { video: false, audio: true, screen: false } });
 		expect(grantAllows(audioOnly, { room: ROOM, peer: PEER, kind: 'audio', seenStage: 0 })).toBe(true);
 		expect(grantAllows(audioOnly, { room: ROOM, peer: PEER, kind: 'video', seenStage: 0 })).toBe(false);
+	});
+
+	it('a camera grant does not authorize a SCREEN SHARE (UX-OBJ-6)', () => {
+		// The two consume separate slots, so holding one must not imply the other.
+		// Getting this backwards would let any video holder publish a share and
+		// silently exceed max_av.
+		const cameraOnly = body({ publish: { video: true, audio: true, screen: false } });
+		expect(grantAllows(cameraOnly, { room: ROOM, peer: PEER, kind: 'screen', seenStage: 0 })).toBe(
+			false
+		);
+		const sharing = body({ publish: { video: false, audio: false, screen: true } });
+		expect(grantAllows(sharing, { room: ROOM, peer: PEER, kind: 'screen', seenStage: 0 })).toBe(true);
+		expect(grantAllows(sharing, { room: ROOM, peer: PEER, kind: 'video', seenStage: 0 })).toBe(false);
+	});
+
+	it('screen audio rides the SCREEN grant, and is not a back door to the mic (UX-OBJ-16)', () => {
+		/*
+		 * The whole authorization claim in three assertions. A share's own sound
+		 * needs a screen slot; an audio slot does not confer it; and holding a
+		 * screen slot still does not let you publish a microphone.
+		 */
+		const sharing = body({ publish: { video: false, audio: false, screen: true } });
+		expect(grantAllows(sharing, { room: ROOM, peer: PEER, kind: 'screenaudio', seenStage: 0 })).toBe(
+			true
+		);
+		expect(grantAllows(sharing, { room: ROOM, peer: PEER, kind: 'audio', seenStage: 0 })).toBe(false);
+
+		const speaking = body({ publish: { video: false, audio: true, screen: false } });
+		expect(grantAllows(speaking, { room: ROOM, peer: PEER, kind: 'screenaudio', seenStage: 0 })).toBe(
+			false
+		);
+	});
+
+	it('a grant minted before screen shares existed parses, and refuses one', () => {
+		// Grants live 120s, so a worker deployed mid-session issues bodies without
+		// the field. It must still parse — and it must fail CLOSED.
+		const legacy = grantBodySchema.parse({
+			room: ROOM,
+			peer: PEER,
+			publish: { video: true, audio: true },
+			stage: 7,
+			iat: NOW,
+			exp: NOW + 120
+		});
+		expect(legacy.publish.screen).toBe(false);
+		expect(grantAllows(legacy, { room: ROOM, peer: PEER, kind: 'screen', seenStage: 0 })).toBe(false);
 	});
 });
 

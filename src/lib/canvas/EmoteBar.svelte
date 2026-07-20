@@ -10,11 +10,13 @@
 		AWAY_EMOJI,
 		VIDEO_EMOJI,
 		MIC_EMOJI,
-		MUTED_EMOJI
+		MUTED_EMOJI,
+		SCREEN_EMOJI
 	} from '$lib/model/emotes';
 	import {
 		counts as stageCounts,
 		freeSlots,
+		holdsScreen,
 		holdsVideo,
 		isQueued,
 		queuePosition,
@@ -41,9 +43,17 @@
 		store: RoomStore;
 		sync: SyncClient;
 		identity: StoredIdentity;
+		/**
+		 * Screen sharing (UX-OBJ-6), handed down as callbacks rather than done
+		 * here. The picker must be opened from this click with no await in front
+		 * of it, and the session that owns it lives in Room — which is also where
+		 * it is torn down correctly. Absent when there is no media session.
+		 */
+		onShareScreen?: (() => void) | undefined;
+		onStopScreenShare?: (() => void) | undefined;
 	}
 
-	let { store, sync, identity }: Props = $props();
+	let { store, sync, identity, onShareScreen, onStopScreenShare }: Props = $props();
 
 	/** Persistent emote state is read from the store, so it survives a reload. */
 	const self = $derived(store.state.participants[identity.id]);
@@ -56,9 +66,11 @@
 		capacity: store.state.capacity,
 		video_holders: store.state.video_holders,
 		audio_holders: store.state.audio_holders,
+		screen_holders: store.state.screen_holders,
 		queue: store.state.queue
 	});
 	const hasVideo = $derived(holdsVideo(stage, identity.id));
+	const sharing = $derived(holdsScreen(stage, identity.id));
 	const videoFree = $derived(freeSlots(stage, 'video'));
 	const audioFree = $derived(freeSlots(stage, 'audio'));
 	const queued = $derived(isQueued(stage, identity.id));
@@ -101,6 +113,28 @@
 			});
 		}}><Emoji glyph={VIDEO_EMOJI} /> camera</Button
 	>
+	<!--
+		Screen share (UX-OBJ-6). A share spends a slot from the SAME `max_av`
+		pool as a camera, so `videoFree` is the right number in its label — and
+		the button is disabled at zero rather than offering a queue, because a
+		queued screen slot cannot be used without a fresh gesture (see stage.ts).
+	-->
+	{#if onShareScreen !== undefined}
+		<Button
+			pressed={sharing}
+			disabled={!sharing && videoFree === 0}
+			label={sharing
+				? 'Stop sharing your screen (frees a video slot)'
+				: videoFree > 0
+					? `Share your screen (${String(videoFree)} of ${String(counts.video.max)} video slots free)`
+					: 'Share your screen — no video slots free'}
+			onclick={() => {
+				// No await before this: the picker needs the gesture.
+				if (sharing) onStopScreenShare?.();
+				else onShareScreen();
+			}}><Emoji glyph={SCREEN_EMOJI} /> screen</Button
+		>
+	{/if}
 	<Button
 		pressed={!(self?.muted ?? true)}
 		label={self?.muted === false

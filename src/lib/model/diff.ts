@@ -33,6 +33,7 @@ export interface RoomScalars {
 	capacity: RoomState['capacity'];
 	video_holders: readonly string[];
 	audio_holders: readonly string[];
+	screen_holders: readonly string[];
 	queue: readonly string[];
 	transport: RoomState['transport'];
 	placers: RoomState['placers'];
@@ -97,6 +98,7 @@ function scalars(state: RoomState): RoomScalars {
 		capacity: state.capacity,
 		video_holders: state.video_holders,
 		audio_holders: state.audio_holders,
+		screen_holders: state.screen_holders,
 		queue: state.queue,
 		transport: state.transport,
 		placers: state.placers,
