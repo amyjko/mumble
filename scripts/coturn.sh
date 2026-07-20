@@ -16,10 +16,31 @@ set -euo pipefail
 SECRET="mumble-local-turn-secret"
 PORT=3478
 
+# Install it rather than telling somebody to. A prerequisite documented in prose
+# is a step that drifts: the local instruction and the CI one were separate, and
+# CI's silently installed a SERVICE that owned :3478 and broke the suite. One
+# script both use cannot drift from itself.
+#
+# Not an npm devDependency, which was the obvious idea and does not work: the
+# pure-JS TURN servers on npm do not relay. `turn-server` authenticates our REST
+# credentials correctly and reports an allocation with a relay address, then
+# never binds a relay socket — measured, one UDP listener and nothing else — so
+# ICE gets a candidate pointing at nothing. A relay layer needs something that
+# actually relays.
 if ! command -v turnserver >/dev/null 2>&1; then
-	echo "coturn is not installed." >&2
-	echo "  macOS:  brew install coturn" >&2
-	echo "  Debian: sudo apt-get install -y coturn" >&2
+	echo "coturn not found; installing it (one-time)..." >&2
+	if command -v brew >/dev/null 2>&1; then
+		brew install coturn >&2
+	elif command -v apt-get >/dev/null 2>&1; then
+		sudo apt-get update >&2 && sudo apt-get install -y coturn >&2
+	else
+		echo "No brew or apt-get. Install coturn manually and re-run." >&2
+		exit 1
+	fi
+fi
+
+if ! command -v turnserver >/dev/null 2>&1; then
+	echo "coturn still not on PATH after install." >&2
 	exit 1
 fi
 

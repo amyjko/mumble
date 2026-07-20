@@ -116,16 +116,49 @@ The split *is* the strategy: each layer proves something the others structurally
 | RLS matrix | pgTAP via `supabase test db` | Postgres | permission × role × creator × anon; rolls back per test |
 | Claim reality | Vitest + supabase-js | local stack | Auth really emits `is_anonymous` |
 | Auth flows | Vitest + supabase-js | local stack | anonymous, magic link, SSR cookie session |
+| Relay | Vitest browser mode + local **coturn** | real Chromium + a real TURN server | that the relay path works at all — credentials accepted, media relayed, `relayed: true` |
 | E2E | Playwright → `wrangler dev` | real Chromium + **workerd** | canvas, sync, two-peer WebRTC — and the only exercise of the production runtime |
 | Design conformance | contrast + no-raw-color specs (node); axe + keyboard journey (E2E) | node + workerd | the design system's WCAG 2.2 AA claims — see [STYLE.md](STYLE.md) §8 |
 
 **E2E targets `wrangler dev`, not `vite dev`.** SvelteKit's dev server runs on Node while production runs workerd, and no plugin closes that gap ([STACK.md](STACK.md) §5). So the E2E layer carries a second job beyond browser behavior: it is where the production runtime gets tested at all (AR-DEPLOY-4). Pointing it at `vite dev` because that's faster would silently void that.
+
+**The relay layer exists because loopback hides it.** Every other media test connects host-candidate to host-candidate, where a direct path wins instantly — so the TURN code never executed, and `relayed` reported `false` in every test that had ever run. `iceTransportPolicy: 'relay'` makes the browser gather *only* relay candidates, so a connection that establishes has provably been allocated and relayed. It needs a TURN server to relay through, which is why coturn is a dev dependency (§4).
+
+It is the only layer that can fail for a reason outside the code, so it carries a negative control: a *wrong* credential must fail to connect. Without it, the layer would pass whether or not TURN worked, because two peers on one machine can always find each other.
 
 Read the last column as a set of non-overlapping claims. The pgTAP matrix cannot tell you the token really contains `is_anonymous`; the claim-reality test cannot tell you the policy matrix is right; neither can tell you a drag lands where the math says. Redundancy between layers is waste, but a gap between them is a bug nobody will find.
 
 ---
 
 ## 4. Setup
+
+### The relay layer
+
+```bash
+pnpm run coturn      # starts a local TURN server on 127.0.0.1:3478
+pnpm run test:relay  # the relay layer
+```
+
+Nothing to install first: `pnpm run coturn` installs coturn via brew or apt if
+it is missing. That is deliberate rather than convenient — a prerequisite
+written in prose is a step that drifts, and this one did. The local instruction
+and the CI instruction were separate, CI's installed the Debian package, and
+that package starts a SERVICE which owns :3478; the relay suite then ran against
+a stranger's TURN server for two builds before the failure was traced. One
+script both paths call cannot drift from itself, so CI has no install step and
+this section has no command to copy.
+
+It is a system package rather than a devDependency because the pure-JS TURN
+servers on npm do not relay. `turn-server` authenticates our REST credentials
+correctly and reports an allocation with a relay address, then never binds a
+relay socket — measured: one UDP listener and nothing else — so ICE ends up with
+a candidate pointing at nothing. A relay layer needs something that relays.
+
+`test:relay` is **not** in `pnpm test:unit`, for the same reason `test:integration`
+is not: a contributor without the dependency running should not meet a wall of red
+they cannot act on. CI runs it as its own named step so it cannot quietly never
+run — which it did, once, against Debian's own TURN service, and failed with an
+assertion two layers from the cause.
 
 ```bash
 npx sv add vitest playwright

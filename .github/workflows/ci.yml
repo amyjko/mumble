@@ -97,9 +97,10 @@ jobs:
       # binary natively. Running it the same way here means CI exercises the
       # path someone can actually debug, instead of a second configuration that
       # only exists in CI.
-      - name: Install coturn (the relay under test)
-        run: sudo apt-get update && sudo apt-get install -y coturn
-
+      # No install step: `pnpm run coturn` installs it if missing. One script,
+      # so the local path and the CI path cannot drift — which they did, and
+      # the drift is what let CI run the suite against Debian's own TURN
+      # service for two builds.
       - name: Start coturn
         run: pnpm run coturn
 
