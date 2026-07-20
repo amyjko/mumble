@@ -36,6 +36,12 @@ turnserver -n --log-file=stdout \
 	`# every check fails at 'checking' with nothing logged to say why — which` \
 	`# reads exactly like a broken credential and is not one.` \
 	--allow-loopback-peers \
+	`# Required BY SOME BUILDS alongside --allow-loopback-peers: Ubuntu's coturn` \
+	`# refuses to start with "allow_loopback_peers and empty cli password cannot` \
+	`# be used together", while Homebrew's starts happily. Setting one satisfies` \
+	`# both. The CLI is bound to loopback on a throwaway password and this whole` \
+	`# server exists for a test.` \
+	--cli-password=mumble-local \
 	>/tmp/mumble-coturn.log 2>&1 &
 
 # Wait for the listener rather than sleeping a guessed interval.
