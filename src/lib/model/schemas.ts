@@ -460,7 +460,12 @@ export const ephemeralSchema = z.discriminatedUnion('kind', [
 export const envelopeSchema = z.discriminatedUnion('t', [
 	z.object({ v: z.literal(1), t: z.literal('state'), state: roomStateSchema }),
 	z.object({ v: z.literal(1), t: z.literal('ephemeral'), message: ephemeralSchema }),
-	z.object({ v: z.literal(1), t: z.literal('hello') })
+	// `hello` doubles as the presence announcement: a tab that arrives says who
+	// and where it is, and every tab already answers by re-broadcasting state.
+	z.object({ v: z.literal(1), t: z.literal('hello'), endpoint: z.string().optional(), actor: z.string().optional() }),
+	z.object({ v: z.literal(1), t: z.literal('here'), endpoint: z.string(), actor: z.string() }),
+	z.object({ v: z.literal(1), t: z.literal('bye'), endpoint: z.string() }),
+	z.object({ v: z.literal(1), t: z.literal('signal'), to: z.string(), from: z.string(), payload: z.unknown() })
 ]);
 
 /**

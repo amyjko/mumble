@@ -66,6 +66,19 @@ export class MemoryRoomStore implements RoomStore {
 	// $derived construction, which would then mutate another derived's state.
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- see above
 	private readonly handlers = new Set<(m: EphemeralMessage) => void>();
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- see above
+	private readonly signalHandlers = new Set<(from: string, payload: unknown) => void>();
+	/** This TAB. Cross-tab signalling addresses tabs, not people. */
+	private readonly clientId = crypto.randomUUID();
+	/**
+	 * Peers seen across tabs, this one included.
+	 *
+	 * `present` used to be "just me" and `onPresenceLeave` a no-op, which was
+	 * honest for a store with no socket to drop but made every signalling test
+	 * against it vacuous. There IS a moment a tab leaves here — `dispose` —
+	 * so this announces it rather than pretending the question is unanswerable.
+	 */
+	private known = $state<{ endpoint: string; actor: string }[]>([]);
 
 	/**
 	 * `isHost` is supplied, never inferred. The stub has no way to know — the
@@ -98,10 +111,36 @@ export class MemoryRoomStore implements RoomStore {
 						break;
 					case 'hello':
 						this.broadcastState();
+						// Answer with who we are, so the newcomer learns about us as
+						// well: `hello` alone is one-directional.
+						this.note(envelope.endpoint, envelope.actor);
+						this.channel?.postMessage({
+							v: 1,
+							t: 'here',
+							endpoint: this.clientId,
+							actor: this.actorId
+						});
+						break;
+					case 'here':
+						this.note(envelope.endpoint, envelope.actor);
+						break;
+					case 'bye': {
+						const leaving = this.known.find((e) => e.endpoint === envelope.endpoint);
+						this.known = this.known.filter((e) => e.endpoint !== envelope.endpoint);
+						// Announce only when their LAST tab has gone, matching the
+						// server-backed store's contract.
+						if (leaving !== undefined && !this.known.some((e) => e.actor === leaving.actor)) {
+							for (const handler of this.leaveHandlers) handler(leaving.actor);
+						}
+						break;
+					}
+					case 'signal':
+						if (envelope.to !== this.clientId) break;
+						for (const handler of this.signalHandlers) handler(envelope.from, envelope.payload);
 						break;
 				}
 			};
-			this.channel.postMessage({ v: 1, t: 'hello' });
+			this.channel.postMessage({ v: 1, t: 'hello', endpoint: this.clientId, actor: actorId });
 		}
 	}
 
@@ -214,20 +253,55 @@ export class MemoryRoomStore implements RoomStore {
 	 * why the >=2-present rule and slot reaping cannot be exercised against the
 	 * stub, and why both are tested against the server-backed store.
 	 */
-	get present(): readonly string[] {
-		return this.actorId === '' ? [] : [this.actorId];
+	/** Record a peer tab, ignoring one that predates endpoint announcements. */
+	private note(endpoint: string | undefined, actor: string | undefined): void {
+		if (endpoint === undefined || actor === undefined) return;
+		if (this.known.some((e) => e.endpoint === endpoint)) return;
+		this.known = [...this.known, { endpoint, actor }];
 	}
 
-	onPresenceLeave(): () => void {
-		// Nothing to observe; the unsubscriber is still real so callers need no
-		// special case.
-		return () => undefined;
+	get endpoint(): string {
+		return this.clientId;
+	}
+
+	get endpoints(): readonly { readonly endpoint: string; readonly actor: string }[] {
+		const self = this.actorId === '' ? [] : [{ endpoint: this.clientId, actor: this.actorId }];
+		return [...self, ...this.known];
+	}
+
+	get present(): readonly string[] {
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- local, not state
+		return [...new Set(this.endpoints.map((e) => e.actor))];
+	}
+
+	sendSignal(to: string, payload: unknown): void {
+		if (this.closed) return;
+		this.channel?.postMessage({ v: 1, t: 'signal', to, from: this.clientId, payload });
+	}
+
+	onSignal(handler: (from: string, payload: unknown) => void): () => void {
+		this.signalHandlers.add(handler);
+		return () => this.signalHandlers.delete(handler);
+	}
+
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- see above
+	private readonly leaveHandlers = new Set<(actorId: string) => void>();
+
+	onPresenceLeave(handler: (actorId: string) => void): () => void {
+		this.leaveHandlers.add(handler);
+		return () => this.leaveHandlers.delete(handler);
 	}
 
 	dispose(): void {
+		// Say goodbye BEFORE closing, or the message never leaves. This is the
+		// moment that makes `onPresenceLeave` real here rather than a no-op: a
+		// tab in this store has no socket to drop, but it does have a dispose.
+		this.channel?.postMessage({ v: 1, t: 'bye', endpoint: this.clientId });
 		this.closed = true;
 		this.channel?.close();
 		this.handlers.clear();
+		this.signalHandlers.clear();
+		this.leaveHandlers.clear();
 	}
 }
 

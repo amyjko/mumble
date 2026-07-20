@@ -12,7 +12,19 @@ import { supabaseBrowser } from '$lib/auth/browser-client';
 const z_envelope = z.object({ version: z.number(), state: z.unknown() });
 const z_version = z.object({ version: z.number(), by: z.string().nullish() });
 /** What a tab announces about itself. Parsed like any other peer message. */
-const z_presence = z.object({ actor: z.string() });
+const z_presence = z.object({
+	actor: z.string(),
+	/*
+	 * OPTIONAL, and that is not laziness. A peer running the previous build
+	 * announces only `actor`, and a required field here would make them fail to
+	 * parse — vanishing from presence entirely, which drops them below the
+	 * >=2-present rule and reaps their slot. A rolling deploy must not evict the
+	 * people already in the room.
+	 */
+	client: z.string().optional()
+});
+/** An addressed signal, before we know whether it is for this tab. */
+const z_signal = z.object({ to: z.string(), from: z.string(), payload: z.unknown() });
 const z_ok = z.object({ version: z.number() });
 const z_error = z.object({ message: z.string() });
 import { docFromEncoded, mergeEncoded, noteText } from '$lib/model/ydoc';
@@ -55,6 +67,11 @@ export class SupabaseRoomStore implements RoomStore {
 	// would then mutate another derived's state.
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- see above
 	private readonly handlers = new Set<(m: EphemeralMessage) => void>();
+	// Subscription plumbing, never rendered — same reason as `handlers` above.
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- see above
+	private readonly signalHandlers = new Set<(from: string, payload: unknown) => void>();
+	/** This tab's own signalling inbox. Opened lazily, once there is an actor. */
+	private signalChannel: RealtimeChannel | null = null;
 
 	/**
 	 * Who is acting, set AFTER construction.
@@ -108,6 +125,15 @@ export class SupabaseRoomStore implements RoomStore {
 	 * conch and the room is silent until someone restarts it.
 	 */
 	present = $state<string[]>([]);
+	/**
+	 * Every connected TAB, and whose it is. `present` is the distinct actors of
+	 * this, so the two can never disagree.
+	 *
+	 * Signalling addresses tabs rather than people: perfect negotiation decides
+	 * who yields on a collision by comparing the two ids, and two tabs of one
+	 * person share an actor id, so that comparison would tie.
+	 */
+	endpoints = $state<{ endpoint: string; actor: string }[]>([]);
 	// Subscription plumbing, never rendered — same reason as `handlers` above.
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- see above
 	private readonly leaveHandlers = new Set<(actorId: string) => void>();
@@ -277,12 +303,14 @@ export class SupabaseRoomStore implements RoomStore {
 		 * take the slot from a person still sitting in the room.
 		 */
 		channel.on('presence', { event: 'sync' }, () => {
+			this.endpoints = this.readEndpoints(channel);
 			this.present = this.readPresence(channel);
 		});
 		channel.on('presence', { event: 'leave' }, () => {
 			// eslint-disable-next-line svelte/prefer-svelte-reactivity -- local, not state
 			const before = new Set(this.present);
 			const after = this.readPresence(channel);
+			this.endpoints = this.readEndpoints(channel);
 			this.present = after;
 			// Announce only actors with NO remaining tab, which is what `after`
 			// already accounts for.
@@ -297,9 +325,34 @@ export class SupabaseRoomStore implements RoomStore {
 			// tracking before that is dropped, and this tab would then be absent
 			// from its own presence set.
 			if (status !== REALTIME_SUBSCRIBE_STATES.SUBSCRIBED || this.actorId === '') return;
-			void channel.track({ actor: this.actorId });
+			void channel.track({ actor: this.actorId, client: this.clientId });
 		});
 		this.channel = channel;
+	}
+
+	/**
+	 * Every tab on the channel, with whose it is.
+	 *
+	 * A tab announced by an older build carries no `client`, so it has no
+	 * address and is skipped HERE while still counting in `readPresence` — it is
+	 * a person who is present but cannot be signalled. Better than inventing an
+	 * id for them, which would address messages nobody is listening for.
+	 */
+	private readEndpoints(channel: RealtimeChannel): { endpoint: string; actor: string }[] {
+		const found: { endpoint: string; actor: string }[] = [];
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- local, not state
+		const seen = new Set<string>();
+		for (const entries of Object.values(channel.presenceState())) {
+			for (const entry of entries) {
+				const parsed = z_presence.safeParse(entry);
+				if (!parsed.success) continue;
+				const client = parsed.data.client;
+				if (client === undefined || seen.has(client)) continue;
+				seen.add(client);
+				found.push({ endpoint: client, actor: parsed.data.actor });
+			}
+		}
+		return found;
 	}
 
 	/** The distinct actors currently on the channel, however many tabs each has. */
@@ -360,6 +413,10 @@ export class SupabaseRoomStore implements RoomStore {
 			if (!changed) return;
 			void this.channel?.unsubscribe();
 			this.channel = null;
+			// The inbox is authorized against `auth.uid()` too, and its TOPIC
+			// contains the actor — so a changed actor invalidates both.
+			void this.signalChannel?.unsubscribe();
+			this.signalChannel = null;
 			this.version = -1;
 		}
 
@@ -368,6 +425,67 @@ export class SupabaseRoomStore implements RoomStore {
 			this.ready = true;
 		});
 		this.subscribe();
+		this.subscribeInbox();
+	}
+
+	/**
+	 * This tab's signalling inbox, `signal:<room>:<actor>`.
+	 *
+	 * A topic per RECIPIENT rather than one shared bus, so an offer and its
+	 * candidates reach the peer they concern and nobody else. A peer you connect
+	 * to learns your address anyway; broadcasting it would tell the lurkers too,
+	 * and server-reflexive candidates carry a public IP in clear.
+	 *
+	 * Keyed on the ACTOR because RLS can only compare the topic against
+	 * `auth.uid()`. All of a person's tabs therefore share one inbox and each
+	 * filters on `to`, which is why the payload carries an endpoint even though
+	 * the topic carries a person.
+	 */
+	private subscribeInbox(): void {
+		const channel = supabaseBrowser().channel(`signal:${this.roomId}:${this.actorId}`, {
+			// Private, so `signal_channel_read` is consulted. Without this the
+			// policy is inert and the inbox is world-readable — which is exactly
+			// how the room channel shipped public once already.
+			config: { private: true, broadcast: { self: false } }
+		});
+		channel.on('broadcast', { event: 'signal' }, (message) => {
+			const parsed = z_signal.safeParse(message['payload']);
+			// A malformed peer message is dropped, never handed on — the same
+			// discipline every other inbound path here applies.
+			if (!parsed.success) return;
+			// Addressed to a SIBLING TAB of this same person: the inbox is shared
+			// by actor, so this is routine rather than an anomaly.
+			if (parsed.data.to !== this.clientId) return;
+			// `from` is what the sender chose to write. Membership is proven by
+			// RLS; identity is not, and nothing downstream may assume otherwise.
+			for (const handler of this.signalHandlers) handler(parsed.data.from, parsed.data.payload);
+		});
+		void channel.subscribe();
+		this.signalChannel = channel;
+	}
+
+	get endpoint(): string {
+		return this.clientId;
+	}
+
+	sendSignal(to: string, payload: unknown): void {
+		if (this.closed) return;
+		// Endpoints address tabs; topics address people. Resolve one to the other
+		// here so no caller has to know that distinction exists.
+		const target = this.endpoints.find((e) => e.endpoint === to);
+		if (target === undefined) return;
+		void supabaseBrowser()
+			.channel(`signal:${this.roomId}:${target.actor}`, { config: { private: true } })
+			.send({
+				type: 'broadcast',
+				event: 'signal',
+				payload: { to, from: this.clientId, payload }
+			});
+	}
+
+	onSignal(handler: (from: string, payload: unknown) => void): () => void {
+		this.signalHandlers.add(handler);
+		return () => this.signalHandlers.delete(handler);
 	}
 
 	async commit(mutation: Mutation): Promise<void> {
