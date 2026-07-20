@@ -9,6 +9,7 @@ import type {
 	RemoteTrack,
 	TransportStats
 } from '$lib/media/transport';
+import { z } from 'zod';
 import { PeerConnection, parseSignal } from './connection';
 import { isPolite } from './signal';
 import type { PublishAuthorizer, Holders } from './authorize';
@@ -37,6 +38,23 @@ export interface P2PTransportOptions {
 	readonly send: (to: string, payload: unknown) => void;
 }
 
+/**
+ * What the session route hands back, from this transport's point of view.
+ *
+ * Parsed HERE rather than by the session, because these are meaningful only to
+ * a transport that opens peer connections — the layer above must not learn that
+ * such a thing as a relay exists.
+ */
+const z_credentials = z.object({
+	iceServers: z.array(
+		z.object({
+			urls: z.union([z.string(), z.array(z.string())]),
+			username: z.string().optional(),
+			credential: z.string().optional()
+		})
+	)
+});
+
 export class P2PTransport implements MediaTransport {
 	private readonly options: P2PTransportOptions;
 	/** Keyed by ENDPOINT. Several may share an actor. */
@@ -52,10 +70,35 @@ export class P2PTransport implements MediaTransport {
 	private readonly stateHandlers = new Set<(stats: TransportStats) => void>();
 
 	private grant: Grant | undefined = undefined;
+	/**
+	 * Server-minted, and applied to connections opened AFTER they arrive.
+	 *
+	 * They were being dropped entirely until the provider-name guard exposed it:
+	 * the wiring passed an empty list, which works perfectly on loopback and
+	 * would have failed for the ~10-15% of real connections needing a relay
+	 * (AR-TRANSPORT-8). Local coverage of that path is zero, so nothing else
+	 * would have noticed.
+	 */
+	private ice: readonly IceServer[];
 	private disposed = false;
 
 	constructor(options: P2PTransportOptions) {
 		this.options = options;
+		this.ice = options.ice;
+	}
+
+	/** Take the connection credentials out of a session response. */
+	useCredentials(raw: unknown): void {
+		const parsed = z_credentials.safeParse(raw);
+		if (!parsed.success) return;
+		// Rebuilt field by field rather than assigned: under
+		// `exactOptionalPropertyTypes` an optional produced by zod is
+		// `string | undefined`, which is not the same type as an absent property.
+		this.ice = parsed.data.iceServers.map((server) => ({
+			urls: server.urls,
+			...(server.username === undefined ? {} : { username: server.username }),
+			...(server.credential === undefined ? {} : { credential: server.credential })
+		}));
 	}
 
 	/** The grant to attach to offers. Set whenever a fresh one is issued. */
@@ -108,7 +151,7 @@ export class P2PTransport implements MediaTransport {
 			remote: endpoint,
 			actor,
 			polite: isPolite(this.options.self, endpoint),
-			ice: this.options.ice,
+			ice: this.ice,
 			send: (signal) => {
 				this.options.send(endpoint, signal);
 			},
@@ -135,6 +178,9 @@ export class P2PTransport implements MediaTransport {
 		if (wanted !== undefined) {
 			for (const [kind, layer] of wanted) connection.want(kind, layer);
 		}
+		// Establish ICE before anything is sent over it. A no-op on the polite
+		// side, which waits to be offered to.
+		connection.prewarm();
 		return connection;
 	}
 
@@ -240,6 +286,9 @@ export class P2PTransport implements MediaTransport {
 		return Promise.resolve();
 	}
 
+
+
+
 	async stats(): Promise<readonly TransportStats[]> {
 		return Promise.all([...this.connections.values()].map((connection) => connection.stats()));
 	}
@@ -261,7 +310,9 @@ export class P2PTransport implements MediaTransport {
 
 	dispose(): void {
 		this.disposed = true;
-		for (const connection of this.connections.values()) connection.close();
+		// Silent: this tab is rebuilding or leaving, and a `bye` would reach the
+		// peer's next connection rather than this one.
+		for (const connection of this.connections.values()) connection.close(false);
 		this.connections.clear();
 		this.published.clear();
 		this.subscriptions.clear();

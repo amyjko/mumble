@@ -60,6 +60,8 @@ function wire(
 		authorizeB?: (grant: Grant | undefined, kinds: readonly MediaKind[]) => Promise<boolean>;
 		/** Hold B's descriptions back so its candidates reach A first. */
 		delayDescriptionsToA?: boolean;
+		/** Swallow B's first description entirely, as a dropped broadcast would. */
+		dropFirstDescriptionToA?: boolean;
 	} = {}
 ): Wired {
 	const ENDPOINT_A = 'aaaa-endpoint';
@@ -76,6 +78,7 @@ function wire(
 	/** Held back so candidates can overtake the description they belong to. */
 	const heldDescriptions: Signal[] = [];
 	let descriptionDelivered = false;
+	let droppedFirst = false;
 
 	const a = new PeerConnection({
 		remote: ENDPOINT_B,
@@ -105,6 +108,12 @@ function wire(
 			 * for a beat while candidates go straight through, so A is asked to
 			 * add candidates before it has any remote description.
 			 */
+			if (options.dropFirstDescriptionToA === true && signal.kind === 'description' && !droppedFirst) {
+				// Gone. No error, no replay — exactly what a broadcast published to a
+				// topic nobody has finished subscribing to does.
+				droppedFirst = true;
+				return;
+			}
 			if (options.delayDescriptionsToA === true) {
 				if (signal.kind === 'description') {
 					heldDescriptions.push(signal);
@@ -279,6 +288,25 @@ describe('ordering that loopback will not produce', () => {
 			{ timeout: 15_000, interval: 50 }
 		);
 
+		await connected();
+		a.close();
+	}, 40_000);
+});
+
+describe('a signal that never arrives', () => {
+	it('re-sends an unanswered offer until it lands', async () => {
+		/*
+		 * Broadcast is a fan-out, not a delivery guarantee. Presence says a peer
+		 * is in the room; it does not say their signalling inbox is open, and
+		 * those are different channels — so the very first offer can be published
+		 * to a topic nobody is listening on yet and simply vanish.
+		 *
+		 * This was a cross-context test that passed about half the time. Dropping
+		 * the first description on purpose turns "sometimes" into "always", and
+		 * the connection must still establish.
+		 */
+		const { a, connected } = wire({ dropFirstDescriptionToA: true });
+		a.send('audio', tone());
 		await connected();
 		a.close();
 	}, 40_000);

@@ -28,7 +28,16 @@ export const EMPTY_STAGE: Holders = { video: [], audio: [] };
 
 export class PublishAuthorizer {
 	private readonly room: string;
-	private readonly key: CryptoKey;
+	/**
+	 * A PROMISE, so an authorizer can exist before its key has arrived.
+	 *
+	 * A peer connection can be offered to within milliseconds of a page loading,
+	 * which is sooner than a fetch completes. Holding the promise means such an
+	 * offer waits for the key rather than being refused for want of it — and a
+	 * refusal there would present as "video sometimes doesn't connect", which is
+	 * the worst kind of bug to chase.
+	 */
+	private readonly key: Promise<CryptoKey>;
 	private stage: Holders = EMPTY_STAGE;
 	/**
 	 * The highest grant stage accepted from each peer.
@@ -40,9 +49,9 @@ export class PublishAuthorizer {
 	 */
 	private readonly seen = new Map<PeerId, number>();
 
-	constructor(room: string, key: CryptoKey) {
+	constructor(room: string, key: CryptoKey | Promise<CryptoKey>) {
 		this.room = room;
-		this.key = key;
+		this.key = Promise.resolve(key);
 	}
 
 	/**
@@ -88,7 +97,7 @@ export class PublishAuthorizer {
 		if (kinds.length === 0) return true;
 		if (grant === undefined) return false;
 
-		const body = await verifyGrant(grant, this.key, nowSeconds);
+		const body = await verifyGrant(grant, await this.key, nowSeconds);
 		if (body === null) return false;
 
 		const seenStage = this.seen.get(peer) ?? 0;

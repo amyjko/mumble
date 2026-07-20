@@ -65,7 +65,36 @@ export default defineConfig({
 	// Chromium only: AR-TEST-9's fake media devices are unsupported on WebKit,
 	// and this layer exists to exercise one runtime honestly rather than three
 	// shallowly.
-	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], trace: 'retain-on-failure' } }],
+	projects: [
+		{
+			name: 'chromium',
+			use: {
+				...devices['Desktop Chrome'],
+				trace: 'retain-on-failure',
+				/*
+				 * Synthetic camera and microphone (AR-TEST-9).
+				 *
+				 * Both the flag AND the permission, because they are different
+				 * gates: the flag auto-grants at the Chrome layer, and Playwright's
+				 * own permission model can still refuse independently.
+				 *
+				 * What this buys is plumbing, and nothing beyond it. The fake device
+				 * is a synthetic pattern encoding far below any rung on the ladder,
+				 * so it proves a track arrives and never proves anything about
+				 * encoder behaviour, bandwidth estimation or what a layer looks like.
+				 * AR-TEST-10 carries that.
+				 */
+				launchOptions: {
+					args: [
+						'--use-fake-device-for-media-stream',
+						'--use-fake-ui-for-media-stream',
+						'--autoplay-policy=no-user-gesture-required'
+					]
+				},
+				permissions: ['camera', 'microphone']
+			}
+		}
+	],
 	// CI runners are noisy neighbours; one retry separates a flake from a
 	// failure without hiding a real one.
 	retries: ci ? 1 : 0,

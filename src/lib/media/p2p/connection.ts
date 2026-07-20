@@ -65,6 +65,27 @@ export class PeerConnection {
 	private readonly wanted = new Map<MediaKind, Layer | null>();
 	private readonly announced = new Set<MediaKind>();
 
+	/** Set when an offer we initiated failed; surfaced through stats, not thrown. */
+	lastError = '';
+
+	/**
+	 * Re-send an unanswered offer.
+	 *
+	 * Broadcast is a fan-out, not a delivery guarantee: a message published to a
+	 * topic nobody has finished subscribing to is dropped, with no error and no
+	 * replay. Presence says a peer is in the room; it does not say their
+	 * signalling inbox is open yet, and those are different channels. So an offer
+	 * sent the instant a peer appears can vanish, leaving this side sitting in
+	 * `have-local-offer` and the other side unaware anyone wanted to talk.
+	 *
+	 * It presented as a test that passed about half the time. Retrying is the
+	 * honest fix, because the failure it covers is not a race that can be
+	 * designed away — the same loss happens to a re-offer after a network blip.
+	 * Re-sending the SAME description is safe: the receiver treats it as the
+	 * offer it already would have.
+	 */
+	private offerRetry: ReturnType<typeof setTimeout> | null = null;
+	private offerAttempts = 0;
 	private makingOffer = false;
 	/**
 	 * Whether one negotiation has completed.
@@ -119,7 +140,9 @@ export class PeerConnection {
 		this.pc = new RTCPeerConnection({ iceServers: toRtcIceServers(options.ice) });
 
 		this.pc.onnegotiationneeded = () => {
-			void this.makeOffer();
+			this.makeOffer().catch((error: unknown) => {
+				this.lastError = error instanceof Error ? error.message : String(error);
+			});
 		};
 
 		this.pc.onicecandidate = (event) => {
@@ -177,6 +200,11 @@ export class PeerConnection {
 		 * gratuitous.
 		 */
 		if (!options.polite) {
+			// The channel gives the offer an m-line to gather candidates for. The
+			// offer itself is kicked off EXPLICITLY by `prewarm()` rather than left
+			// to `onnegotiationneeded`: relying on that event to fire for a data
+			// channel worked in-page and did not in the browser, and an indirect
+			// trigger for the single most important step is not worth the elegance.
 			this.pc.createDataChannel('prewarm');
 		}
 
@@ -221,6 +249,20 @@ export class PeerConnection {
 		this.options.onState(await this.stats());
 	}
 
+	/**
+	 * Open the conversation (AR-TRANSPORT-9).
+	 *
+	 * Only the impolite side, which is what keeps startup free of glare. Safe to
+	 * call more than once: `makeOffer` is a no-op unless there is something to
+	 * negotiate and the connection is stable.
+	 */
+	prewarm(): void {
+		if (this.options.polite || this.closed) return;
+		this.makeOffer().catch((error: unknown) => {
+			this.lastError = error instanceof Error ? error.message : String(error);
+		});
+	}
+
 	/** Attach to every subsequent offer. Set before publishing. */
 	setGrant(grant: Grant | undefined): void {
 		this.grant = grant;
@@ -236,6 +278,28 @@ export class PeerConnection {
 			sdp: description.sdp,
 			...(this.grant === undefined ? {} : { grant: this.grant })
 		});
+		if (description.type === 'offer') this.armOfferRetry();
+	}
+
+	private armOfferRetry(): void {
+		this.clearOfferRetry();
+		// Bounded. A peer who has not answered after this many tries is not
+		// coming, and retrying forever would keep a dead connection warm.
+		if (this.offerAttempts >= 6) return;
+		this.offerAttempts += 1;
+		this.offerRetry = setTimeout(() => {
+			if (this.closed) return;
+			// Anything other than `have-local-offer` means it was answered, or
+			// superseded by a rollback; either way there is nothing to re-send.
+			if (this.pc.signalingState !== 'have-local-offer') return;
+			this.publishDescription();
+		}, 1_500);
+	}
+
+	private clearOfferRetry(): void {
+		if (this.offerRetry === null) return;
+		clearTimeout(this.offerRetry);
+		this.offerRetry = null;
 	}
 
 	/**
@@ -416,6 +480,9 @@ export class PeerConnection {
 		}
 
 		if (!isOffer) {
+			// Answered: nothing left to re-send.
+			this.clearOfferRetry();
+			this.offerAttempts = 0;
 			// An answer returns us to stable: the first exchange is done, and any
 			// offer the polite side held back may now go.
 			this.settle();
@@ -485,6 +552,8 @@ export class PeerConnection {
 	 * I wrote two before checking, and both were vacuous. So the mechanism is
 	 * asserted directly instead of its effect.
 	 */
+
+
 	get bufferedCandidateCount(): number {
 		return this.pendingCandidates.length;
 	}
@@ -494,11 +563,23 @@ export class PeerConnection {
 		return this.announced.has(kind);
 	}
 
-	close(): void {
+	/**
+	 * `notify` is false when this tab is tearing down its own session rather
+	 * than leaving the peer.
+	 *
+	 * The distinction is load-bearing, and getting it wrong cost an evening. A
+	 * `bye` is addressed to an ENDPOINT, and an endpoint is a tab, not a
+	 * connection — so a goodbye sent while rebuilding a transport arrives at the
+	 * peer's brand new connection and tears it down. Both sides then reported
+	 * `peer-said-bye` and neither had initiated anything: a mutual cascade
+	 * started by an object that no longer existed.
+	 */
+	close(notify = true): void {
 		if (this.closed) return;
 		this.closed = true;
+		this.clearOfferRetry();
 		try {
-			this.options.send({ kind: 'bye' });
+			if (notify) this.options.send({ kind: 'bye' });
 		} catch {
 			// A closing connection cannot be told about a failure to say goodbye.
 		}

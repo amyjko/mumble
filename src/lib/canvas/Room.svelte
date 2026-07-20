@@ -1,5 +1,10 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
+	import { MediaSession } from '$lib/media/session.svelte';
+	import { P2PTransport } from '$lib/media/p2p/p2p-transport';
+	import { PublishAuthorizer } from '$lib/media/p2p/authorize';
+	import { mediaPublicKey } from '$lib/media/p2p/key';
 	import { z } from 'zod';
 	import type { StoredIdentity } from '$lib/model/types';
 	import { MemoryRoomStore } from '$lib/store/memory-store.svelte';
@@ -144,6 +149,126 @@
 			if (untrack(() => current.state.participants[actorId]) === undefined) return;
 			void sync.commit({ kind: 'remove_participant', id: actorId });
 		});
+	});
+
+	/*
+	 * The media session (AR-TRANSPORT-1, AR-CTRL-3, AR-TRANSPORT-9).
+	 *
+	 * This is where the A/V plane is finally plugged in, and it is deliberately
+	 * one effect that only ever hands the session a plan input. All the deciding
+	 * lives in `planMedia`, which is pure and node-tested; all the negotiating
+	 * lives behind the transport seam, which names no provider. What is left here
+	 * is wiring.
+	 *
+	 * `planMedia` returns IDLE for a lone occupant, so `getUserMedia` is never
+	 * called for somebody sitting in an empty room — a lurker must not see a
+	 * permission dialog they have no use for.
+	 */
+	let session: MediaSession | null = $state(null);
+
+	/** Remote streams by peer, rendered by their tile. */
+	const remoteStreams = new SvelteMap<string, MediaStream>();
+
+	/*
+	 * The id alone, so the session is not rebuilt for an unrelated change.
+	 *
+	 * `identity` is replaced wholesale when the roamed profile lands, so an
+	 * effect reading it re-ran and tore down a working transport to build an
+	 * identical one. A derived primitive settles: Svelte compares it by value, so
+	 * a new object carrying the same id changes nothing.
+	 */
+	const selfId = $derived(identity.id);
+
+	$effect(() => {
+		const current = store;
+		// EMPTY_IDENTITY is the sentinel for "not known yet" — its id is '' and
+		// deliberately unusable, so this is the same check as "do we have one".
+		const me = selfId;
+		if (me === '') return;
+
+		// The key is a promise: an offer can arrive before the fetch lands, and
+		// waiting for it beats refusing for want of it.
+		const authorizer = new PublishAuthorizer(roomId, mediaPublicKey());
+		const transport = new P2PTransport({
+			self: current.endpoint,
+			ice: [],
+			authorizer,
+			endpoints: () => current.endpoints,
+			send: (to, payload) => {
+				current.sendSignal(to, payload);
+			}
+		});
+
+		const active = new MediaSession({
+			store: current,
+			roomName: room,
+			self: me,
+			transport,
+			onRemoteTrack: (track) => {
+				remoteStreams.set(`${track.peer}:${track.kind}`, track.stream);
+			},
+			onTrackEnded: (peer, kind) => {
+				remoteStreams.delete(`${peer}:${kind}`);
+			},
+			onGrant: (grant) => {
+				transport.setGrant(grant);
+			},
+			onCredentials: (raw) => {
+				transport.useCredentials(raw);
+			},
+			onStage: (holders) => {
+				transport.setStage(holders);
+			}
+		});
+
+		const stopSignals = current.onSignal((from, payload) => {
+			transport.accept(from, payload);
+		});
+
+		session = active;
+		return () => {
+			stopSignals();
+			active.dispose();
+			session = null;
+			remoteStreams.clear();
+		};
+	});
+
+	/*
+	 * Re-plan whenever the inputs change.
+	 *
+	 * Reading `present`, the holder lists and each tile's width makes this
+	 * effect depend on exactly what `planMedia` consumes, so a slot changing
+	 * hands, somebody arriving, or a tile being resized all re-run it — and
+	 * nothing else does.
+	 */
+	$effect(() => {
+		const active = session;
+		if (active === null) return;
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- local, not state
+		const tiles = new Map<string, { deviceWidth: number }>();
+		for (const [id, participant] of Object.entries(store.state.participants)) {
+			tiles.set(id, { deviceWidth: Math.round(participant.size.width) });
+		}
+		// Tracked explicitly so the effect re-runs on the things the plan reads.
+		void store.present.length;
+		void store.state.video_holders.length;
+		void store.state.audio_holders.length;
+		void untrack(() => active.reconcile(tiles));
+	});
+
+	/*
+	 * Mirror the live connection count onto the document, beside `data-syncing`.
+	 *
+	 * The same reasoning as that attribute: a test needs one honest signal for
+	 * "the media plane is up", and inventing a per-test proxy is how fixed sleeps
+	 * get written. Nothing renders remote media yet, so this is the only
+	 * cross-context evidence available — and it stays true when tiles land.
+	 */
+	$effect(() => {
+		const live = session?.connected ?? 0;
+		document.documentElement.dataset['mediaPeers'] = String(live);
+		void live;
 	});
 
 	const count = $derived(Object.keys(store.state.participants).length);

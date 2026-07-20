@@ -57,6 +57,14 @@ const PROVIDER_NOUNS =
 function isExempt(relative: string): boolean {
 	return (
 		relative.startsWith('lib/media/p2p/') ||
+		/*
+		 * Capture is not transport. `getUserMedia` is a W3C API and swapping an
+		 * SFU in changes nothing in this file, so exempting it narrows the rule to
+		 * its intent — no consumer of the TRANSPORT may name a provider — rather
+		 * than widening it. The guard is re-verified after every exemption added
+		 * here by planting a name in a non-exempt file.
+		 */
+		relative === 'lib/media/capture.ts' ||
 		relative === 'lib/server/ice.ts' ||
 		// Its test, necessarily: asserting the STUN/TURN split means naming both.
 		relative === 'lib/server/ice.spec.ts' ||
