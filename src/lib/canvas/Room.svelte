@@ -116,6 +116,36 @@
 		// edits.
 	});
 
+	/*
+	 * Reap a participant whose last tab went (AR-CTRL-3, UX-STAGE-4).
+	 *
+	 * A participant row outlives the tab that wrote it, so a closed laptop
+	 * leaves someone who is "in" the room forever — and, worse, still HOLDING
+	 * their slot. At `max_av = 1` that slot is the conch, so one crashed tab
+	 * silences the room until a human notices and a host intervenes.
+	 *
+	 * Hosts only, and that is not a UI nicety: `remove_participant` is
+	 * self-or-host on the server, so a guest attempting this would simply be
+	 * refused. It is also why several hosts racing to reap the same person is
+	 * harmless — the second attempt finds nothing to remove and produces an
+	 * empty diff.
+	 *
+	 * `participantLeft` inside the rule engine does the rest: releases both
+	 * slots and drops them from the queue, so the conch goes to whoever is
+	 * waiting rather than nowhere.
+	 */
+	$effect(() => {
+		if (!isHost) return;
+		const current = store;
+		return current.onPresenceLeave((actorId) => {
+			// Only someone the room still thinks is here. Presence and the
+			// participant rows can disagree briefly on join, and reaping a row
+			// that was never written would be a pointless write.
+			if (untrack(() => current.state.participants[actorId]) === undefined) return;
+			void sync.commit({ kind: 'remove_participant', id: actorId });
+		});
+	});
+
 	const count = $derived(Object.keys(store.state.participants).length);
 	/** Placers are a host tool (UX-AV-2), and the gate is live now. */
 	const canDesign = $derived(canDesignRoom(isHost));

@@ -1,5 +1,5 @@
 import { untrack } from 'svelte';
-import type { RealtimeChannel } from '@supabase/supabase-js';
+import { REALTIME_SUBSCRIBE_STATES, type RealtimeChannel } from '@supabase/supabase-js';
 import type { EphemeralMessage, Mutation, RoomState } from '$lib/model/types';
 import type { RoomStore } from './room-store';
 import { StoreRejection } from '$lib/model/types';
@@ -11,6 +11,8 @@ import { supabaseBrowser } from '$lib/auth/browser-client';
 /** Wire shapes, parsed at the boundary — `as` is banned, and rightly here. */
 const z_envelope = z.object({ version: z.number(), state: z.unknown() });
 const z_version = z.object({ version: z.number(), by: z.string().nullish() });
+/** What a tab announces about itself. Parsed like any other peer message. */
+const z_presence = z.object({ actor: z.string() });
 const z_ok = z.object({ version: z.number() });
 const z_error = z.object({ message: z.string() });
 import { docFromEncoded, mergeEncoded, noteText } from '$lib/model/ydoc';
@@ -93,6 +95,22 @@ export class SupabaseRoomStore implements RoomStore {
 	 * Mirrored onto the document by the room page, next to `data-hydrated`.
 	 */
 	pending = $state(0);
+	/**
+	 * Who is actually CONNECTED right now, by actor id.
+	 *
+	 * Distinct from `state.participants`, which is a row that outlives the tab
+	 * that wrote it. A participant row says "this person joined"; presence says
+	 * "this person is here", and the difference is a closed laptop.
+	 *
+	 * Two things need it. AR-CTRL-3's >=2-present rule wants people PRESENT, not
+	 * rows — a room with fifty rows and one live tab is a lone occupant. And a
+	 * holder who vanishes has to be reaped, or at `max_av = 1` their slot is the
+	 * conch and the room is silent until someone restarts it.
+	 */
+	present = $state<string[]>([]);
+	// Subscription plumbing, never rendered — same reason as `handlers` above.
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- see above
+	private readonly leaveHandlers = new Set<(actorId: string) => void>();
 	/**
 	 * Applied locally, not yet confirmed by the server.
 	 *
@@ -247,8 +265,60 @@ export class SupabaseRoomStore implements RoomStore {
 			for (const handler of this.handlers) handler(parsed.data);
 		});
 
-		void channel.subscribe();
+		/*
+		 * Presence (AR-CTRL-3, and the ghost-holder fix).
+		 *
+		 * Realtime already knows when a socket drops — that is what a WebSocket
+		 * is for — so liveness needs no heartbeat table and no polling. `sync`
+		 * carries the whole set, `leave` names who went.
+		 *
+		 * Keyed by ACTOR id, not by this tab's client id: two tabs of one person
+		 * are one present person, and reaping on the first tab's close would
+		 * take the slot from a person still sitting in the room.
+		 */
+		channel.on('presence', { event: 'sync' }, () => {
+			this.present = this.readPresence(channel);
+		});
+		channel.on('presence', { event: 'leave' }, () => {
+			// eslint-disable-next-line svelte/prefer-svelte-reactivity -- local, not state
+			const before = new Set(this.present);
+			const after = this.readPresence(channel);
+			this.present = after;
+			// Announce only actors with NO remaining tab, which is what `after`
+			// already accounts for.
+			for (const actorId of before) {
+				if (after.includes(actorId)) continue;
+				for (const handler of this.leaveHandlers) handler(actorId);
+			}
+		});
+
+		void channel.subscribe((status) => {
+			// Announce ourselves only once the channel is actually joined —
+			// tracking before that is dropped, and this tab would then be absent
+			// from its own presence set.
+			if (status !== REALTIME_SUBSCRIBE_STATES.SUBSCRIBED || this.actorId === '') return;
+			void channel.track({ actor: this.actorId });
+		});
 		this.channel = channel;
+	}
+
+	/** The distinct actors currently on the channel, however many tabs each has. */
+	private readPresence(channel: RealtimeChannel): string[] {
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- local, not state
+		const seen = new Set<string>();
+		for (const entries of Object.values(channel.presenceState())) {
+			for (const entry of entries) {
+				const parsed = z_presence.safeParse(entry);
+				if (parsed.success) seen.add(parsed.data.actor);
+			}
+		}
+		return [...seen];
+	}
+
+	/** Fires when an actor's LAST tab goes. Returns an unsubscriber. */
+	onPresenceLeave(handler: (actorId: string) => void): () => void {
+		this.leaveHandlers.add(handler);
+		return () => this.leaveHandlers.delete(handler);
 	}
 
 	/**
@@ -429,6 +499,8 @@ export class SupabaseRoomStore implements RoomStore {
 
 	dispose(): void {
 		this.closed = true;
+		this.present = [];
+		this.leaveHandlers.clear();
 		this.handlers.clear();
 		void this.channel?.unsubscribe();
 		this.channel = null;

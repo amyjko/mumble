@@ -202,6 +202,28 @@ export class MemoryRoomStore implements RoomStore {
 		return () => this.handlers.delete(handler);
 	}
 
+	/**
+	 * Presence, as far as the stub can honestly report it.
+	 *
+	 * This store syncs over BroadcastChannel and localStorage, neither of which
+	 * carries a connection: there is no socket to drop, so there is no moment at
+	 * which "they left" is known. It reports the one actor it is certain about
+	 * — itself — and never announces a leave.
+	 *
+	 * That is a real limitation, not a placeholder to fill in later. It is also
+	 * why the >=2-present rule and slot reaping cannot be exercised against the
+	 * stub, and why both are tested against the server-backed store.
+	 */
+	get present(): readonly string[] {
+		return this.actorId === '' ? [] : [this.actorId];
+	}
+
+	onPresenceLeave(): () => void {
+		// Nothing to observe; the unsubscriber is still real so callers need no
+		// special case.
+		return () => undefined;
+	}
+
 	dispose(): void {
 		this.closed = true;
 		this.channel?.close();
