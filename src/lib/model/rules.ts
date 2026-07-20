@@ -290,6 +290,30 @@ export function applyMutation(state: RoomState, m: Mutation, ctx: RuleContext): 
 			break;
 		}
 		case 'remove_participant': {
+			/*
+			 * Yourself, or a host removing someone (UX-PERM-3).
+			 *
+			 * This was UNGUARDED, and it is the most powerful mutation in the
+			 * union: it drops a participant AND releases both their slots. Any
+			 * admitted member could evict any other and take the conch.
+			 * Demonstrated end to end before this line existed — an ordinary
+			 * member posted it and the room went from
+			 * `holders=[victim] participants=2` to `holders=[] participants=1`.
+			 *
+			 * It had no callers, which is how it stayed unnoticed: the mutation
+			 * union is the seam's whole vocabulary, so an unused verb is still a
+			 * reachable one for anything that can POST.
+			 *
+			 * Both cases are real. Self is a person leaving, which is how a
+			 * departing client frees its own slot. Host is moderation, and the
+			 * reaping of someone whose tab died.
+			 */
+			if (m.id !== ctx.actorId && !ctx.isHost) {
+				throw new StoreRejection(
+					'permission',
+					'Only a host can remove someone else from the room'
+				);
+			}
 			state.participants = omitKey(state.participants, m.id);
 			// Leaving releases both slots and drops you from the queue
 			// (UX-STAGE-4) — a queue holding absent people hands slots to

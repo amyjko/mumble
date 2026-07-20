@@ -28,7 +28,8 @@ const secret = process.env['SUPABASE_SECRET_KEY'] ?? '';
  * noticed I was testing against a degraded stack rather than my changes.
  */
 let admin: SupabaseClient<Database> | null = null;
-function adminClient(): SupabaseClient<Database> {
+/** Exported so tests read the database through ONE typed, memoized client. */
+export function adminClient(): SupabaseClient<Database> {
 	if (admin === null) {
 		admin = createClient<Database>(url, secret, { auth: { autoRefreshToken: false, persistSession: false } });
 	}

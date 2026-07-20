@@ -865,6 +865,56 @@ describe('the stage, through the store (UX-STAGE, AR-CTRL-2)', () => {
 		expect(store.state.video_holders).toEqual([]);
 	});
 
+	it('removing SOMEONE ELSE is host-only', async () => {
+		/*
+		 * The most powerful verb in the union: it drops a participant AND
+		 * releases both their slots. It was unguarded, and an ordinary member
+		 * could evict anyone and take the conch — demonstrated end to end
+		 * against the live route before this was fixed.
+		 *
+		 * It had no callers, which is how it went unnoticed. The mutation union
+		 * is the whole vocabulary of the seam, so an unused verb is still a
+		 * reachable one for anything that can POST.
+		 */
+		const store = makeStore(`r${String(Math.random())}`, BOB, false);
+		await join(store, BOB);
+		await store.commit({ kind: 'upsert_participant', participant: person(ALICE) });
+
+		await expect(store.commit({ kind: 'remove_participant', id: ALICE })).rejects.toThrow(
+			/Only a host can remove someone else/
+		);
+		expect(store.state.participants[ALICE]).toBeDefined();
+	});
+
+	it('but leaving on your own account is always allowed', async () => {
+		// A person leaving is the ordinary case, and it is how a departing
+		// client frees its own slot.
+		// A NON-host, deliberately: leaving must not require a role. The default
+		// capacity already has video slots, and setting capacity is host-only.
+		const store = makeStore(`r${String(Math.random())}`, BOB, false);
+		await join(store, BOB);
+		await store.commit({ kind: 'take_slot', id: BOB, media: 'video' });
+		expect(store.state.video_holders).toEqual([BOB]);
+
+		await store.commit({ kind: 'remove_participant', id: BOB });
+		expect(store.state.participants[BOB]).toBeUndefined();
+		expect(store.state.video_holders).toEqual([]);
+	});
+
+	it('a host may remove someone, which is what reaps a dead tab', async () => {
+		const store = makeStore(`r${String(Math.random())}`, ALICE, true);
+		await join(store, ALICE);
+		await store.commit({ kind: 'upsert_participant', participant: person(BOB) });
+		// GRANTED rather than taken: a slot is taken by its own holder, so the
+		// host puts Bob on the stage the only way a host can.
+		await store.commit({ kind: 'grant_slot', id: BOB, media: 'video' });
+		expect(store.state.video_holders).toContain(BOB);
+
+		await store.commit({ kind: 'remove_participant', id: BOB });
+		expect(store.state.participants[BOB]).toBeUndefined();
+		expect(store.state.video_holders).toEqual([]);
+	});
+
 	it('admission is refused once the room is full (UX-STAGE-11)', async () => {
 		const store = makeStore(`r${String(Math.random())}`, ALICE);
 		await store.commit({ kind: 'set_capacity', capacity: { max_participants: 1, max_av: 1, max_audio: 1 } });

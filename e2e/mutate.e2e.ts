@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { roomName } from './support/join';
-import { hostRoom, signInAsAccount, testEmail } from './support/auth';
+import { roomName, joinRoom, settled } from './support/join';
+import { adminClient, createRoomDirectly, hostRoom, signInAsAccount, testEmail } from './support/auth';
 
 /**
  * The control plane's write path (AR-SYNC-3, AR-CTRL-1).
@@ -116,4 +116,52 @@ test('the SERVER enforces host-only settings, not just the UI', async ({ page })
 		data: { kind: 'set_capacity', capacity: { max_participants: 99, max_av: 9, max_audio: 9 } }
 	});
 	expect(asGuest.status()).toBe(403);
+});
+
+test('a member cannot evict another member, or take their slot (UX-PERM-3)', async ({ browser }) => {
+	/*
+	 * `remove_participant` drops a participant AND releases both their slots,
+	 * and it was UNGUARDED — any admitted member could evict anyone and take
+	 * the conch. Measured against this route before the fix: the room went from
+	 * `holders=[victim] participants=2` to `holders=[] participants=1`.
+	 *
+	 * It had no callers in the app, which is how it went unnoticed. The
+	 * mutation union is the whole vocabulary of the seam, so an unused verb is
+	 * still a reachable one for anything that can POST — which is exactly why
+	 * this test drives the ROUTE rather than the store.
+	 */
+	const room = roomName('evict');
+	const roomId = await createRoomDirectly(room);
+
+	const admin = adminClient();
+
+	const victimCtx = await browser.newContext();
+	const attackerCtx = await browser.newContext();
+	const victim = await victimCtx.newPage();
+	const attacker = await attackerCtx.newPage();
+
+	await joinRoom(victim, room, 'Victim');
+	await settled(victim);
+
+	// The victim's REAL participant id, from the database rather than the
+	// browser — the two are not the same thing.
+	const rows = await admin.from('room_participants').select('id').eq('room_id', roomId);
+	const victimId = rows.data?.[0]?.id ?? '';
+	expect(victimId).not.toBe('');
+
+	await joinRoom(attacker, room, 'Attacker');
+	await settled(attacker);
+
+	const response = await attacker.request.post(`/api/rooms/${room}/mutate`, {
+		data: { kind: 'remove_participant', id: victimId }
+	});
+	expect(response.status()).toBe(403);
+
+	// And nothing moved: the victim is still present, still holding nothing
+	// that was taken from them.
+	const after = await admin.from('room_participants').select('id').eq('room_id', roomId);
+	expect(after.data?.map((r) => r.id)).toContain(victimId);
+
+	await victimCtx.close();
+	await attackerCtx.close();
 });
