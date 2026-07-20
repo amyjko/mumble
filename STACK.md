@@ -265,7 +265,7 @@ Total Upload: 1188.83 KiB / gzip: 234.49 KiB
 
 **234 KiB against a 3 MB cap — 7.6% of budget, ~13x headroom.** The bundle is not a risk. Svelte's docs warn about oversized workers and advise pushing large libraries client-side; at this scale that advice doesn't bind. AR-DEPLOY-3 stays anyway, as a ratchet: the number only matters if it's watched.
 
-Both endpoints then served **HTTP 200 under real workerd** via `wrangler dev` — SSR through `hooks.server.ts`, and `POST /api/token` through `supabase-js`. **Notably with `nodejs_als` only, not `nodejs_compat`** (see §7).
+Both endpoints then served **HTTP 200 under real workerd** via `wrangler dev` — SSR through `hooks.server.ts`, and `POST /api/token` through `supabase-js`. (That route was a stub and is now `/api/rooms/[room]/media/session`, the publish gate; the finding about `nodejs_als` is unaffected.) **Notably with `nodejs_als` only, not `nodejs_compat`** (see §7).
 
 **Still to measure: SSR CPU-ms against the 10 ms cap.** The spike didn't measure it — a hello-world page proves nothing about our real SSR. Mumble is client-heavy (the canvas isn't server-rendered) so it *should* be thin, but "should be" is not a measurement. Wire it into CI alongside the bundle check when there's a real page to measure.
 

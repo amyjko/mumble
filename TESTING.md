@@ -52,7 +52,7 @@ Postgres, PostgREST (`/rest/v1` → 200), Auth (`/auth/v1/health` → 200) and M
 
 **Verified with the network actually down (2026-07-17).** `pnpm run preview` (i.e. `wrangler dev` in workerd) was run with Wi-Fi off and served a full server-side-rendered page — real SSR markup, not a cached shell — at `GET /`. This was the one part the proxy trick couldn't reach: wrangler is Node, and Node's `fetch`/undici **ignores `HTTP_PROXY` by default** (unlike the Go-based Supabase CLI, where the proxy does bind), so an earlier proxy attempt was vacuous. A genuine network-off run settles it: **workerd starts and serves offline once the worker is built.** AR-TEST-2 holds for the runtime layer.
 
-> **One combination still not exercised end-to-end:** `supabase start` *and* `wrangler dev` running offline *simultaneously*, with `POST /api/token` returning `"db":"reachable"`. Each half is independently verified — the CLI doesn't block on network (proxy test, 2026-07-16) and workerd serves offline (this run) — and the DB path is pure loopback, so there's no plausible failure mode left. Not worth a special trip; fold it into the first real offline dev session and record the `/api/token` body here if you think of it.
+> **One combination still not exercised end-to-end:** `supabase start` *and* `wrangler dev` running offline *simultaneously*, with a worker route reaching the local stack. (`POST /api/token` was that route; it was a stub, and became the real publish gate at `/api/rooms/[room]/media/session`, which needs a session and so is no longer a one-line smoke check. `GET /api/media/key` is the unauthenticated stand-in.) Each half is independently verified — the CLI doesn't block on network (proxy test, 2026-07-16) and workerd serves offline (this run) — and the DB path is pure loopback, so there's no plausible failure mode left. Not worth a special trip; fold it into the first real offline dev session and record the `/api/token` body here if you think of it.
 
 **Reproducing it** (the environment is already set up):
 
@@ -63,7 +63,7 @@ pnpm run build               # ONLINE first — the build fetches; it is not wha
 supabase start                                                    # comes up on loopback
 pnpm run preview                                                  # workerd on :4173
 curl -s localhost:4173/ -o /dev/null -w '%{http_code}\n'          # 200 (SSR page) ✓ verified offline
-curl -s -XPOST localhost:4173/api/token | head -c 120             # JSON 200; note db reachable/unreachable
+curl -s localhost:4173/api/media/key | head -c 120                # JSON 200; the worker's key path
 ```
 
 ### config.toml
