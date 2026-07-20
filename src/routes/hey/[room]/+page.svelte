@@ -27,6 +27,18 @@
 	let identity = $state<StoredIdentity | null>(loadIdentity());
 	/** Held from the join prompt until the join RPC can carry it (UX-ID-2). */
 	let hello = $state('');
+	/*
+	 * Bumped once the guest's profile has been written, to re-run the join
+	 * effect and knock AGAIN — this time with a name the host can read.
+	 *
+	 * A counter rather than tracking `hello`, because `hello` only changes when
+	 * the guest actually types a note. Someone who gives a name and skips the
+	 * optional hello leaves it `''`, which is no change, so the effect never
+	 * re-ran and the host's door list said "Someone" until they closed and
+	 * reopened the panel. The existing admission test fills the hello field,
+	 * which is exactly why it never noticed.
+	 */
+	let knocks = $state(0);
 
 	/**
 	 * Membership resolves asynchronously: an anonymous session is created, then
@@ -190,6 +202,8 @@
 
 	$effect(() => {
 		const room = data.room;
+		// Tracked purely to re-knock once the profile exists; see `knocks`.
+		void knocks;
 		/*
 		 * `hello` is TRACKED, `identity` is not, and the asymmetry is the point.
 		 *
@@ -249,7 +263,6 @@
 	<JoinPrompt
 		asks={data.asksAdmission}
 		onjoin={(joined: StoredIdentity, message: string) => {
-			hello = message;
 			// The id the server will check, not the one the prompt invented.
 			const chosen = { ...joined, id: authId !== '' ? authId : joined.id };
 			identity = chosen;
@@ -263,7 +276,23 @@
 			// effect runs on mount, before a first-time visitor has answered this
 			// prompt — so it sees no local identity, seeds nothing, and the name
 			// they just chose would never leave this browser.
-			void saveMyProfile(supabaseBrowser(), { name: joined.name, emoji: joined.emoji });
+			//
+			// `hello` is set only once this RESOLVES, and the ordering is the
+			// point. Setting it earlier re-runs the join effect and knocks
+			// immediately, which is a race the host loses: the knock tells them
+			// to re-read, they re-read before this profile row exists, and the
+			// list renders "Someone" — permanently, because nothing re-reads
+			// again until they close and reopen the panel. That is the exact
+			// failure the door channel exists to prevent, and it survived because
+			// the admission test reopens the panel before looking.
+			void saveMyProfile(supabaseBrowser(), { name: joined.name, emoji: joined.emoji })
+				// `finally`, not `then`: a profile write that fails must still let
+				// them knock. A host seeing "Someone" at the door beats a guest who
+				// never appears at all.
+				.finally(() => {
+					hello = message;
+					knocks += 1;
+				});
 		}}
 	/>
 {:else if status !== 'admitted'}

@@ -63,6 +63,51 @@ test('a guest waits until a host admits them (UX-ID-3)', async ({ browser }) => 
 	await guestCtx.close();
 });
 
+test('a host hears a knock without reopening anything (UX-ID-3)', async ({ browser }) => {
+	/*
+	 * The door channel had NO test, which is how it came to depend on a policy
+	 * hole without anyone noticing.
+	 *
+	 * The admission test above reopens the settings panel before looking, so it
+	 * passes whether or not `door:<room>` delivers anything — it exercises the
+	 * re-read, not the announcement. But knock_notify.sql exists precisely
+	 * because "invisible until a host happens to reopen the panel" is the
+	 * failure that makes a door worse than no door.
+	 *
+	 * So: the host opens the panel FIRST and never touches it again. Anything
+	 * that appears, appeared because the database said so.
+	 */
+	const room = roomName('knock');
+	const hostCtx = await browser.newContext();
+	const guestCtx = await browser.newContext();
+	const host = await hostCtx.newPage();
+	const guest = await guestCtx.newPage();
+
+	await hostRoom(host, room);
+	await host.getByRole('button', { name: room }).click();
+	await host.getByRole('button', { name: 'ask first' }).click();
+	await settled(host);
+
+	// The panel is open and stays open. The door section does not exist at all
+	// while nobody is waiting — it renders only when there is somebody there.
+	await expect(host.getByText(/At the door/)).toHaveCount(0);
+
+	await guest.goto(`/hey/${room}`);
+	await guest.getByRole('textbox', { name: 'Your name' }).fill('Grace');
+	await guest.getByRole('button', { name: 'Ask to join' }).click();
+	await expect(guest.getByRole('heading', { name: 'Waiting to be let in' })).toBeVisible();
+
+	// No reload, no reopen, no click of any kind on the host's side.
+	await expect(host.getByText('At the door (1)')).toBeVisible({ timeout: SYNC });
+	// The NAME, not just the count. A host deciding whether to admit somebody
+	// needs to know who they are; "Someone" is what this rendered before the
+	// knock was ordered after the profile write.
+	await expect(host.getByText('Grace')).toBeVisible({ timeout: SYNC });
+
+	await hostCtx.close();
+	await guestCtx.close();
+});
+
 test('a declined guest is told, and reloading does not let them in', async ({ browser }) => {
 	const room = roomName('decline');
 	const hostCtx = await browser.newContext();
