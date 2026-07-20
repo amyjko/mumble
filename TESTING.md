@@ -2,7 +2,7 @@
 
 How the requirements in [DESIGN.md](DESIGN.md) §22 (AR-TEST-1..10) are actually carried out. This document holds the volatile part — versions, config, commands, and the reasoning behind each rule — so that DESIGN.md can hold the stable claims. Expect this file to churn; that is its job.
 
-Every version and external claim here was verified against primary sources on **2026-07-16**. See [Versions](#versions) for the re-verification protocol.
+Every version and external claim here was verified against primary sources on **2026-07-16**, except the relay layer (§3, §4), added and verified **2026-07-20**. See [Versions](#versions) for the re-verification protocol.
 
 ---
 
@@ -159,6 +159,15 @@ is not: a contributor without the dependency running should not meet a wall of r
 they cannot act on. CI runs it as its own named step so it cannot quietly never
 run — which it did, once, against Debian's own TURN service, and failed with an
 assertion two layers from the cause.
+
+It is not in the composite `pnpm test` either, and that is worth stating
+outright because §3 presents nine co-equal layers and a reader who ran `pnpm
+test` would reasonably believe they had run all of them. They have not: `pnpm
+test` is unit + RLS + integration + E2E. The relay layer is one command away
+(`pnpm run coturn && pnpm run test:relay`) and CI runs it on every build, so it
+cannot rot — but locally it is opt-in, because a TURN server is a heavier
+dependency than the rest and a contributor should be able to get a green run
+without one.
 
 ```bash
 npx sv add vitest playwright
