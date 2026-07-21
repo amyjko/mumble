@@ -81,31 +81,65 @@ export async function closeIntervals(
  * Returns null when it cannot be read at all, and every caller treats that as
  * "do not stand in anyone's way" — see `roomHasTime`.
  */
-export interface RoomBudget {
+export interface Budget {
 	usedSeconds: number;
 	capSeconds: number;
 	/** ISO timestamp: when the counter next returns to zero. */
 	resetsAt: string;
 }
 
-export async function roomBudget(
+/**
+ * One account's budget, rolled.
+ *
+ * THE single roll-and-read in the system: the room readout, the join gate and
+ * the account page all arrive here. That is worth stating plainly, because the
+ * three of them describing one number is exactly the arrangement where two
+ * copies of "is there time left" would drift apart unnoticed — one of them
+ * refusing people while another shows hours remaining.
+ */
+export async function accountBudget(
 	db: SupabaseClient<Database>,
-	roomId: string
-): Promise<RoomBudget | null> {
-	const room = await db.from('rooms').select('owner_id').eq('id', roomId).maybeSingle();
-	if (room.data === null) return null;
-
+	accountId: string
+): Promise<Budget | null> {
 	// No `.maybeSingle()`: `roll_account` returns accounts%rowtype, so the RPC
 	// already yields one row rather than a set. Asking for single on top of that
 	// asks PostgREST to unwrap something that was never wrapped.
-	const account = await db.rpc('roll_account', { p_account: room.data.owner_id });
+	const account = await db.rpc('roll_account', { p_account: accountId });
 	if (account.error !== null) return null;
+
+	/*
+	 * No null check on `data`, and it is worth saying why rather than leaving it
+	 * to be "fixed" later. `roll_account` would return NULL for an account that
+	 * does not exist, but every caller reaches here with an id that must have
+	 * one: either a verified JWT's `sub`, or `rooms.owner_id`, which is a NOT
+	 * NULL foreign key to `auth.users` — and a trigger creates the account row
+	 * for every user. The generated types agree it is non-null, so a guard here
+	 * is code the linter rejects as unreachable AND that would only mask a
+	 * broken trigger.
+	 */
 
 	return {
 		usedSeconds: account.data.weekly_seconds_used,
 		capSeconds: account.data.weekly_cap_seconds,
 		resetsAt: account.data.week_resets_at
 	};
+}
+
+/**
+ * A room's budget, which is its OWNER's account (UX-ID-4).
+ *
+ * Resolving the owner is the only thing this adds. Every room one person runs
+ * returns the SAME numbers from here, because they share one account — the
+ * shared-budget fact `ledger.integration.spec.ts` pins, and the one the copy
+ * has to be careful not to contradict.
+ */
+export async function roomBudget(
+	db: SupabaseClient<Database>,
+	roomId: string
+): Promise<Budget | null> {
+	const room = await db.from('rooms').select('owner_id').eq('id', roomId).maybeSingle();
+	if (room.data === null) return null;
+	return accountBudget(db, room.data.owner_id);
 }
 
 /**

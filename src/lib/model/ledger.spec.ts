@@ -3,6 +3,7 @@ import {
 	beatSeconds,
 	budgetReadout,
 	BUDGET_WARNING_SECONDS,
+	formatDuration,
 	isExhausted,
 	STALE_AFTER_SECONDS
 } from './ledger';
@@ -71,6 +72,30 @@ describe('isExhausted', () => {
 	it('allows a budget with time left', () => {
 		expect(isExhausted(35999, 36000)).toBe(false);
 		expect(isExhausted(0, 36000)).toBe(false);
+	});
+});
+
+/**
+ * One rounding rule, shared by the room footnote and the account page
+ * (UX-ID-10). Two surfaces showing one budget must not disagree about it, and
+ * they would the first time somebody wrote `Math.round` in a template.
+ */
+describe('formatDuration', () => {
+	it('reads in hours at an hour and above, minutes below', () => {
+		expect(formatDuration(10 * 3600)).toBe('10h');
+		expect(formatDuration(3600)).toBe('1h');
+		expect(formatDuration(3599)).toBe('59m');
+		expect(formatDuration(60)).toBe('1m');
+	});
+
+	it('always rounds DOWN, so a duration is a floor and not a hope', () => {
+		expect(formatDuration(3 * 3600 - 60)).toBe('2h');
+		expect(formatDuration(119)).toBe('1m');
+		expect(formatDuration(59)).toBe('0m');
+	});
+
+	it('never reports a negative duration', () => {
+		expect(formatDuration(-600)).toBe('0m');
 	});
 });
 

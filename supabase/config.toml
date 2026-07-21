@@ -248,6 +248,20 @@ web3 = 30
 enable_signup = true
 # If enabled, a user will be required to confirm any email change on both the old, and new email
 # addresses. If disabled, only the new email is required to confirm.
+#
+# MEASURED 2026-07-20, and it does NOT do what this comment says while
+# `enable_confirmations` is false below. Both addresses are mailed — so the
+# current one is always told a change was requested — but following the link in
+# EITHER completes the change on its own; an E2E test that followed only one
+# proved it, in both directions. The account page's copy says "either" because
+# of this, and said "both" until the test contradicted it.
+#
+# The consequence: someone with a live session can move an account to their own
+# address, and the owner is notified rather than asked. Turning
+# `enable_confirmations` on would restore the two-sided requirement but changes
+# the SIGN-UP path too (a first sign-in at an unknown address would get a
+# confirm-signup mail instead of a magic link), which is why it is an open item
+# in DESIGN.md rather than a flag flipped in passing.
 double_confirm_changes = true
 # If enabled, users need to confirm their email address before signing in.
 enable_confirmations = false
