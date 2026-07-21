@@ -97,7 +97,7 @@ test('the SERVER enforces host-only settings, not just the UI', async ({ page })
 	// As a guest who has joined the same room: refused, by the rule engine
 	// running on the server with an identity the server verified.
 	await page.context().clearCookies();
-	await page.goto(`/hey/${room}`);
+	await page.goto(`/${room}`);
 	const nameField = page.getByRole('textbox', { name: 'Your name' });
 	if (await nameField.isVisible().catch(() => false)) {
 		await nameField.fill('Guest');

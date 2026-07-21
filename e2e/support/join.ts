@@ -25,7 +25,7 @@ export async function joinRoom(page: Page, room: string, name = 'Tester'): Promi
 	// call it for the same room.
 	await createRoomDirectly(room);
 
-	await page.goto(`/hey/${room}`);
+	await page.goto(`/${room}`);
 
 	const nameField = page.getByRole('textbox', { name: 'Your name' });
 	const canvas = page.getByRole('application', { name: 'Room canvas' });

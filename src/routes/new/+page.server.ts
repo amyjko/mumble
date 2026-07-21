@@ -96,6 +96,6 @@ export const actions: Actions = {
 		}
 
 		await seedRoom(created.id, claims.sub);
-		redirect(303, `/hey/${name}`);
+		redirect(303, `/${name}`);
 	}
 };

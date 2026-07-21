@@ -17,6 +17,13 @@ import { roomBudgetResetsAt, roomHasTime } from '$lib/server/ledger';
  * side — when both loads exist, the page receives the UNIVERSAL one's return
  * value, so +page.ts has to forward `roomId` explicitly or it silently vanishes.
  *
+ * Since rooms moved to the root (2026-07-21) this load is also the service's
+ * catch-all: EVERY unmatched top-level path arrives here, including the steady
+ * drizzle of `/wp-login.php` and `/.well-known/...` that any public host gets.
+ * `isValidRoomName` running first is what keeps that cheap — a name with a dot,
+ * a slash, or the wrong length is refused before any database round trip, so
+ * only a well-shaped unknown name costs a query.
+ *
  * Read with the admin client on purpose. RLS hides a room from anyone who is
  * not yet a member, which is every first-time joiner following an invite link —
  * checking as the visitor would 404 exactly the people the link is for. Room

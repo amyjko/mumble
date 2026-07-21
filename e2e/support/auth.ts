@@ -154,7 +154,7 @@ export async function hostRoom(page: Page, room: string, name = 'Host'): Promise
 	// The insert trigger makes the owner the room's first host, so this is a
 	// real host session and not a fixture pretending to be one.
 	await createRoomDirectly(room, ownerId);
-	await page.goto(`/hey/${room}`);
+	await page.goto(`/${room}`);
 	await enterAsHost(page, name);
 }
 
@@ -169,7 +169,7 @@ export async function hostFurnishedRoom(page: Page, room: string, name = 'Host')
 	await page.goto('/new');
 	await page.getByRole('textbox', { name: 'Room name' }).fill(room);
 	await page.getByRole('button', { name: 'go' }).click();
-	await page.waitForURL(new RegExp(`/hey/${room}$`));
+	await page.waitForURL(new RegExp(`/${room}$`));
 	await enterAsHost(page, name);
 }
 

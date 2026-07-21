@@ -16,26 +16,103 @@ const PATTERN = /^[a-z0-9_-]{2,32}$/;
 /**
  * Names that may not be claimed.
  *
- * UX-ROOM-9 notes this list only has to cover names used directly under
- * `/hey/` — because rooms live under that prefix, no room name can ever
- * collide with a top-level route like `/login` or `/api`. That containment is
- * the whole reason to keep the prefix, so the list stays genuinely small:
- * words we may want under /hey/ later, plus a few that would be actively
- * confusing to hand out.
+ * This list used to be short, and said so: rooms lived under `/hey/`, so a room
+ * name could not collide with a top-level route however hard it tried, and the
+ * list only had to cover names we might want under the prefix itself. Rooms
+ * moved to the root on 2026-07-21 (UX-ROOM-9), which inverts the argument
+ * exactly. Nothing separates a room name from a route name any more, so the
+ * list is deliberately OVER-broad — reserving a word costs one name nobody has
+ * asked for, while failing to reserve one costs a route we cannot ship without
+ * evicting someone from an address they have been reading aloud for a year.
+ *
+ * Routing itself does not depend on this: SvelteKit sorts static segments ahead
+ * of dynamic ones, so `/login` beats `/[room]` whether or not `login` is here.
+ * What the list buys is the FUTURE route — the one that does not exist yet, and
+ * so cannot win anything.
+ *
+ * Grouped by why each name is spoken for; the SQL mirror in
+ * supabase/migrations/20260721000001_reserve_root_names.sql keeps the same
+ * grouping, and a test proves the two agree.
  */
 export const RESERVED_NAMES: readonly string[] = [
-	'new',
-	'admin',
+	// Live routes and their obvious aliases.
+	'account',
 	'api',
-	'about',
-	'help',
-	'support',
-	'settings',
+	'auth',
 	'login',
 	'logout',
+	'new',
+	'oauth',
+	'signin',
+	'signout',
 	'signup',
-	'account',
+	// Served from static/ or by convention, before any route is consulted.
+	'assets',
+	'cdn',
+	'favicon',
+	'fonts',
+	'img',
+	'robots',
+	'rss',
+	'static',
+	'well-known',
+	// The marketing and support surface a product this age grows next.
+	'about',
+	'blog',
+	'careers',
+	'changelog',
+	'contact',
+	'demo',
+	'desktop',
+	'docs',
+	'download',
+	'enterprise',
+	'faq',
+	'feed',
+	'help',
+	'home',
+	'news',
+	'pricing',
+	'security',
+	'status',
+	'support',
+	'team',
+	// Money and account management (UX-ECON).
+	'billing',
+	'dashboard',
+	'pro',
+	'settings',
+	'upgrade',
+	// Legal.
+	'cookies',
+	'legal',
+	'privacy',
+	'terms',
+	// The product's own vocabulary — DESIGN.md's nouns, which would read as
+	// documentation rather than as somebody's standup.
+	'house',
+	'houses',
+	'mumble',
+	'room',
+	'rooms',
+	'studio',
+	// The address scheme rooms used to live under; a room AT /hey would be a
+	// confusing echo of the prefix this change retired.
+	'hey',
+	// Anything that would be actively confusing, ambiguous, or a footgun to
+	// hand out as an address.
+	'admin',
+	'embed',
+	'explore',
+	'invite',
+	'join',
 	'me',
+	'profile',
+	'public',
+	'search',
+	'user',
+	'users',
+	'ws',
 	'you',
 	'null',
 	'undefined'

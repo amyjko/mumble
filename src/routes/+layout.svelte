@@ -35,7 +35,11 @@
 <!--
 	A room carries the theme control inside its own bottom toolbar, so the
 	floating one would be a second copy of the same control two inches away.
+
+	An equality test rather than a prefix one, because rooms now sit AT the root:
+	`/[room]` is the whole route id, and a prefix test against `/` would suppress
+	the toggle on every page in the service.
 -->
-{#if !(page.route.id ?? '').startsWith('/hey/')}
+{#if page.route.id !== '/[room]'}
 	<ThemeToggle />
 {/if}

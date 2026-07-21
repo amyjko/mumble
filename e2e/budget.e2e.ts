@@ -37,7 +37,7 @@ test('a room out of time refuses a guest, and says when it opens again (UX-ECON-
 	await createRoomDirectly(room);
 	await setCap(await ownerOf(room), 0);
 
-	await page.goto(`/hey/${room}`);
+	await page.goto(`/${room}`);
 
 	// The refusal comes BEFORE the join prompt: being asked to choose a name and
 	// an avatar and only then turned away is the worse order, and the answer does

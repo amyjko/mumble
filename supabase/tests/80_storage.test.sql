@@ -22,11 +22,11 @@ values
 -- Host creates the room (and becomes its first admitted member by trigger);
 -- a second user is added as an admitted participant.
 select tests.auth_as('aaaaaaaa-0000-4000-8000-000000000001'::uuid);
-insert into rooms (name, owner_id) values ('demo', 'aaaaaaaa-0000-4000-8000-000000000001');
+insert into rooms (name, owner_id) values ('lci', 'aaaaaaaa-0000-4000-8000-000000000001');
 
 set local role postgres;
 insert into room_members (room_id, identity_id, role)
-	values ((select id from rooms where name = 'demo'), 'bbbbbbbb-0000-4000-8000-000000000002', 'participant');
+	values ((select id from rooms where name = 'lci'), 'bbbbbbbb-0000-4000-8000-000000000002', 'participant');
 
 -- The bucket exists, created by the migration rather than by any client.
 select isnt_empty(
@@ -37,7 +37,7 @@ select isnt_empty(
 select tests.auth_as('bbbbbbbb-0000-4000-8000-000000000002'::uuid);
 select lives_ok(
 	$$insert into storage.objects (bucket_id, name, owner)
-	  select 'room-images', (select id from rooms where name = 'demo') || '/pic.png', auth.uid()$$,
+	  select 'room-images', (select id from rooms where name = 'lci') || '/pic.png', auth.uid()$$,
 	'an admitted member can upload an image under their room prefix');
 
 -- ...and read it back.
@@ -50,7 +50,7 @@ select is(
 select tests.auth_as('cccccccc-0000-4000-8000-000000000003'::uuid);
 select throws_ok(
 	$$insert into storage.objects (bucket_id, name, owner)
-	  select 'room-images', (select id from rooms where name = 'demo') || '/sneaky.png', auth.uid()$$,
+	  select 'room-images', (select id from rooms where name = 'lci') || '/sneaky.png', auth.uid()$$,
 	'42501', null, 'a non-member cannot upload into a room they are not in');
 select is_empty(
 	$$select 1 from storage.objects where bucket_id = 'room-images'$$,

@@ -21,13 +21,37 @@ test('a reserved name is not a room', async ({ page }) => {
 	// +page.server.ts started resolving the room against Postgres: `ssr = false`
 	// disables server RENDERING, not server `load`, so the 404 is a real server
 	// 404 now. The assertion is unchanged and still the right one.
-	await page.goto('/hey/admin');
+	await page.goto('/admin');
 	await expect(page.getByText('No such room')).toBeVisible();
 });
 
 test('a malformed name is refused the same way', async ({ page }) => {
-	await page.goto('/hey/a');
+	await page.goto('/a');
 	await expect(page.getByText('No such room')).toBeVisible();
+});
+
+test('a reserved name that is a live route still resolves as that route', async ({ page }) => {
+	// The collision the whole reservation scheme exists to prevent, and it only
+	// became possible to have on 2026-07-21, when rooms moved from `/hey/<name>`
+	// to the bare root. Nothing separates a room name from a route name now.
+	//
+	// SvelteKit sorts static segments ahead of dynamic ones, so `/login` should
+	// beat `/[room]` — but "should" is doing real work in that sentence, and the
+	// failure would be silent in the worst way: the sign-in page quietly
+	// becoming a 404 for a room nobody made. So it is asserted, on the two
+	// top-level routes an unauthenticated stranger can actually reach.
+	//
+	// `/new` is asserted on the SIGN-IN heading on purpose: its guard sends an
+	// anonymous visitor to `/login?next=/new` (AR-AUTH-7). Landing there is
+	// still proof the route ran — a room 404 has no redirect in it.
+	for (const [route, heading] of [
+		['/login', 'Sign in'],
+		['/new', 'Sign in']
+	] as const) {
+		await page.goto(route);
+		await expect(page.getByText('No such room')).toHaveCount(0);
+		await expect(page.getByRole('heading', { name: heading })).toBeVisible();
+	}
 });
 
 test('a well-formed name still resolves', async ({ page }) => {
@@ -67,7 +91,7 @@ test('case-insensitive: an upper-case name reaches the lower-case room', async (
 	await page.goto('/new');
 	await page.getByRole('textbox', { name: 'Room name' }).fill(room.toUpperCase());
 	await page.getByRole('button', { name: 'go' }).click();
-	await expect(page).toHaveURL(new RegExp(`/hey/${room}$`));
+	await expect(page).toHaveURL(new RegExp(`/${room}$`));
 });
 
 test('rename warns that existing links will break (UX-ROOM-10)', async ({ page }) => {
@@ -98,16 +122,16 @@ test('rename warns that existing links will break (UX-ROOM-10)', async ({ page }
 	});
 	await rename.click();
 	expect(warned).toContain('lose access');
-	await expect(page).toHaveURL(new RegExp(`/hey/${room}$`));
+	await expect(page).toHaveURL(new RegExp(`/${room}$`));
 
 	// Accepting it goes through.
 	page.once('dialog', (dialog) => void dialog.accept());
 	await rename.click();
-	await expect(page).toHaveURL(new RegExp(`/hey/${target}$`));
+	await expect(page).toHaveURL(new RegExp(`/${target}$`));
 
 	// UX-ROOM-10's two remaining halves, and the reason the warning above is
 	// not scaremongering: the old URL genuinely stops resolving...
-	await page.goto(`/hey/${room}`);
+	await page.goto(`/${room}`);
 	await expect(page.getByText('No such room')).toBeVisible();
 
 	// ...and the freed name is immediately claimable by anyone, which is the
@@ -117,5 +141,5 @@ test('rename warns that existing links will break (UX-ROOM-10)', async ({ page }
 	await page.goto('/new');
 	await page.getByRole('textbox', { name: 'Room name' }).fill(room);
 	await page.getByRole('button', { name: 'go' }).click();
-	await expect(page).toHaveURL(new RegExp(`/hey/${room}$`));
+	await expect(page).toHaveURL(new RegExp(`/${room}$`));
 });

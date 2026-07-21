@@ -40,11 +40,11 @@ select is(
 -- Who pays (UX-ID-4)
 -- ---------------------------------------------------------------------------
 select tests.auth_as('aaaaaaaa-0000-4000-8000-000000000001'::uuid);
-insert into rooms (name, owner_id) values ('demo', 'aaaaaaaa-0000-4000-8000-000000000001');
+insert into rooms (name, owner_id) values ('lci', 'aaaaaaaa-0000-4000-8000-000000000001');
 
 set local role postgres;
-select public.meter_seconds((select id from rooms where name = 'demo'), 'bbbbbbbb-0000-4000-8000-000000000002', 15);
-select public.meter_seconds((select id from rooms where name = 'demo'), 'bbbbbbbb-0000-4000-8000-000000000002', 15);
+select public.meter_seconds((select id from rooms where name = 'lci'), 'bbbbbbbb-0000-4000-8000-000000000002', 15);
+select public.meter_seconds((select id from rooms where name = 'lci'), 'bbbbbbbb-0000-4000-8000-000000000002', 15);
 
 select is(
 	(select weekly_seconds_used from accounts where id = 'aaaaaaaa-0000-4000-8000-000000000001'),
@@ -63,29 +63,29 @@ select is(
 -- depends on which other suites ran before it is not measuring what it says.
 select is(
 	(select count(*) from usage_ledger
-	 where left_at is null and room_id = (select id from rooms where name = 'demo'))::int,
+	 where left_at is null and room_id = (select id from rooms where name = 'lci'))::int,
 	1, 'repeated beats extend ONE open ledger row rather than appending');
 select is(
 	(select seconds from usage_ledger
-	 where left_at is null and room_id = (select id from rooms where name = 'demo')),
+	 where left_at is null and room_id = (select id from rooms where name = 'lci')),
 	30, 'and that row carries the running total');
 
 -- Leaving closes the interval; coming back opens a new one rather than
 -- reviving the old, so the trail reads as two visits and not one long one.
-select public.close_ledger_rows((select id from rooms where name = 'demo'), array['bbbbbbbb-0000-4000-8000-000000000002']::uuid[]);
-select public.meter_seconds((select id from rooms where name = 'demo'), 'bbbbbbbb-0000-4000-8000-000000000002', 7);
+select public.close_ledger_rows((select id from rooms where name = 'lci'), array['bbbbbbbb-0000-4000-8000-000000000002']::uuid[]);
+select public.meter_seconds((select id from rooms where name = 'lci'), 'bbbbbbbb-0000-4000-8000-000000000002', 7);
 select is(
 	(select count(*) from usage_ledger
-	 where room_id = (select id from rooms where name = 'demo'))::int,
+	 where room_id = (select id from rooms where name = 'lci'))::int,
 	2, 'leaving and returning is two intervals, not one');
 select is(
 	(select sum(seconds)::int from usage_ledger
-	 where room_id = (select id from rooms where name = 'demo')),
+	 where room_id = (select id from rooms where name = 'lci')),
 	37, 'and no seconds are lost across the boundary');
 
 -- A nonsense credit changes nothing. Guards the clamp's edge: the heartbeat
 -- computes an elapsed time, and a clock that jumps backwards must not refund.
-select public.meter_seconds((select id from rooms where name = 'demo'), 'bbbbbbbb-0000-4000-8000-000000000002', -600);
+select public.meter_seconds((select id from rooms where name = 'lci'), 'bbbbbbbb-0000-4000-8000-000000000002', -600);
 select is(
 	(select weekly_seconds_used from accounts where id = 'aaaaaaaa-0000-4000-8000-000000000001'),
 	37, 'a negative credit is refused, so a backwards clock cannot refund time');

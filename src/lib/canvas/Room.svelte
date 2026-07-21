@@ -962,7 +962,7 @@
 				);
 				return;
 			}
-			await goto(resolve('/hey/[room]', { room: name }));
+			await goto(resolve('/[room]', { room: name }));
 		})();
 	}
 </script>

@@ -57,14 +57,14 @@ describe('starting a handshake', () => {
 
 	it('asks for the submitted provider, landing on the shared callback', async () => {
 		const { auth, calls } = willing();
-		await startOAuth('https://mumble.studio', '/hey/standup', 'google', auth);
+		await startOAuth('https://mumble.studio', '/standup', 'google', auth);
 		expect(calls).toEqual([
 			{
 				provider: 'google',
 				// The SAME route the magic link uses, because the `?code=` exchange
 				// OAuth needs already lived there. One callback, one place an open
 				// redirect could hide.
-				redirectTo: 'https://mumble.studio/auth/confirm?next=%2Fhey%2Fstandup'
+				redirectTo: 'https://mumble.studio/auth/confirm?next=%2Fstandup'
 			}
 		]);
 	});
@@ -73,9 +73,9 @@ describe('starting a handshake', () => {
 		// Unencoded, everything after the first `&` would be read as OUR parameter
 		// rather than part of `next`, and someone would land in the wrong place.
 		const { auth, calls } = willing();
-		await startOAuth('https://mumble.studio', '/hey/a?b=1&c=2', 'google', auth);
+		await startOAuth('https://mumble.studio', '/a?b=1&c=2', 'google', auth);
 		expect(calls[0]?.redirectTo).toBe(
-			'https://mumble.studio/auth/confirm?next=%2Fhey%2Fa%3Fb%3D1%26c%3D2'
+			'https://mumble.studio/auth/confirm?next=%2Fa%3Fb%3D1%26c%3D2'
 		);
 	});
 });

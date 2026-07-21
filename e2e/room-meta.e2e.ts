@@ -31,7 +31,7 @@ test('title syncs to peers; rename navigates and carries state', async ({ browse
 	// auto-dismisses dialogs, so the rename would silently not happen.
 	a.once('dialog', (dialog) => void dialog.accept());
 	await a.getByRole('button', { name: 'rename' }).click();
-	await expect(a).toHaveURL(new RegExp(`/hey/${newName}$`));
+	await expect(a).toHaveURL(new RegExp(`/${newName}$`));
 	await expect(a.locator('.frame')).toHaveCount(1); // state carried
 
 	await context.close();

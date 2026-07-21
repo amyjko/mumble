@@ -37,7 +37,7 @@ test('a guest waits until a host admits them (UX-ID-3)', async ({ browser }) => 
 	// The guest arrives and is held, with somewhere to wait rather than a blank
 	// page — which is what they would get if the branch were missing, since the
 	// canvas cannot load for them at all.
-	await guest.goto(`/hey/${room}`);
+	await guest.goto(`/${room}`);
 	await guest.getByRole('textbox', { name: 'Your name' }).fill('Ada');
 	await guest.getByRole('textbox', { name: 'Say hello (optional)' }).fill('here for the demo');
 	await guest.getByRole('button', { name: 'Ask to join' }).click();
@@ -92,7 +92,7 @@ test('a host hears a knock without reopening anything (UX-ID-3)', async ({ brows
 	// while nobody is waiting — it renders only when there is somebody there.
 	await expect(host.getByText(/At the door/)).toHaveCount(0);
 
-	await guest.goto(`/hey/${room}`);
+	await guest.goto(`/${room}`);
 	await guest.getByRole('textbox', { name: 'Your name' }).fill('Grace');
 	await guest.getByRole('button', { name: 'Ask to join' }).click();
 	await expect(guest.getByRole('heading', { name: 'Waiting to be let in' })).toBeVisible();
@@ -121,7 +121,7 @@ test('a declined guest is told, and reloading does not let them in', async ({ br
 	await settled(host);
 	await host.keyboard.press('Escape');
 
-	await guest.goto(`/hey/${room}`);
+	await guest.goto(`/${room}`);
 	await guest.getByRole('textbox', { name: 'Your name' }).fill('Bo');
 	await guest.getByRole('button', { name: 'Ask to join' }).click();
 	await expect(guest.getByRole('heading', { name: 'Waiting to be let in' })).toBeVisible();
@@ -179,7 +179,7 @@ test('a knock nobody answers expires, and the guest may ask again (AR-CTRL-5)', 
 	await settled(host);
 	await host.keyboard.press('Escape');
 
-	await guest.goto(`/hey/${room}`);
+	await guest.goto(`/${room}`);
 	await guest.getByRole('textbox', { name: 'Your name' }).fill('Patient');
 	await guest.getByRole('button', { name: 'Ask to join' }).click();
 	await expect(guest.getByRole('heading', { name: 'Waiting to be let in' })).toBeVisible();
@@ -237,7 +237,7 @@ test('the join prompt says an anonymous identity is browser-bound (AR-AUTH-6)', 
 	// it were the ones it had already surprised.
 	const room = roomName('bound');
 	await createRoomDirectly(room);
-	await page.goto(`/hey/${room}`);
+	await page.goto(`/${room}`);
 	await expect(page.getByRole('textbox', { name: 'Your name' })).toBeVisible();
 	await expect(page.getByText(/keeps you to this browser/)).toBeVisible();
 });
