@@ -18,6 +18,7 @@
 	} from '$lib/model/emotes';
 	import Emoji from '$lib/ui/Emoji.svelte';
 	import Button from '$lib/ui/Button.svelte';
+	import HostSlotControls from './HostSlotControls.svelte';
 	import TransformHandles from './TransformHandles.svelte';
 	import { clipPathCss, nextClip } from '$lib/model/clip';
 	import {
@@ -62,6 +63,12 @@
 		 * theirs to know.
 		 */
 		cameraDenied?: boolean;
+		/**
+		 * Is the VIEWER a host (UX-PERM-3)? Not this participant's role — it
+		 * gates the grant/revoke controls this tile offers over the person it
+		 * draws (UX-STAGE-4), so it is a fact about who is looking.
+		 */
+		isHost?: boolean | undefined;
 	}
 
 	let {
@@ -72,7 +79,8 @@
 		obstacles,
 		isSelf,
 		videoStream,
-		cameraDenied = false
+		cameraDenied = false,
+		isHost = false
 	}: Props = $props();
 
 
@@ -129,6 +137,8 @@
 				obstacles()
 			),
 		preview: (at) => {
+			// See ObjectFrame: our gesture owns this overlay from here.
+			sync.takeOver(participant.id);
 			sync.participantOverlays.set(participant.id, at);
 		},
 		broadcast: (at) => {
@@ -369,6 +379,21 @@
 		</span>
 	{/if}
 
+	<!--
+		A host's slot controls over SOMEONE ELSE (UX-STAGE-4). Never on your own
+		tile: you already have the camera and mic buttons in the bottom bar, and
+		a second pair meaning the same thing in a different place is how a host
+		ends up unsure which one releases a slot.
+
+		Always visible rather than revealed on hover, unlike the shape control
+		below — see HostSlotControls.svelte for why.
+	-->
+	{#if isHost && !isSelf}
+		<span class="host-controls">
+			<HostSlotControls {store} {sync} id={participant.id} name={participant.name} />
+		</span>
+	{/if}
+
 	{#each reactions as reaction (reaction.key)}
 		<span class="float" style:--drift="{driftFor(reaction.key)}px">
 			<Emoji glyph={EMOTE_EMOJI[reaction.emote]} size="32px" />
@@ -602,5 +627,19 @@
 			0 -1px 2px var(--surface),
 			1px 0 2px var(--surface),
 			-1px 0 2px var(--surface);
+	}
+	/*
+	 * Below the name, which is itself below the tile — so these never overlap
+	 * the face, the slot badges, or the transform handles on the tile's edges.
+	 *
+	 * No opacity transition and no hover gate: a host must be able to pass the
+	 * floor without hunting, and on touch there is no hover to gate on.
+	 */
+	.host-controls {
+		position: absolute;
+		top: 100%;
+		margin-top: calc(var(--space-1) + var(--text-xs) + var(--space-1));
+		display: flex;
+		justify-content: center;
 	}
 </style>

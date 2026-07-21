@@ -29,6 +29,7 @@
 	import WorldCanvas from '$lib/canvas/WorldCanvas.svelte';
 	import DevPanel from '$lib/dev/DevPanel.svelte';
 	import PendingGuests from '$lib/ui/PendingGuests.svelte';
+	import HostSlotControls from './HostSlotControls.svelte';
 	import BottomBar from '$lib/canvas/BottomBar.svelte';
 	import HintBar from '$lib/canvas/HintBar.svelte';
 	import Button from '$lib/ui/Button.svelte';
@@ -982,7 +983,19 @@
 				<p class="hint">Waiting for a slot, in order:</p>
 				<ol class="queue">
 					{#each stage.queue as waiting, index (waiting)}
-						<li>{index + 1}. {nameOf(waiting)}</li>
+						<li>
+							{index + 1}. {nameOf(waiting)}
+							<!--
+								The queue is the one place a host can act on somebody they
+								cannot see: waiting people may be anywhere on an infinite
+								canvas, or scrolled off it entirely, which makes their
+								avatar unreachable. Everywhere else, the controls live on
+								the avatar itself (UX-STAGE-4).
+							-->
+							{#if isHost && waiting !== identity.id}
+								<HostSlotControls {store} {sync} id={waiting} name={nameOf(waiting)} />
+							{/if}
+						</li>
 					{/each}
 				</ol>
 			{:else}
@@ -996,9 +1009,17 @@
 	<Button disabled={!mayCreate} onclick={pickImage}>+ <Emoji glyph={ADD_EMOJI.image} /> image</Button>
 	<!-- The picker the image button opens. Hidden, pointer-free-reachable via the
 	     button (UX-A11Y-2), and accepting only the formats the bucket allows. -->
+	<!--
+		`aria-label` is not decoration here: sr-only hides it visually but leaves
+		it in the accessibility tree, where it was an unlabelled file input — a
+		real WCAG 2.2 "form elements must have labels" violation that failed the
+		axe gate (UX-A11Y-1, AR-STYLE-3) in both themes. A visually-hidden
+		control still has to name itself.
+	-->
 	<input
 		bind:this={imageInput}
 		type="file"
+		aria-label="Choose an image to add to the room"
 		accept="image/png,image/jpeg,image/webp,image/gif"
 		class="sr-only"
 		onchange={onImagePicked}

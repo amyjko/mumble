@@ -161,6 +161,9 @@
 
 	/** Preview + broadcast, for the keyboard path (the drag gesture does its own). */
 	function showAt(position: Point): void {
+		// OUR gesture owns this overlay now, so stop smoothing a peer's stale
+		// deltas into it (AR-BACKEND-5) — two people can drag one object.
+		sync.takeOver(object.id);
 		sync.objectOverlays.set(object.id, { ...object.transform, x: position.x, y: position.y });
 	}
 
@@ -183,6 +186,7 @@
 		start: () => ({ ...effective }),
 		min: () => minSizeFor(object.type),
 		preview: (next) => {
+			sync.takeOver(object.id);
 			sync.objectOverlays.set(object.id, next);
 		},
 		commit: (next) => {

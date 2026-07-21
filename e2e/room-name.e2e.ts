@@ -13,9 +13,14 @@ test('a reserved name is not a room', async ({ page }) => {
 	// From outside, an unclaimable name and a nonexistent room are the same
 	// thing, so this errors exactly as a malformed name does.
 	//
-	// Asserted on what the user SEES, not on the HTTP status: the route is
-	// ssr=false, so the shell always returns 200 and the 404 is produced by the
-	// client-side load. A status assertion would pass on a broken page.
+	// Asserted on what the user SEES, not on the HTTP status, because a status
+	// assertion would pass on a page that renders nothing.
+	//
+	// The reason used to be "ssr=false, so the shell always returns 200 and the
+	// 404 comes from the client-side load". That stopped being true when
+	// +page.server.ts started resolving the room against Postgres: `ssr = false`
+	// disables server RENDERING, not server `load`, so the 404 is a real server
+	// 404 now. The assertion is unchanged and still the right one.
 	await page.goto('/hey/admin');
 	await expect(page.getByText('No such room')).toBeVisible();
 });
@@ -99,4 +104,18 @@ test('rename warns that existing links will break (UX-ROOM-10)', async ({ page }
 	page.once('dialog', (dialog) => void dialog.accept());
 	await rename.click();
 	await expect(page).toHaveURL(new RegExp(`/hey/${target}$`));
+
+	// UX-ROOM-10's two remaining halves, and the reason the warning above is
+	// not scaremongering: the old URL genuinely stops resolving...
+	await page.goto(`/hey/${room}`);
+	await expect(page.getByText('No such room')).toBeVisible();
+
+	// ...and the freed name is immediately claimable by anyone, which is the
+	// clause that makes renaming a real cost rather than a soft alias. One
+	// UPDATE frees it: there is no grace period and no redirect (both are open
+	// items), so "immediately" is meant literally.
+	await page.goto('/new');
+	await page.getByRole('textbox', { name: 'Room name' }).fill(room);
+	await page.getByRole('button', { name: 'go' }).click();
+	await expect(page).toHaveURL(new RegExp(`/hey/${room}$`));
 });

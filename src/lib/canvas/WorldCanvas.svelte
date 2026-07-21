@@ -406,6 +406,7 @@
 				isSelf={participant.id === identity.id}
 				videoStream={videoStreams?.get(participant.id)}
 				{cameraDenied}
+				{isHost}
 			/>
 		{/each}
 		{#if stroke !== null}
