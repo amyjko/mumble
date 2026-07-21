@@ -57,6 +57,12 @@ test('name and face can be changed afterwards (UX-AV-3)', async ({ page }) => {
 
 	// And it persists — the previous implementation could not do this at all,
 	// since nothing ever wrote the identity back.
+	//
+	// `settled` first: the assertion above is satisfied by the OPTIMISTIC
+	// rename, so reloading straight after races our own in-flight write and can
+	// abort it. Same failure as "objects survive a reload", and it only shows up
+	// under parallel workers, when the round trip outlasts the render.
+	await settled(page);
 	await page.reload();
 	await expect(page.getByRole('group', { name: 'Renamed (you)' })).toBeVisible();
 });

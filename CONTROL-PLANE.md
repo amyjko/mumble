@@ -156,6 +156,45 @@ compromise. Re-measured after the change: 0 lost of 20.
   Method note: three rounds of reasoning cost more than one trace. Capture the
   artefact first next time.
 
+- **E2E flakiness, round two — FOUND and fixed (2026-07-20).** It came back as
+  the suite grew: 1–8 failures per full run, rotating across unrelated tests,
+  with serial runs green. TWO causes, neither of them the one suspected, and the
+  method note above was followed — trace first, then the database.
+
+  **1. `ensureSession` raced with itself and minted two anonymous users per
+  browser.** It was a bare check-then-act (`getSession()`, else
+  `signInAnonymously()`), and the room page calls it twice BY DESIGN: once on
+  mount so an account holder fetches their roaming profile, once more when the
+  join prompt supplies a hello. The page's own comment says that is safe because
+  "join_room is idempotent" — true, but idempotent PER IDENTITY, and the race
+  gave the two knocks different ones. Caught from an admission test failing with
+  "strict mode violation: 2 elements" for the Admit button, then confirmed in
+  Postgres: two `room_members` rows, two anonymous users, 62ms apart, one of
+  them nameless. Fixed with a single-flight promise, the session check INSIDE
+  it rather than in front. This was a product bug, not a test bug: at an "ask
+  first" door the host saw one arrival twice, once as a "Someone" who could
+  never be matched to a person, and the phantom row stayed pending forever.
+
+  **2. Two tests navigated before their own write had settled.** A trace's
+  network log showed `POST -1 .../mutate` — the request ABORTED. "Objects
+  survive a reload" clicked `+ note`, asserted the frame (which is the
+  OPTIMISTIC one, AR-SYNC-2, and appears before the write leaves the browser),
+  then reloaded — killing its own in-flight POST, so there was correctly nothing
+  to restore. The identity test had the same shape. `settled()` exists for
+  exactly this and both tests predated it. Only reproduced in parallel, because
+  that is when the round trip finally outlasts the render.
+
+  Result: **8 consecutive green full-suite runs** (119/119), five at the default
+  worker count and three at four workers.
+
+  Two method notes, both about being wrong in public. A worker-count cap looked
+  like the answer for a while — 4 workers green, 7 flaky — and it was a
+  coincidence of sampling; after the two real fixes, both counts are green and
+  no config change was needed. And the single worst run measured (8 failures)
+  was polluted by MY OWN diagnostics, which rebuilt an array on every render:
+  instrumentation is not free, and a measurement taken through it is not a
+  measurement of the system.
+
 - **Admission** (UX-ID-3 / AR-CTRL-5) remains deferred by agreement.
 - Avatar name/emoji now roam with the profile; the id roams too.
 

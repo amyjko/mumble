@@ -54,6 +54,21 @@ test('objects survive a reload', async ({ page }) => {
 	await page.getByRole('button', { name: '+ note' }).click();
 	await expect(page.locator('.frame')).toHaveCount(1);
 
+	/*
+	 * Wait for the WRITE, not the render.
+	 *
+	 * The assertion above is satisfied by the OPTIMISTIC frame (AR-SYNC-2),
+	 * which appears before the mutate has been anywhere near the server. So
+	 * reloading here was a race with our own in-flight POST, and a trace of a
+	 * failing run showed exactly that: `POST -1 .../mutate` — aborted by the
+	 * navigation — and then, correctly, nothing to restore. It reproduced only
+	 * under parallel workers, because that is when the round trip finally takes
+	 * longer than the render.
+	 *
+	 * This is the failure `settled` was written for, and the test predates it.
+	 */
+	await settled(page);
+
 	await page.reload();
 	await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
 	await expect(page.locator('.frame')).toHaveCount(1);
