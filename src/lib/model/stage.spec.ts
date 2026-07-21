@@ -21,9 +21,12 @@ import {
 	raiseHand,
 	releaseSlot,
 	revokeSlot,
+	selectActiveSpeakers,
+	SPEAKER_HOLD_MS,
 	takeSlot,
 	unmutedAudio,
-	type StageState
+	type StageState,
+	type VoiceLevel
 } from './stage';
 
 const A = 'a';
@@ -456,5 +459,145 @@ describe('lowering max_av trims the pool, shares first', () => {
 		expect(after.screen_holders).toEqual([]);
 		expect(after.video_holders).toEqual([A]);
 		expect(after.queue).toEqual([B]);
+	});
+});
+
+/**
+ * The active-speaker cap (UX-STAGE-5, AR-MEDIA-6).
+ *
+ * Pure and node-tested, which is what AR-MEDIA-6's "selection is control-plane
+ * and transport-agnostic — one implementation, one source of truth" actually
+ * requires: every peer computes this from the same inputs, so agreement is a
+ * property of the function rather than of a negotiation. On P2P there is no
+ * forwarder to arbitrate, so if this were not deterministic two clients would
+ * disagree about who the third speaker is and one would mute somebody the other
+ * could hear.
+ */
+describe('selectActiveSpeakers', () => {
+	const NOW = 1_000_000;
+
+	/** A room where `max_audio` is generous enough for the cap to matter. */
+	function roomOf(...ids: string[]): StageState {
+		return {
+			capacity: { max_participants: 20, max_av: 0, max_audio: 10 },
+			video_holders: [],
+			audio_holders: [...ids],
+			screen_holders: [],
+			queue: []
+		};
+	}
+
+	const loud = (level: number, at = NOW): VoiceLevel => ({ level, at });
+
+	it('is a no-op when no more people are authorized than the cap', () => {
+		// The common room. Nothing here may silence somebody the stage allowed.
+		const state = roomOf('a', 'b', 'c');
+		expect(selectActiveSpeakers(state, new Map(), NOW)).toEqual(['a', 'b', 'c']);
+	});
+
+	it('keeps the loudest when more are authorized than the cap', () => {
+		const state = roomOf('a', 'b', 'c', 'd', 'e');
+		const levels = new Map([
+			['a', loud(0.1)],
+			['b', loud(0.9)],
+			['c', loud(0.5)],
+			['d', loud(0.7)],
+			['e', loud(0.2)]
+		]);
+		expect(selectActiveSpeakers(state, levels, NOW)).toEqual(['b', 'd', 'c']);
+	});
+
+	it('holds the floor across a gap between words', () => {
+		/*
+		 * THE reason this function takes a clock. Speech has gaps of a few
+		 * hundred milliseconds, and a selection recomputed on instantaneous
+		 * loudness drops somebody mid-clause and hands their place to whoever
+		 * coughed — the listener hears the first syllable of every other word.
+		 */
+		const state = roomOf('a', 'b', 'c', 'd');
+		const levels = new Map([
+			['a', loud(0.8, NOW - 400)],
+			['b', loud(0.7, NOW - 300)],
+			['c', loud(0.6, NOW - 200)],
+			['d', loud(0.9, NOW - 5000)]
+		]);
+		// `d` was loudest, but five seconds ago: they have stopped talking.
+		expect(selectActiveSpeakers(state, levels, NOW)).toEqual(['a', 'b', 'c']);
+	});
+
+	it('releases the floor once the hold expires', () => {
+		const state = roomOf('a', 'b', 'c', 'd');
+		const stale = NOW - SPEAKER_HOLD_MS - 1;
+		const levels = new Map([
+			['a', loud(0.9, stale)],
+			['b', loud(0.1)],
+			['c', loud(0.2)],
+			['d', loud(0.3)]
+		]);
+		const selected = selectActiveSpeakers(state, levels, NOW);
+		expect(selected).not.toContain('a');
+		expect(selected).toEqual(['d', 'c', 'b']);
+	});
+
+	it('fills from the authorized order in a silent room, rather than gating everyone', () => {
+		/*
+		 * Silence must not mean "nobody may be heard", or the first person to
+		 * speak after a pause is cut off for as long as it takes their level to
+		 * arrive — the room would clip the start of every sentence following a
+		 * lull. This is the case a naive "top N by level" gets wrong, because
+		 * every level is zero.
+		 */
+		const state = roomOf('a', 'b', 'c', 'd', 'e');
+		expect(selectActiveSpeakers(state, new Map(), NOW)).toEqual(['a', 'b', 'c']);
+	});
+
+	it('tops up with quiet people when fewer than the cap are speaking', () => {
+		const state = roomOf('a', 'b', 'c', 'd');
+		const levels = new Map([['c', loud(0.9)]]);
+		const selected = selectActiveSpeakers(state, levels, NOW);
+		expect(selected[0]).toBe('c');
+		expect(selected).toHaveLength(3);
+	});
+
+	it('breaks ties deterministically, so two peers cannot disagree', () => {
+		// If this were unstable, one client would gate somebody another could
+		// hear — and nothing in a P2P mesh would ever reconcile them.
+		const state = roomOf('a', 'b', 'c', 'd');
+		const levels = new Map([
+			['a', loud(0.5)],
+			['b', loud(0.5)],
+			['c', loud(0.5)],
+			['d', loud(0.5)]
+		]);
+		const first = selectActiveSpeakers(state, levels, NOW);
+		const second = selectActiveSpeakers(state, levels, NOW);
+		expect(first).toEqual(second);
+		expect(first).toEqual(['a', 'b', 'c']);
+	});
+
+	it('counts video holders as authorized, per the union rule', () => {
+		// UX-STAGE-5's first half: audio publishers are video holders PLUS audio
+		// holders. A cap that only looked at `audio_holders` would silence
+		// somebody on camera.
+		const state: StageState = {
+			capacity: { max_participants: 20, max_av: 4, max_audio: 10 },
+			video_holders: ['v1', 'v2'],
+			audio_holders: ['a1', 'a2'],
+			screen_holders: [],
+			queue: []
+		};
+		const levels = new Map([['a2', loud(0.9)]]);
+		const selected = selectActiveSpeakers(state, levels, NOW);
+		expect(selected).toContain('a2');
+		expect(selected).toHaveLength(3);
+	});
+
+	it('never returns somebody the stage did not authorize', () => {
+		// The cap narrows; it must never widen. A level arriving from someone
+		// with no slot — a stale broadcast, or a patched client — cannot buy them
+		// the floor.
+		const state = roomOf('a', 'b', 'c', 'd');
+		const levels = new Map([['intruder', loud(1)]]);
+		expect(selectActiveSpeakers(state, levels, NOW)).not.toContain('intruder');
 	});
 });

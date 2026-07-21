@@ -68,6 +68,19 @@ export interface SessionOptions {
 	 * and deletes the object.
 	 */
 	readonly onScreenEnded?: () => void;
+	/**
+	 * Who the active-speaker cap admits right now (AR-MEDIA-6, UX-STAGE-5).
+	 *
+	 * A GETTER rather than a value, because the selection changes several times
+	 * a second as levels arrive and a session constructed with a snapshot would
+	 * gate on whoever was loudest when the room opened.
+	 *
+	 * Supplied by the wiring site, which is the only place that has both the
+	 * stage and the peers' broadcast levels. The session does not compute it —
+	 * selection has one home (`model/stage.ts`), and a second copy here is how a
+	 * publisher and its listeners would come to disagree about who is audible.
+	 */
+	readonly activeSpeakers?: () => readonly PeerId[];
 }
 
 export class MediaSession {
@@ -121,6 +134,22 @@ export class MediaSession {
 	 * the room rather than a permission they withheld a moment ago.
 	 */
 	cameraDenied = $state(false);
+
+	/**
+	 * Whether our own audio is currently withheld by the active-speaker cap
+	 * (AR-MEDIA-6). Tracked so the gate is acted on when it changes rather than
+	 * re-applied on every reconcile pass.
+	 */
+	private audioGated = false;
+
+	/**
+	 * Our own microphone track while one is open (AR-MEDIA-6).
+	 *
+	 * Stays non-null while gated — that is the point. The cap withholds the
+	 * publication, not the capture, so this remains measurable and a gated
+	 * speaker can still be heard (by their own browser) to start talking.
+	 */
+	localAudio = $state<MediaStreamTrack | null>(null);
 	/**
 	 * Your own screen, so you can see what you are showing (UX-OBJ-6).
 	 *
@@ -273,7 +302,8 @@ export class MediaSession {
 			present: this.options.store.present,
 			muted: state.participants[this.options.self]?.muted ?? false,
 			tiles,
-			screenTiles
+			screenTiles,
+			activeSpeakers: this.options.activeSpeakers?.()
 		});
 
 		// The stage is pushed down on every pass, which is what makes revocation
@@ -325,12 +355,41 @@ export class MediaSession {
 		// A NEW MediaStream per track change rather than a mutated one: an element
 		// re-reads `srcObject` on identity, not on content.
 		this.localVideo = own === null ? null : new MediaStream([own]);
+		/*
+		 * Our own microphone track, exposed so the wiring site can measure its
+		 * loudness (AR-MEDIA-6). A TRACK rather than a stream: the analyser wants
+		 * one source, and wrapping it in a stream here would mint a new object
+		 * every pass and restart the meter continuously.
+		 */
+		this.localAudio = this.capture.get('audio');
 		for (const kind of changed) {
 			const track = this.capture.get(kind);
 			if (track === null) {
 				await this.transport.unpublish(kind);
 			} else {
 				await this.transport.publish(kind, track);
+			}
+		}
+
+		/*
+		 * The active-speaker cap (AR-MEDIA-6, UX-STAGE-5).
+		 *
+		 * Applied AFTER the capture loop and separately from it, because the
+		 * microphone stays open while gated — the publisher has to keep measuring
+		 * its own loudness or it can never signal that it has started speaking
+		 * again (see `plan.ts` for the latch this avoids).
+		 *
+		 * Acted on only when the gate CHANGES. Reconcile runs on every stage and
+		 * tile change, and re-publishing an unchanged track each pass would
+		 * renegotiate a connection several times a minute for no reason.
+		 */
+		if (plan.gateAudio !== this.audioGated) {
+			this.audioGated = plan.gateAudio;
+			const audioTrack = this.capture.get('audio');
+			if (plan.gateAudio) {
+				await this.transport.unpublish('audio');
+			} else if (audioTrack !== null) {
+				await this.transport.publish('audio', audioTrack);
 			}
 		}
 
@@ -443,6 +502,7 @@ export class MediaSession {
 	dispose(): void {
 		this.disposed = true;
 		this.localVideo = null;
+		this.localAudio = null;
 		this.localScreen = null;
 		this.clearGrantRetry();
 		this.capture.dispose();

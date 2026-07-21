@@ -3,6 +3,7 @@ import type { Mutation, Point, Transform } from '$lib/model/types';
 import { StoreRejection } from '$lib/model/types';
 import type { RoomStore } from './room-store';
 import type { EmoteName } from '$lib/model/emotes';
+import type { VoiceLevel } from '$lib/model/stage';
 import { Interpolator } from '$lib/canvas/interpolate';
 
 /**
@@ -78,6 +79,22 @@ export class SyncClient {
 	 */
 	reactions = $state<Reaction[]>([]);
 	private reactionKey = 0;
+
+	/**
+	 * How loud each peer last reported being (AR-MEDIA-6, UX-STAGE-5).
+	 *
+	 * Reactive, because the active-speaker selection derived from it decides who
+	 * is audible and has to re-run as levels arrive. Timestamped on RECEIPT
+	 * rather than trusting a sender's clock: the selection's hold window is a
+	 * duration, and comparing it against a clock we do not control would make a
+	 * peer with a skewed clock permanently fresh or permanently stale.
+	 */
+	voiceLevels = new SvelteMap<string, VoiceLevel>();
+
+	/** Broadcast our own loudness. Fire-and-forget, like every ephemeral fact. */
+	reportVoiceLevel(participantId: string, level: number): void {
+		this.store.sendEphemeral({ kind: 'voice_level', id: participantId, level });
+	}
 	private static readonly REACTION_MS = 1600;
 	/** Screen-reader announcement text (aria-live region — UX-A11Y-3). */
 	announcement = $state('');
@@ -165,6 +182,9 @@ export class SyncClient {
 					break;
 				case 'emote':
 					this.addReaction(message.id, message.emote);
+					break;
+				case 'voice_level':
+					this.voiceLevels.set(message.id, { level: message.level, at: Date.now() });
 					break;
 			}
 		});

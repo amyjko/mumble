@@ -146,6 +146,101 @@ export function audioPublishers(state: StageState): string[] {
 	return [...state.video_holders, ...state.audio_holders.filter((id) => !holdsVideo(state, id))];
 }
 
+/**
+ * How many people may be heard at once (UX-STAGE-5, AR-MEDIA-6).
+ *
+ * The requirement says "the top 1–3 active speakers"; three is the top of that
+ * range, chosen because the cap exists to stop CROSSTALK rather than to enforce
+ * turn-taking. Turn-taking is what `max_audio` is for, and a host who wants a
+ * conch sets it to 1. Three lets a person be interrupted, agreed with, and
+ * answered — which is a conversation — while still cutting the fourth
+ * simultaneous voice, which is a mess.
+ */
+export const MAX_ACTIVE_SPEAKERS = 3;
+
+/**
+ * How long a speaker keeps the floor after going quiet, in milliseconds.
+ *
+ * Without this the cap FLAPS. Ordinary speech has gaps of a few hundred
+ * milliseconds — between words, between sentences, drawing breath — and a
+ * selection recomputed on instantaneous loudness would drop somebody mid-clause
+ * and hand their place to whoever coughed. The listener hears the first syllable
+ * of every other word.
+ *
+ * Twelve hundred milliseconds is comfortably longer than a breath and much
+ * shorter than a turn, so a speaker who has genuinely stopped loses the floor
+ * within about a second of the next person starting.
+ */
+export const SPEAKER_HOLD_MS = 1200;
+
+/** One person's loudness, as their own browser measured it. */
+export interface VoiceLevel {
+	/** 0..1, smoothed. */
+	level: number;
+	/** When it was measured, epoch ms. */
+	at: number;
+}
+
+/**
+ * Who may actually be heard right now (UX-STAGE-5, AR-MEDIA-6).
+ *
+ * SELECTION IS CONTROL-PLANE AND TRANSPORT-AGNOSTIC, which AR-MEDIA-6 states as
+ * "one implementation, one source of truth". That is why this is a pure
+ * function of shared inputs rather than each client's opinion: every peer
+ * computes it from the same authorized set and the same broadcast levels, so
+ * everyone agrees on who is audible without anyone arbitrating. On P2P there is
+ * no forwarder to arbitrate, which is precisely the case that would otherwise
+ * need one.
+ *
+ * The cap is a no-op below its own size, and deliberately: a room where three
+ * or fewer people may publish audio at all is already inside the limit, so
+ * nothing here can silence anyone the stage authorized. It bites only where
+ * capacity is generous, which is exactly where UX-STAGE-5 says crosstalk
+ * appears.
+ *
+ * Ties break on the authorized order rather than on id or on arrival. It has to
+ * break DETERMINISTICALLY on something every peer can see, or two clients
+ * disagree about who the third speaker is and one of them mutes somebody the
+ * other can hear — the failure mode this function's purity exists to prevent.
+ */
+export function selectActiveSpeakers(
+	state: StageState,
+	levels: ReadonlyMap<string, VoiceLevel>,
+	now: number,
+	max: number = MAX_ACTIVE_SPEAKERS
+): string[] {
+	const authorized = audioPublishers(state);
+	if (authorized.length <= max) return authorized;
+
+	// Someone heard within the hold window still counts as speaking, which is
+	// what stops the selection flapping between syllables.
+	const speaking = authorized.filter((id) => {
+		const measured = levels.get(id);
+		return measured !== undefined && measured.level > 0 && now - measured.at <= SPEAKER_HOLD_MS;
+	});
+
+	const ranked = [...speaking].sort((a, b) => {
+		const byLevel = (levels.get(b)?.level ?? 0) - (levels.get(a)?.level ?? 0);
+		if (byLevel !== 0) return byLevel;
+		return authorized.indexOf(a) - authorized.indexOf(b);
+	});
+
+	/*
+	 * A quiet room selects the first `max` authorized people rather than nobody.
+	 *
+	 * Silence must not mean "everyone is gated", or the first person to speak
+	 * after a pause is cut off for as long as it takes their level to arrive —
+	 * the room would clip the beginning of every sentence that follows a lull.
+	 * Filling from the authorized order keeps somebody ready to be heard.
+	 */
+	const filled = [...ranked];
+	for (const id of authorized) {
+		if (filled.length >= max) break;
+		if (!filled.includes(id)) filled.push(id);
+	}
+	return filled.slice(0, max);
+}
+
 export function canPublishVideo(state: StageState, id: string): boolean {
 	return holdsVideo(state, id);
 }
