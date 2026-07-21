@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { PUBLIC_SUPABASE_URL } from '$env/static/public';
 import { SUPABASE_SECRET_KEY } from '$env/static/private';
 import type { Database } from '$lib/database.types';
-import { closeIntervals, meterBeat, roomBudgetResetsAt, roomHasTime } from './ledger';
+import { closeIntervals, meterBeat, roomBudget, roomBudgetResetsAt, roomHasTime } from './ledger';
 import { STALE_AFTER_SECONDS } from '$lib/model/ledger';
 
 /**
@@ -148,6 +148,50 @@ describe('closeIntervals', () => {
 		// keeping at all.
 		expect(rows.data?.length).toBe(2);
 		expect((await account(ownerId))?.weekly_seconds_used).toBe(22);
+	});
+});
+
+describe('one budget, many rooms', () => {
+	it('spends the SAME budget in every room one person owns', async () => {
+		// There is exactly one counter and one cap in the system, both on
+		// `accounts`, so an owner's rooms do not get an allowance each — they
+		// draw on one between them. Nothing pinned that until this test, and the
+		// gap let a false claim ("the room total and the account total differ")
+		// reach DESIGN.md and stand.
+		//
+		// It is also what makes the readout's wording load-bearing: a footnote
+		// that calls this "this room's budget" is describing a per-room allowance
+		// that does not exist.
+		const second = await db
+			.from('rooms')
+			.insert({
+				name: `ledger${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+				owner_id: ownerId
+			})
+			.select('id')
+			.single();
+		if (second.error !== null) throw new Error(`could not create room: ${second.error.message}`);
+
+		const guestId = await newUser('ledger-guest');
+		const now = new Date();
+		// An hour spent in the FIRST room only. Nothing happens in the second.
+		await meterBeat(db, roomId, guestId, new Date(now.getTime() - 3600_000), now);
+
+		const first = await roomBudget(db, roomId);
+		const untouched = await roomBudget(db, second.data.id);
+
+		// The second room has had no presence at all and still reports the time
+		// the first one spent.
+		expect(untouched?.usedSeconds).toBe(first?.usedSeconds);
+		expect(untouched?.usedSeconds).toBe(STALE_AFTER_SECONDS);
+
+		// The ledger DOES know it per room — the trail can answer "where did the
+		// week go" even though the cap cannot.
+		const perRoom = await db
+			.from('usage_ledger')
+			.select('seconds')
+			.eq('room_id', second.data.id);
+		expect(perRoom.data).toEqual([]);
 	});
 });
 

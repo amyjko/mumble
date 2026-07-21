@@ -68,20 +68,30 @@
 	/**
 	 * What running out actually means, spelled out rather than implied.
 	 *
-	 * The consequence is deliberately specific, because the gate is specific and
+	 * Two facts, and both were got wrong before being got right.
+	 *
+	 * THE CONSEQUENCE is deliberately specific, because the gate is specific and
 	 * a vaguer warning reads as worse than it is: running out closes the room to
 	 * NEW ARRIVALS only (AR-COST-4). Nobody is dropped from a meeting under way,
 	 * and saying so is the difference between a limit people can plan around and
 	 * one they think might cut them off mid-sentence.
+	 *
+	 * WHOSE BUDGET IT IS must not be described as the room's. This said "this
+	 * room's weekly budget", which asserts a per-room allowance that does not
+	 * exist: there is one counter and one cap in the whole system, on the OWNER's
+	 * account (AR-COST-2), so every room one person runs draws on one budget
+	 * between them. A host with two rooms reading "9h" on each would have thought
+	 * they had eighteen. An integration test now pins the shared-budget fact.
 	 */
 	const explanation = $derived.by(() => {
 		if (budget === null) return '';
 		const when = resetsWhen === null ? 'the week resets' : resetsWhen;
+		const shared = 'One budget covers every room the same host runs.';
 		const stay = 'Everyone already here can stay.';
 		if (budget.exhausted) {
-			return `This room has used its meeting time for the week. Nobody new can join until ${when}. ${stay}`;
+			return `This room's host has used their meeting time for the week. ${shared} Nobody new can join until ${when}. ${stay}`;
 		}
-		return `Meeting time left in this room's weekly budget. When it runs out, nobody new can join until ${when}. ${stay}`;
+		return `Meeting time left this week. ${shared} When it runs out, nobody new can join until ${when}. ${stay}`;
 	});
 </script>
 

@@ -187,6 +187,11 @@ test('the toolbar shows how much time the room has left (UX-ECON-2)', async ({ p
 	// carry: running out closes the room to NEW arrivals only.
 	await expect(readout).toHaveAttribute('title', /nobody new can join/);
 	await expect(readout).toHaveAttribute('title', /already here can stay/);
+	// ...and that the budget is SHARED, not this room's own allowance. The copy
+	// claimed "this room's weekly budget" first, which would have told a host
+	// with two rooms they had twice the time they have.
+	await expect(readout).toHaveAttribute('title', /every room the same host runs/);
+	await expect(readout).not.toHaveAttribute('title', /this room's weekly budget/);
 });
 
 test('under an hour the readout changes colour, unit, and is announced (UX-ECON-2)', async ({

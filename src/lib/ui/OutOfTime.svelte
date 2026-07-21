@@ -46,11 +46,19 @@
 
 <main>
 	<h1>This room is out of time</h1>
+	<!--
+		"Its host has used" rather than "it has used", and the difference is not
+		pedantry: the budget belongs to the OWNER's account and is shared across
+		every room they run (AR-COST-2), so this room may well have spent none of
+		it. Saying the room used it up would send a host looking for activity in
+		the wrong place.
+	-->
 	<p class="lede">
 		{#if when === null}
-			It has used its meeting time for the week. It opens again when the week resets.
+			Its host has used their meeting time for the week. It opens again when the week
+			resets.
 		{:else}
-			It has used its meeting time for the week. It opens again {when}.
+			Its host has used their meeting time for the week. It opens again {when}.
 		{/if}
 	</p>
 	<!--
@@ -58,7 +66,7 @@
 		decline: nothing the person at the door can do changes the answer, and a
 		button that reloads into the same refusal is a door that looks open.
 	-->
-	<p class="quiet">Rooms get a fresh time budget every week.</p>
+	<p class="quiet">Every host gets a fresh time budget each week.</p>
 </main>
 
 <style>
