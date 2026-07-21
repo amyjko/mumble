@@ -32,6 +32,8 @@
 	import HostSlotControls from './HostSlotControls.svelte';
 	import BottomBar from '$lib/canvas/BottomBar.svelte';
 	import HintBar from '$lib/canvas/HintBar.svelte';
+	import PeerVoice from '$lib/canvas/PeerVoice.svelte';
+	import { voicePreferences } from '$lib/canvas/voice.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import Field from '$lib/ui/Field.svelte';
 	import Popover from '$lib/ui/Popover.svelte';
@@ -129,6 +131,21 @@
 		// lands: the page then looked fine and silently received no broadcast
 		// again, which is how a second tab ended up never seeing the first's
 		// edits.
+	});
+
+	/*
+	 * Per-viewer voice choices belong to THIS room (UX-OBJ-16).
+	 *
+	 * Renaming a room navigates (UX-ROOM-10) and SvelteKit reuses this component
+	 * across it, so without this a mute applied to somebody in one room would
+	 * follow their id into the next one — silently, since the control only
+	 * appears while they are audible.
+	 */
+	$effect(() => {
+		void roomId;
+		return () => {
+			voicePreferences.clear();
+		};
 	});
 
 	/*
@@ -246,11 +263,14 @@
 	 * `':audio'`. A share's sound belongs to its object, not to this loop.
 	 */
 	const audioStreams = $derived.by(() => {
-		const streams: { key: string; stream: MediaStream }[] = [];
+		const streams: { key: string; peer: string; stream: MediaStream }[] = [];
 		for (const [key, stream] of remoteStreams) {
-			const [, kind] = key.split(':');
-			if (kind !== 'audio') continue;
-			streams.push({ key, stream });
+			const [peer, kind] = key.split(':');
+			if (kind !== 'audio' || peer === undefined) continue;
+			// The peer id is carried out as well as the key, because the per-viewer
+			// volume and mute (UX-OBJ-16) are keyed on the PERSON — the same id the
+			// avatar control writes against — not on this map's composite key.
+			streams.push({ key, peer, stream });
 		}
 		return streams;
 	});
@@ -265,16 +285,12 @@
 	 */
 	const selfId = $derived(identity.id);
 
-	/** `srcObject` is a property, not an attribute, so it cannot be set in markup. */
-	function attachStream(node: HTMLMediaElement, stream: MediaStream) {
-		node.srcObject = stream;
-		void node.play().catch(() => undefined);
-		return {
-			destroy() {
-				node.srcObject = null;
-			}
-		};
-	}
+	/*
+	 * `attachStream` used to live here — a one-liner that set `srcObject` and
+	 * swallowed a rejected `play()`. Swallowing it was the bug: a refused
+	 * autoplay became silence with no explanation. PeerVoice.svelte now owns the
+	 * whole job, including reporting the refusal so the room can offer a way out.
+	 */
 
 	$effect(() => {
 		const current = store;
@@ -1168,10 +1184,32 @@
 	     One element per peer rather than per tile: a tile is a position on a
 	     canvas and audio has no position yet, so mixing there would be a decision
 	     made in the wrong place. Proximity audio (Later) replaces this element,
-	     not the avatars. -->
+	     not the avatars. The per-viewer volume and mute live on each person's
+	     AVATAR (UX-OBJ-16) — a voice has no position, but the person does. -->
 	{#each audioStreams as entry (entry.key)}
-		<audio use:attachStream={entry.stream} autoplay></audio>
+		<PeerVoice peer={entry.peer} stream={entry.stream} />
 	{/each}
+	{#if voicePreferences.blocked}
+		<!--
+			The browser refused to start audio without a gesture.
+
+			Silence with no explanation is the worst failure available here: the
+			room looks like it is working and nobody can hear anyone. This is the
+			gesture the policy wants, and clicking it retries every voice at once
+			because autoplay is a per-DOCUMENT policy.
+
+			Chrome exempts MediaStream-sourced elements, so this never appears in
+			the browser the E2E suite runs — which is exactly why it exists.
+		-->
+		<div class="sound-blocked">
+			<Button
+				variant="primary"
+				onclick={() => {
+					voicePreferences.allow();
+				}}>Click to hear the room</Button
+			>
+		</div>
+	{/if}
 	<!-- ONE bottom toolbar: emotes, camera, and theme. Three separate floating
 	     clusters used to compete for this corner and overlap each other. -->
 	<BottomBar {store} {sync} {identity} {viewport} {onShareScreen} {onStopScreenShare} />
