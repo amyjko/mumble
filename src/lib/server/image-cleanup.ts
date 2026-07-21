@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '$lib/database.types';
-import type { RoomState } from '$lib/model/types';
+import type { Mutation, RoomState } from '$lib/model/types';
 import { IMAGE_BUCKET, imageBlobsToDelete } from '$lib/model/image';
 
 /**
@@ -28,4 +28,26 @@ export async function deleteImageBlobs(
 		.remove(paths)
 		.catch(() => undefined);
 	return paths;
+}
+
+/**
+ * Delete the blob of an image whose `create_object` was just REJECTED (UX-OBJ-5).
+ *
+ * The bytes upload before the create is committed, so a rejected create leaves
+ * an orphan. The client's `mayCreate`/count pre-checks stop the common cases
+ * before any upload; this is the server-side backstop for the races that slip a
+ * create through to a rejection (create-permission or the last slot changing
+ * between pre-check and commit). The rejected mutation still carries the path, so
+ * no client DELETE grant is needed. A no-op for any other mutation. Swallowed for
+ * the same reason as the delete path.
+ */
+export async function deleteImageBlobForRejectedCreate(
+	db: SupabaseClient<Database>,
+	mutation: Mutation
+): Promise<void> {
+	if (mutation.kind !== 'create_object' || mutation.object.type !== 'image') return;
+	await db.storage
+		.from(IMAGE_BUCKET)
+		.remove([mutation.object.payload.path])
+		.catch(() => undefined);
 }

@@ -34,6 +34,19 @@ function isAllowedMime(type: string): type is ImageMime {
 }
 
 /**
+ * The image files out of a drop or a paste (UX-OBJ-5). Filters by MIME prefix,
+ * not the strict allowlist — a dropped `image/heic` should reach
+ * `validateImageFile` and get its precise refusal, not be silently ignored as
+ * "not a file". A drop with no image files at all returns empty, and the caller
+ * does nothing. Pure, so drop/paste extraction is testable without the DOM
+ * events that carry it.
+ */
+export function imageFilesFrom(files: FileList | null): File[] {
+	if (files === null) return [];
+	return Array.from(files).filter((file) => file.type.startsWith('image/'));
+}
+
+/**
  * The CLIENT half of the size cap — the responsive, friendly gate (UX-OBJ-5).
  * Bytes and mime also have a real gate below this (the bucket's
  * `file_size_limit` / `allowed_mime_types`, which a patched client cannot

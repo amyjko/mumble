@@ -7,7 +7,7 @@ import type { RoomState } from '$lib/model/types';
 import { roomStateSchema } from '$lib/model/schemas';
 import { newImage } from '$lib/model/create';
 import { IMAGE_BUCKET } from '$lib/model/image';
-import { deleteImageBlobs } from './image-cleanup';
+import { deleteImageBlobs, deleteImageBlobForRejectedCreate } from './image-cleanup';
 
 /**
  * Blob cleanup against REAL local Storage (UX-OBJ-5).
@@ -45,6 +45,19 @@ async function fileCount(folder: string): Promise<number> {
 	return data?.length ?? 0;
 }
 
+/** A real blob at a fresh key, returning its folder and path. */
+async function uploadBlob(): Promise<{ folder: string; path: string }> {
+	const folder = crypto.randomUUID();
+	const path = `${folder}/${crypto.randomUUID()}`;
+	const { error } = await db.storage
+		.from(IMAGE_BUCKET)
+		.upload(path, new Blob([new Uint8Array([1, 2, 3, 4])], { type: 'image/png' }), {
+			contentType: 'image/png'
+		});
+	expect(error).toBeNull();
+	return { folder, path };
+}
+
 describe('deleteImageBlobs against real Storage', () => {
 	it('removes the blob of a deleted image object', async () => {
 		const folder = crypto.randomUUID();
@@ -67,5 +80,47 @@ describe('deleteImageBlobs against real Storage', () => {
 	it('touches Storage for nothing when no image was removed', async () => {
 		const before = roomStateSchema.parse({ objects: {}, participants: {} });
 		expect(await deleteImageBlobs(db, before, [crypto.randomUUID()])).toEqual([]);
+	});
+});
+
+describe('deleteImageBlobForRejectedCreate against real Storage', () => {
+	it('removes the blob of a rejected image create', async () => {
+		const { folder, path } = await uploadBlob();
+		expect(await fileCount(folder)).toBe(1);
+
+		const object = newImage(CREATOR, { x: 0, y: 0 }, 0, {
+			path,
+			width: 4,
+			height: 4,
+			mime: 'image/png',
+			alt: 'x'
+		});
+		await deleteImageBlobForRejectedCreate(db, { kind: 'create_object', object });
+
+		expect(await fileCount(folder)).toBe(0);
+	});
+
+	it('leaves Storage alone for a non-image create', async () => {
+		const { folder, path } = await uploadBlob();
+		// A note create must not touch the (unrelated) blob.
+		await deleteImageBlobForRejectedCreate(db, {
+			kind: 'create_object',
+			object: {
+				id: crypto.randomUUID(),
+				type: 'note',
+				creator_id: CREATOR,
+				permission: 'all',
+				transform: { x: 0, y: 0, width: 200, height: 160, rotation: 0, z: 1 },
+				clip: { shape: 'rect' },
+				border: { width: 10 },
+				hidden: false,
+				payload: { text: 'hi', doc: '' },
+				created_at: '2026-07-20T00:00:00.000Z',
+				updated_at: '2026-07-20T00:00:00.000Z'
+			}
+		});
+		expect(await fileCount(folder)).toBe(1);
+		// Clean up the blob this test deliberately left.
+		await db.storage.from(IMAGE_BUCKET).remove([path]);
 	});
 });

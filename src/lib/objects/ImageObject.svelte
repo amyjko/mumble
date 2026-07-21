@@ -101,11 +101,22 @@
 
 	<div class="picture">
 		{#if src !== undefined && !failed}
+			<!--
+				`loading="lazy"` so a room full of images (up to 25, each a full-bytes
+				download since there is no thumbnailing yet) does not fetch tiles that
+				are panned off-screen; `decoding="async"` keeps decode off the main
+				thread. No `width`/`height` attributes on purpose: the object's frame
+				fixes the box and `object-fit: contain` handles the aspect, so there is
+				no `height:auto` layout-shift for an intrinsic-size hint to prevent —
+				they would add nothing here.
+			-->
 			<img
 				class="img"
 				{src}
 				alt={label}
 				draggable="false"
+				loading="lazy"
+				decoding="async"
 				onerror={() => {
 					failed = true;
 					onexpired?.(object.payload.path);

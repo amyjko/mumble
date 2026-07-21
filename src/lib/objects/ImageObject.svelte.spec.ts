@@ -80,6 +80,13 @@ describe('a resolved image', () => {
 		await expect.element(page.getByRole('img')).toBeInTheDocument();
 		expect(getComputedStyle(img()).objectFit).toBe('contain');
 	});
+
+	it('loads lazily and decodes async (cheap room-load wins)', async () => {
+		void render(ImageObject, { object: object(), sync: sync(), editable: false, src: pngUrl() });
+		await expect.element(page.getByRole('img')).toBeInTheDocument();
+		expect(img().getAttribute('loading')).toBe('lazy');
+		expect(img().getAttribute('decoding')).toBe('async');
+	});
 });
 
 describe('the alt caption (UX-A11Y-3)', () => {

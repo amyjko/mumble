@@ -16,6 +16,7 @@
 	import { newNote, newTimer, newChat, newScreenshare, newImage, maxZOf } from '$lib/model/create';
 	import {
 		uploadImage,
+		imageFilesFrom,
 		ImageUploadError,
 		IMAGE_BUCKET,
 		SIGNED_URL_TTL_SECONDS
@@ -627,7 +628,7 @@
 	function pickImage(): void {
 		imageInput?.click();
 	}
-	async function onImagePicked(): Promise<void> {
+	function onImagePicked(): void {
 		// Read from the bound input rather than event.currentTarget, which avoids a
 		// cast and is the same element anyway.
 		const input = imageInput;
@@ -636,9 +637,26 @@
 		// Clear so picking the SAME file again still fires a change event.
 		input.value = '';
 		if (file === undefined) return;
-		// Pre-check the room's image count so a full room refuses BEFORE uploading
-		// bytes it would only orphan. The rule engine is the real gate; this is
-		// the courtesy half (AR-SYNC-3), and it announces the same message.
+		void addImageFromFile(file, centerWorld());
+	}
+
+	/**
+	 * The one path every image creation takes — the toolbar picker, a drop, or a
+	 * paste (UX-OBJ-5). `world` is where it lands: the cursor for a drop, the
+	 * viewport centre for the picker and a paste.
+	 *
+	 * Both pre-checks run BEFORE the upload, so a refused create never leaves an
+	 * orphaned blob: `mayCreate` because drop/paste bypass the disabled toolbar
+	 * button (its message matches the server's `requireMayCreate`), and the count
+	 * because a full room would reject the create anyway. The server enforces both
+	 * regardless — and cleans up a blob if a race slips a create past these into a
+	 * rejection (see the mutate route).
+	 */
+	async function addImageFromFile(file: File, world: { x: number; y: number }): Promise<void> {
+		if (!mayCreate) {
+			sync.announce('Only hosts may add objects in this room');
+			return;
+		}
 		const images = untrack(
 			() => Object.values(store.state.objects).filter((o) => o.type === 'image').length
 		);
@@ -653,7 +671,7 @@
 			const objects = untrack(() => Object.values(store.state.objects));
 			void sync.commit({
 				kind: 'create_object',
-				object: newImage(identity.id, centerWorld(), maxZOf(objects), ref, store.state.border_default)
+				object: newImage(identity.id, world, maxZOf(objects), ref, store.state.border_default)
 			});
 			sync.announce('Image added');
 		} catch (error) {
@@ -662,6 +680,49 @@
 			);
 		}
 	}
+
+	/**
+	 * Drop image files onto the canvas (UX-OBJ-5), placed where they land. A
+	 * pointer nicety alongside the keyboard-reachable toolbar button; non-image
+	 * files are ignored, and each image runs the same guarded upload path.
+	 */
+	let dropActive = $state(false);
+	function onDragOver(event: DragEvent): void {
+		// Only care about a real file drag; an object drag on the canvas uses
+		// pointer events, not this.
+		if (event.dataTransfer === null || !event.dataTransfer.types.includes('Files')) return;
+		event.preventDefault(); // required, or the browser refuses the drop
+		dropActive = true;
+	}
+	function onDrop(event: DragEvent): void {
+		const files = imageFilesFrom(event.dataTransfer?.files ?? null);
+		dropActive = false;
+		if (files.length === 0) return;
+		event.preventDefault();
+		const world = viewport.toWorld({ x: event.clientX, y: event.clientY });
+		for (const file of files) void addImageFromFile(file, world);
+	}
+
+	/**
+	 * Paste an image from the clipboard (UX-OBJ-5). A window listener because a
+	 * paste is not aimed at a canvas element; guarded so a paste INTO a text field
+	 * (a note, chat, or the alt caption — all marked `data-editable`) stays a text
+	 * paste and never also drops an image on the canvas.
+	 */
+	$effect(() => {
+		function onPaste(event: ClipboardEvent): void {
+			const active = document.activeElement;
+			if (active instanceof HTMLElement && active.closest('[data-editable]') !== null) return;
+			const files = imageFilesFrom(event.clipboardData?.files ?? null);
+			if (files.length === 0) return;
+			event.preventDefault();
+			for (const file of files) void addImageFromFile(file, centerWorld());
+		}
+		window.addEventListener('paste', onPaste);
+		return () => {
+			window.removeEventListener('paste', onPaste);
+		};
+	});
 	/**
 	 * Change your own name/face (UX-ID-1, UX-AV-3). Writes BOTH the per-browser
 	 * identity and the room's participant record: the first is what you carry
@@ -1050,7 +1111,19 @@
 	<span class="hint">double-click the canvas to add a note</span>
 </header>
 
-<main>
+<!-- Drop an image file anywhere on the room to add it (UX-OBJ-5). dragleave
+     clears the hint only when the pointer leaves `main` itself, not on every
+     child boundary crossing (relatedTarget is outside). -->
+<main
+	class:dropping={dropActive}
+	ondragover={onDragOver}
+	ondrop={onDrop}
+	ondragleave={(e) => {
+		if (!(e.relatedTarget instanceof Node) || !e.currentTarget.contains(e.relatedTarget)) {
+			dropActive = false;
+		}
+	}}
+>
 	<WorldCanvas
 		{store}
 		{sync}
@@ -1065,6 +1138,11 @@
 		{onImageExpired}
 		cameraDenied={session?.cameraDenied ?? false}
 	/>
+	{#if dropActive}
+		<!-- Decorative: the drop works whether or not this is seen, and a
+		     screen-reader user is not dragging a file with a pointer. -->
+		<div class="drop-overlay" aria-hidden="true"><span>Drop to add an image</span></div>
+	{/if}
 	<!-- Remote audio, off-canvas and unstyled.
 	     One element per peer rather than per tile: a tile is a position on a
 	     canvas and audio has no position yet, so mixing there would be a decision
@@ -1154,5 +1232,27 @@
 		padding: 0;
 		font-size: var(--text-sm);
 		color: var(--text-muted);
+	}
+
+	/* The file-drop affordance (UX-OBJ-5). `main` is fixed/inset:0, so this
+	   absolute layer covers the canvas; pointer-events:none keeps the drop itself
+	   landing on the canvas beneath. */
+	.drop-overlay {
+		position: absolute;
+		inset: 0;
+		z-index: var(--z-overlay);
+		display: grid;
+		place-items: center;
+		pointer-events: none;
+		outline: 3px dashed var(--accent);
+		outline-offset: -10px;
+	}
+	.drop-overlay span {
+		padding: var(--space-2) var(--space-4);
+		border-radius: var(--radius-full);
+		background: var(--accent);
+		color: var(--accent-contrast);
+		font-size: var(--text-lg);
+		font-weight: 600;
 	}
 </style>

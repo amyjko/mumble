@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateImageFile, ImageUploadError } from './image-upload';
+import { validateImageFile, imageFilesFrom, ImageUploadError } from './image-upload';
 import { MAX_IMAGE_BYTES, MAX_IMAGE_DIM } from '$lib/model/image';
 
 /**
@@ -56,5 +56,29 @@ describe('validateImageFile', () => {
 			type: 'image/png'
 		});
 		await expect(validateImageFile(undecodable)).rejects.toBeInstanceOf(ImageUploadError);
+	});
+});
+
+describe('imageFilesFrom (drop/paste extraction)', () => {
+	/** A real FileList, the only way to make one — via DataTransfer. */
+	function fileList(...files: File[]): FileList {
+		const dt = new DataTransfer();
+		for (const file of files) dt.items.add(file);
+		return dt.files;
+	}
+	const png = new File([new Uint8Array([1])], 'a.png', { type: 'image/png' });
+	const gif = new File([new Uint8Array([1])], 'b.gif', { type: 'image/gif' });
+	const text = new File(['hi'], 'c.txt', { type: 'text/plain' });
+
+	it('keeps image files and drops the rest', () => {
+		expect(imageFilesFrom(fileList(png, text, gif))).toEqual([png, gif]);
+	});
+
+	it('returns empty when nothing is an image', () => {
+		expect(imageFilesFrom(fileList(text))).toEqual([]);
+	});
+
+	it('handles a null list (no dataTransfer / clipboard files)', () => {
+		expect(imageFilesFrom(null)).toEqual([]);
 	});
 });

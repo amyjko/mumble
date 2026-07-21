@@ -4,7 +4,7 @@ import { StoreRejection } from '$lib/model/types';
 import { applyMutation } from '$lib/model/rules';
 import { diffRoomState } from '$lib/model/diff';
 import { needsGuard, movesSomething } from '$lib/server/guard';
-import { deleteImageBlobs } from '$lib/server/image-cleanup';
+import { deleteImageBlobs, deleteImageBlobForRejectedCreate } from '$lib/server/image-cleanup';
 import { parseClaims } from '$lib/auth/claims';
 import { supabaseAdmin } from '$lib/server/supabase-admin';
 import { loadRoomState, saveRoomState, VersionConflict } from '$lib/server/room-state';
@@ -81,6 +81,10 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 			applyMutation(room_state.state, parsed.data, ctx);
 		} catch (rejection) {
 			if (rejection instanceof StoreRejection) {
+				// A rejected image create already uploaded its bytes; remove the now
+				// orphaned blob before returning the error (UX-OBJ-5). No-op otherwise,
+				// and before error(), which throws.
+				await deleteImageBlobForRejectedCreate(db, parsed.data);
 				// The same reasons the optimistic layer already reverts on, mapped
 				// to status codes so the client can reconstruct them.
 				const status = { permission: 403, overlap: 409, invalid: 400, forced: 409 }[rejection.reason];

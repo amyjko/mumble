@@ -125,3 +125,32 @@ test('a file that is not a supported image is refused, and says so (UX-OBJ-5)', 
 
 	await context.close();
 });
+
+test('dropping an image file onto the canvas adds it (UX-OBJ-5)', async ({ browser }) => {
+	test.setTimeout(120_000);
+	const context = await browser.newContext();
+	const page = await context.newPage();
+
+	await joinRoom(page, roomName('imagedrop'), 'Dropper');
+	await settled(page);
+
+	// Build a real File in a DataTransfer and dispatch a drop — the only way to
+	// drive a file drop in Playwright (there is no OS drag to simulate). The drop
+	// handler lives on <main>; dispatching on the canvas bubbles up to it.
+	const dataTransfer = await page.evaluateHandle((b64: string) => {
+		const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+		const dt = new DataTransfer();
+		dt.items.add(new File([bytes], 'dropped.png', { type: 'image/png' }));
+		return dt;
+	}, PNG_IMAGE.toString('base64'));
+
+	const canvas = page.getByRole('application', { name: 'Room canvas' });
+	await canvas.dispatchEvent('dragover', { dataTransfer });
+	await canvas.dispatchEvent('drop', { dataTransfer });
+
+	// The dropped file became an image object, alt seeded from its filename.
+	await expect(page.locator('[data-object-type="image"]')).toHaveCount(1, { timeout: 60_000 });
+	await expect(page.getByRole('img', { name: 'dropped' })).toBeVisible({ timeout: 60_000 });
+
+	await context.close();
+});
