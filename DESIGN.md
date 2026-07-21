@@ -19,7 +19,12 @@ This document is the consolidated design, restructured as **requirement checklis
   - `- [ ]` with no tag — not started, nothing to add.
 - **Keep these current as you work.** They were all left unchecked for the first ~30 commits, which made the document say nothing was done when a third of it was. Status re-audited **2026-07-20**, twice: once after the A/V plane landed, and again the same day against the SOURCE rather than against this file. The second pass is the one that matters, and it is described below.
 
-**Current: 117 done · 27 partial · 20 blocked · 8 not started (171 total).**
+**Current: 118 done · 27 partial · 20 blocked · 8 not started (172 total).**
+Re-counted 2026-07-21 again after UX-ROOM-12 was ADDED and closed in one
+step — a room now arrives furnished — which is the second requirement this
+document has gained rather than met (UX-ID-10 was the first). Both were
+written because something shipped and then read wrong in use, which is the
+only good reason to add one this late.
 Re-counted 2026-07-21 after the OAuth slice closed UX-ID-7 and AR-TEST-8, the
 last two auth requirements and **the last unbuilt user-facing MVP feature**.
 What is left is no longer a feature list: of the **25 unchecked MVP items**,
@@ -40,10 +45,10 @@ apiece, and each was shown to FAIL against a deliberately planted violation
 before being believed. That ratio is the same argument the audit note below
 makes: the cheapest requirement to close is one that is already true and
 unverified. Earlier the same day the ledger landed (AR-COST-2..4, AR-COST-6,
-UX-ECON-2, AR-BACKEND-1) and UX-ID-10 added the account page — the one
+UX-ECON-2, AR-BACKEND-1) and UX-ID-10 added the account page — the first
 requirement added rather than closed, because the ledger shipped its numbers
-readable only from inside a room. There are 171 requirements and the four tag
-counts sum to 172, because AR-COST-9 carries two — it opens PARTIAL and closes
+readable only from inside a room. There are 172 requirements and the four tag
+counts sum to 173, because AR-COST-9 carries two — it opens PARTIAL and closes
 BLOCKED, which is a formatting quirk of a note wrapped around its requirement
 text, not two states. Count it once, as partial. (The arithmetic was stated
 backwards here until 2026-07-21 — "the tags sum to 171" — which is exactly the
@@ -249,6 +254,7 @@ Low-friction joining; accounts held by hosts, not guests.
 - [x] **UX-ROOM-9** (MVP) — Name rules: lowercase letters, digits, `-` and `_`; length 2–32; compared case-insensitively so `LCI` and `lci` are the same room and cannot both exist; and a small reserved list. Because rooms live under the `/hey/` prefix rather than at the root, no room name can ever collide with a top-level route (`/login`, `/api`) — the reserved list only has to cover names used directly under `/hey/`. That containment is the reason to keep the prefix.
 - [x] **UX-ROOM-10** (MVP) — Renaming a room frees the old name immediately for anyone to claim, and old URLs stop resolving. Hosts are warned before renaming that existing links will break. _Done. Renaming is real server-side and host-only — one UPDATE frees the old name — and as of 2026-07-20 the two consequences are asserted rather than assumed: the test walks back to the old URL and gets "No such room", then creates a NEW room at the freed name and lands in it. Those two assertions are what make the confirm dialog's "you will lose access" warning honest rather than scaremongering. Both were indeed one line away in the existing test, which is worth remembering the next time something is filed as untested: the tag was accurate about the gap and about how cheap it was, and it still sat there. There is no grace period and no redirect — both remain open items._
 - [x] **UX-ROOM-11** (MVP) — The service has a **landing page** at `/` making one claim — _communication is more than words_ — with a short list of what the room lets people do and exactly ONE prominent action: make a room. It states that joining needs no account, because the person following an invitation is the common case and must not think they have to sign up. Making a room is its own route (`/new`), so account creation has a single place to intercept (AR-AUTH-1); a link to an existing room never passes through either page.
+- [x] **UX-ROOM-12** (MVP) — A room is created **furnished**: it arrives with a default set of named layouts covering the three shapes people turn up wanting — a **gallery** (five equal video spots and a chat), a **one on one** (two spots with a shared page between them), and a **featured speaker** (one large spot, an audience of thirty-five who may be heard but not seen, and a chat down the side). The gallery is active. They are ordinary configurations: a host may switch, edit, rename or delete any of them, and a room stripped back to nothing is a room like any other. _Done 2026-07-21, and it cost no model: a layout was ALREADY a snapshot of placers, capacity numbers and per-object poses (UX-ROOM-3, UX-STAGE-1), so the whole feature is one data file (`model/presets.ts`) and one seeding write. Same evidence UX-CANVAS-4 records about screen shares — when a feature turns out to be data, the model underneath it was the right shape. Two things this made explicit that a blank room let stay vague. A "video placeholder" is not an object and not a slot: it is a newcomer placer (where you land, and what size and shape you land as) PLUS the layout's `max_av` (how many may send video) — five spots and `max_av = 5` are stated separately, because UX-STAGE-1 is emphatic that fusing position with capacity is what once made arrival order decide who could speak. And "thirty-five non-video participants" is `max_av = 1` with `max_audio = 35`: an audience that may speak, which is a different claim from an audience that is merely present. The seeding write goes through `save_room_state` — the same one-transaction path every mutation takes — and its failure does not fail the creation: the room's name is already taken by then, so refusing would leave someone a room they can neither see nor re-create, whereas an unfurnished room is merely what every room was the day before._
 
 ## 8. Houses (UX-HOUSE) — all (Later)
 
