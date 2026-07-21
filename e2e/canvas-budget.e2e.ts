@@ -26,6 +26,20 @@ import { MAX_ROOM_OBJECTS } from '../src/lib/model/limits';
  * stop the numbers rotting silently.
  */
 
+/**
+ * The two values the in-page frame recorder parks on `window`.
+ *
+ * Declared rather than asserted onto `window`: type assertions are banned in
+ * this project, and `window as unknown as { … }` twice would have been two of
+ * them in the one file whose job is to measure honestly.
+ */
+declare global {
+	interface Window {
+		__frames?: number[];
+		__stopFrames?: () => void;
+	}
+}
+
 /** Seeded straight into Postgres: N mutate round trips would dominate the timing. */
 async function seedObjects(room: string, count: number): Promise<string> {
 	const roomId = await createRoomDirectly(room);
@@ -72,19 +86,20 @@ async function seedObjects(room: string, count: number): Promise<string> {
  */
 async function dragAndMeasure(page: import('@playwright/test').Page): Promise<number[]> {
 	await page.evaluate(() => {
-		const w = window as unknown as { __frames?: number[]; __stop?: () => void };
-		w.__frames = [];
+		window.__frames = [];
 		let last = performance.now();
 		let running = true;
 		const tick = (): void => {
 			if (!running) return;
 			const now = performance.now();
-			w.__frames?.push(now - last);
+			window.__frames?.push(now - last);
 			last = now;
 			requestAnimationFrame(tick);
 		};
 		requestAnimationFrame(tick);
-		w.__stop = () => (running = false);
+		window.__stopFrames = () => {
+			running = false;
+		};
 	});
 
 	// Drag the first note across the room: a real pointer gesture, so the whole
@@ -101,12 +116,11 @@ async function dragAndMeasure(page: import('@playwright/test').Page): Promise<nu
 	await page.mouse.up();
 
 	return page.evaluate(() => {
-		const w = window as unknown as { __frames?: number[]; __stop?: () => void };
-		w.__stop?.();
+		window.__stopFrames?.();
 		// Drop the first few: the gesture's first frame includes hit testing and
 		// the pointer capture, which is a one-off cost and not what a budget is
 		// about.
-		return (w.__frames ?? []).slice(3);
+		return (window.__frames ?? []).slice(3);
 	});
 }
 
@@ -142,7 +156,6 @@ test('the object-count budget holds at its ceiling (AR-CANVAS-4)', async ({ page
 
 	// The useful output. Printed rather than asserted, because the NUMBERS are
 	// what a future reader wants and a threshold is only a tripwire.
-	// eslint-disable-next-line no-console
 	console.log(
 		'AR-CANVAS-4 measurements\n' +
 			measured
