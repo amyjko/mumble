@@ -60,7 +60,7 @@ Two things are worth knowing before trusting a green run:
 | [TESTING.md](TESTING.md) | The testing layers, what each proves, and the local setup. |
 | [STACK.md](STACK.md) | Stack decisions and the versions they were verified against. |
 | [STYLE.md](STYLE.md) | The design system and its accessibility claims. |
-| [CONTROL-PLANE.md](CONTROL-PLANE.md) | Auth, membership, room state and the write path. |
+| [CONTROL-PLANE.md](CONTROL-PLANE.md) | How auth, membership, room state and the write path fit together — and the defects testing found in them. |
 
 DESIGN.md is the one to read first, and its status tags are meant to be honest
 rather than flattering: `_PARTIAL_` usually means "works, and here is precisely

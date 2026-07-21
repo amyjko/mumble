@@ -66,37 +66,70 @@ export async function closeIntervals(
 }
 
 /**
- * May anyone else enter this room this week? (AR-COST-4)
+ * What a room has left this week — ONE read, which everything else derives from.
  *
- * The gate, in one place, read by all three callers — the mutation route that
- * decides it, the admission route that must not wave someone past it, and the
- * page load that explains it. A second copy of "is there time left" is how a
- * gate and the screen describing it come to disagree.
+ * The room's budget is its OWNER's account (UX-ID-4): guests hold no account, so
+ * the owner's is the only one a room can draw on. That is why this is keyed on a
+ * room and not on a person, even though it returns an account's numbers.
  *
  * Rolls before reading (AR-COST-6): the weekly reset is lazy, so a budget that
- * expired at the week boundary is only actually reset by somebody reading it,
- * and refusing a join against last week's total would be a cap that never lets
- * go. Nothing anywhere reads these columns without rolling first.
+ * expired at the week boundary is only actually reset by somebody reading it.
+ * Reading these columns raw would show last week's total and refuse a join
+ * against it — a cap that never lets go. Nothing anywhere reads them without
+ * rolling first, which is the property this function exists to hold.
  *
- * Fails OPEN. If the ledger cannot be read, people get into their meeting. The
- * failure this protects against is a free product being farmed, which is a slow
- * and recoverable problem; the failure it would cause by closing is everybody
- * locked out of every room at once, which is neither.
+ * Returns null when it cannot be read at all, and every caller treats that as
+ * "do not stand in anyone's way" — see `roomHasTime`.
  */
-export async function roomHasTime(
+export interface RoomBudget {
+	usedSeconds: number;
+	capSeconds: number;
+	/** ISO timestamp: when the counter next returns to zero. */
+	resetsAt: string;
+}
+
+export async function roomBudget(
 	db: SupabaseClient<Database>,
 	roomId: string
-): Promise<boolean> {
+): Promise<RoomBudget | null> {
 	const room = await db.from('rooms').select('owner_id').eq('id', roomId).maybeSingle();
-	if (room.data === null) return true;
+	if (room.data === null) return null;
 
 	// No `.maybeSingle()`: `roll_account` returns accounts%rowtype, so the RPC
 	// already yields one row rather than a set. Asking for single on top of that
 	// asks PostgREST to unwrap something that was never wrapped.
 	const account = await db.rpc('roll_account', { p_account: room.data.owner_id });
-	if (account.error !== null) return true;
+	if (account.error !== null) return null;
 
-	return !isExhausted(account.data.weekly_seconds_used, account.data.weekly_cap_seconds);
+	return {
+		usedSeconds: account.data.weekly_seconds_used,
+		capSeconds: account.data.weekly_cap_seconds,
+		resetsAt: account.data.week_resets_at
+	};
+}
+
+/**
+ * May anyone else enter this room this week? (AR-COST-4)
+ *
+ * The gate, in one place, read by three callers — the mutation route that
+ * decides it, the admission route that must not wave someone past it, and the
+ * page load that explains it. It is also the same read the toolbar's readout
+ * renders, which is the point of routing both through `roomBudget`: a second
+ * copy of "is there time left" is how a gate and the screen describing it come
+ * to disagree, and here they would disagree about a number people are watching.
+ *
+ * Fails OPEN. If the ledger cannot be read, people get into their meeting. The
+ * failure this protects against is a free product being farmed, which is slow
+ * and recoverable; the failure it would cause by closing is everybody locked out
+ * of every room at once, which is neither.
+ */
+export async function roomHasTime(
+	db: SupabaseClient<Database>,
+	roomId: string
+): Promise<boolean> {
+	const budget = await roomBudget(db, roomId);
+	if (budget === null) return true;
+	return !isExhausted(budget.usedSeconds, budget.capSeconds);
 }
 
 /**
@@ -110,10 +143,5 @@ export async function roomBudgetResetsAt(
 	db: SupabaseClient<Database>,
 	roomId: string
 ): Promise<string | null> {
-	const room = await db.from('rooms').select('owner_id').eq('id', roomId).maybeSingle();
-	if (room.data === null) return null;
-
-	const account = await db.rpc('roll_account', { p_account: room.data.owner_id });
-	if (account.error !== null) return null;
-	return account.data.week_resets_at;
+	return (await roomBudget(db, roomId))?.resetsAt ?? null;
 }

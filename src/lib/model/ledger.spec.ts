@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { beatSeconds, isExhausted, STALE_AFTER_SECONDS } from './ledger';
+import {
+	beatSeconds,
+	budgetReadout,
+	BUDGET_WARNING_SECONDS,
+	isExhausted,
+	STALE_AFTER_SECONDS
+} from './ledger';
 
 /**
  * What a heartbeat is worth (AR-COST-3, UX-ECON-2, AR-TEST-4).
@@ -65,5 +71,63 @@ describe('isExhausted', () => {
 	it('allows a budget with time left', () => {
 		expect(isExhausted(35999, 36000)).toBe(false);
 		expect(isExhausted(0, 36000)).toBe(false);
+	});
+});
+
+/**
+ * The toolbar footnote (UX-ECON-2).
+ *
+ * The phrasing is tested rather than eyeballed because it makes a PROMISE: the
+ * number is what the room actually has left, and the gate that enforces it uses
+ * the same seconds. A readout that rounds up promises time the room cannot give.
+ */
+describe('budgetReadout', () => {
+	const CAP = 36000; // ten hours
+
+	it('reads in hours while there is plenty', () => {
+		expect(budgetReadout(0, CAP).label).toBe('10h left this week');
+		expect(budgetReadout(0, CAP).warning).toBe(false);
+	});
+
+	it('rounds DOWN, so the number is a floor and not a hope', () => {
+		// 2h 59m left must not read "3h". Rounding up in the user's disfavour is
+		// the one direction that turns the readout into a false promise.
+		const almostThree = CAP - (3 * 3600 - 60);
+		expect(budgetReadout(almostThree, CAP).label).toBe('2h left this week');
+	});
+
+	it('switches to minutes exactly at the warning threshold', () => {
+		// The unit change is a second, non-colour signal for the same event
+		// (WCAG 1.4.1), so it has to happen at precisely the same moment.
+		const atThreshold = CAP - BUDGET_WARNING_SECONDS;
+		expect(budgetReadout(atThreshold, CAP).warning).toBe(false);
+		expect(budgetReadout(atThreshold, CAP).label).toBe('1h left this week');
+
+		const justUnder = CAP - BUDGET_WARNING_SECONDS + 1;
+		expect(budgetReadout(justUnder, CAP).warning).toBe(true);
+		expect(budgetReadout(justUnder, CAP).label).toBe('59m left this week');
+	});
+
+	it('says "no time left" rather than rounding the last seconds up', () => {
+		// 30 seconds left is not "1m left". The room is about to refuse people.
+		expect(budgetReadout(CAP - 30, CAP).label).toBe('0m left this week');
+		expect(budgetReadout(CAP, CAP).label).toBe('no time left this week');
+		expect(budgetReadout(CAP, CAP).exhausted).toBe(true);
+	});
+
+	it('never reports negative time when a cap is lowered below what is spent', () => {
+		// An operator can set `weekly_cap_seconds` by hand, including below the
+		// current usage. "-2h left" would be a readout nobody can act on.
+		const readout = budgetReadout(CAP, 3600);
+		expect(readout.secondsLeft).toBe(0);
+		expect(readout.exhausted).toBe(true);
+		expect(readout.label).toBe('no time left this week');
+	});
+
+	it('treats a zero cap as exhausted, matching the gate', () => {
+		// The suspended-room case. The footnote and `isExhausted` must agree, or
+		// the bar says one thing while the door does another.
+		expect(budgetReadout(0, 0).exhausted).toBe(true);
+		expect(isExhausted(0, 0)).toBe(true);
 	});
 });

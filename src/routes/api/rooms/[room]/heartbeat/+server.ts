@@ -5,7 +5,7 @@ import { canonicalRoomName } from '$lib/model/room-name';
 import { loadRoomState, saveRoomState, VersionConflict } from '$lib/server/room-state';
 import { diffRoomState } from '$lib/model/diff';
 import { reapParticipants } from '$lib/model/rules';
-import { closeIntervals, meterBeat } from '$lib/server/ledger';
+import { closeIntervals, meterBeat, roomBudget } from '$lib/server/ledger';
 import { STALE_AFTER_SECONDS } from '$lib/model/ledger';
 
 /**
@@ -107,6 +107,28 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 		now
 	);
 
+	/*
+	 * The room's remaining time, carried back on the beat (UX-ECON-2).
+	 *
+	 * Piggybacked rather than polled from its own endpoint, and that is the whole
+	 * reason the readout costs nothing: the beat is already a round trip, it
+	 * already runs every fifteen seconds, and it has JUST moved the number it is
+	 * reporting. A separate poll would be a second timer racing this one to
+	 * describe the same value, and would sometimes show the meter's previous
+	 * answer a moment after this one changed it.
+	 *
+	 * Read through `roomBudget`, which is the same read the gate makes — so the
+	 * footnote and the refusal cannot disagree about how much is left.
+	 */
+	const budget = await roomBudget(db, room.data.id);
+
+	/**
+	 * Every exit from here reports the budget. Four return points had four
+	 * chances to forget one, and a readout that silently stops updating on the
+	 * sweep path is exactly the kind of thing nobody notices until it matters.
+	 */
+	const reply = (reaped: number) => json({ ok: true, reaped, budget });
+
 	const cutoff = new Date(Date.now() - STALE_AFTER_SECONDS * 1000).toISOString();
 	const stale = await db
 		.from('room_participants')
@@ -115,7 +137,7 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 		.lt('last_seen', cutoff);
 
 	const gone = (stale.data ?? []).map((row) => row.id);
-	if (gone.length === 0) return json({ ok: true, reaped: 0 });
+	if (gone.length === 0) return reply(0);
 
 	/*
 	 * Stamp their ledger intervals closed (AR-COST-2). Audit trail only: it
@@ -140,16 +162,16 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 		const before = structuredClone(room_state.state);
 		reapParticipants(room_state.state, gone);
 		const diff = diffRoomState(before, room_state.state);
-		if (diff.empty) return json({ ok: true, reaped: 0 });
+		if (diff.empty) return reply(0);
 
 		try {
 			await saveRoomState(db, room.data.id, room_state.version, diff, room_state.objectVersions);
-			return json({ ok: true, reaped: gone.length });
+			return reply(gone.length);
 		} catch (conflict) {
 			if (!(conflict instanceof VersionConflict)) throw conflict;
 		}
 	}
 
 	// Not an error the caller should act on: the next beat will try again.
-	return json({ ok: true, reaped: 0 });
+	return reply(0);
 };

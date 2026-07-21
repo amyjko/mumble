@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom, roomName, settled } from './support/join';
+import { joinRoom, roomName, settled, SYNC } from './support/join';
 import { adminClient, createRoomDirectly, signInAsAccount } from './support/auth';
 
 /**
@@ -162,6 +162,70 @@ test('the heartbeat meters a guest’s time onto the room owner (AR-COST-3, UX-I
 		.single();
 	// 20 seconds of presence, clamped by nothing and credited to the owner.
 	expect(data?.weekly_seconds_used).toBe(20);
+});
+
+test('the toolbar shows how much time the room has left (UX-ECON-2)', async ({ page }) => {
+	// The readout is fed by the heartbeat, which fires on mount — so this also
+	// proves the beat's reply carries the budget and the page parses it.
+	const room = roomName('budget');
+	await createRoomDirectly(room);
+	const owner = await ownerOf(room);
+	// Six hours used of ten: comfortably above the warning threshold.
+	const { error: spent } = await adminClient()
+		.from('accounts')
+		.update({ weekly_seconds_used: 6 * 3600, weekly_cap_seconds: 10 * 3600 })
+		.eq('id', owner);
+	if (spent !== null) throw new Error(`could not spend the budget: ${spent.message}`);
+
+	await joinRoom(page, room);
+
+	const readout = page.getByText(/left this week/);
+	await expect(readout).toBeVisible({ timeout: SYNC });
+	await expect(readout).toHaveText('4h left this week');
+
+	// And it explains the consequence, which is the part a bare number cannot
+	// carry: running out closes the room to NEW arrivals only.
+	await expect(readout).toHaveAttribute('title', /nobody new can join/);
+	await expect(readout).toHaveAttribute('title', /already here can stay/);
+});
+
+test('under an hour the readout changes colour, unit, and is announced (UX-ECON-2)', async ({
+	page
+}) => {
+	const room = roomName('budget');
+	await createRoomDirectly(room);
+	const owner = await ownerOf(room);
+	// 40 minutes left.
+	const { error: spent } = await adminClient()
+		.from('accounts')
+		.update({ weekly_seconds_used: 10 * 3600 - 40 * 60, weekly_cap_seconds: 10 * 3600 })
+		.eq('id', owner);
+	if (spent !== null) throw new Error(`could not spend the budget: ${spent.message}`);
+
+	await joinRoom(page, room);
+
+	const readout = page.getByText(/left this week/);
+	await expect(readout).toBeVisible({ timeout: SYNC });
+	// Minutes, not hours — the unit change is the non-colour half of the signal.
+	await expect(readout).toHaveText('40m left this week');
+
+	// The colour actually resolves to the danger token rather than the muted one.
+	// Asserting the COMPUTED value, not the class, because a class that no longer
+	// maps to a colour would pass a class assertion and warn nobody.
+	const [warned, muted] = await page.evaluate(() => {
+		const el = document.querySelector('.budget');
+		const root = document.documentElement;
+		const read = (name: string) => getComputedStyle(root).getPropertyValue(name).trim();
+		return [
+			el === null ? '' : getComputedStyle(el).color,
+			read('--text-muted')
+		];
+	});
+	expect(warned).not.toBe('');
+	expect(warned).not.toBe(muted);
+
+	// WCAG 1.4.1: the warning must reach someone who cannot see the colour.
+	await expect(readout).toHaveAttribute('aria-live', 'polite');
 });
 
 test('a budget that expired at the week boundary lets go by itself (AR-COST-6)', async ({

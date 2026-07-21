@@ -67,3 +67,53 @@ export function beatSeconds(lastSeen: Date | null, now: Date): number {
 export function isExhausted(used: number, cap: number): boolean {
 	return used >= cap;
 }
+
+/**
+ * When the readout starts asking to be noticed, in seconds.
+ *
+ * An hour. Long enough that a room can finish the meeting it is in and still
+ * have the conversation about it; short enough that it is not permanently
+ * amber, which is the failure mode of a warning set too early — a colour that
+ * is always on is a colour nobody reads.
+ */
+export const BUDGET_WARNING_SECONDS = 3600;
+
+/** What the toolbar needs to render, derived in one place rather than in markup. */
+export interface BudgetReadout {
+	/** Never negative: a cap lowered below what is already spent is 0 left, not -3h. */
+	secondsLeft: number;
+	/** "3h left" / "45m left" / "no time left" — the footnote itself. */
+	label: string;
+	/** Under an hour, so the readout should change colour and say more. */
+	warning: boolean;
+	/** Nothing left at all: the room is closed to new arrivals right now. */
+	exhausted: boolean;
+}
+
+/**
+ * The room's remaining time, phrased for a footnote (UX-ECON-2).
+ *
+ * Rounding is DOWN, deliberately, and it is the only interesting decision here:
+ * a readout that says "1h left" when 61 minutes remain is a small lie in the
+ * user's favour, while one that says "1h" when 59 minutes remain promises time
+ * the room does not have. Floor makes the number a guarantee rather than an
+ * estimate — and it is what makes the last minute read "no time left" instead of
+ * rounding up to a cheerful "1m".
+ *
+ * Hours above an hour, minutes below it. Nobody needs "2h 47m" for a budget
+ * whose whole job is to say roughly how much room is left; the precision starts
+ * mattering exactly when the warning does.
+ */
+export function budgetReadout(usedSeconds: number, capSeconds: number): BudgetReadout {
+	const secondsLeft = Math.max(0, capSeconds - usedSeconds);
+	const warning = secondsLeft < BUDGET_WARNING_SECONDS;
+	const exhausted = secondsLeft === 0;
+
+	const label = exhausted
+		? 'no time left this week'
+		: warning
+			? `${String(Math.floor(secondsLeft / 60))}m left this week`
+			: `${String(Math.floor(secondsLeft / 3600))}h left this week`;
+
+	return { secondsLeft, label, warning, exhausted };
+}

@@ -12,6 +12,20 @@
 	import OutOfTime from '$lib/ui/OutOfTime.svelte';
 	import { SupabaseRoomStore } from '$lib/store/supabase-store.svelte';
 	import { deferredWork } from '$lib/canvas/deferred.svelte';
+	import { roomBudget } from '$lib/canvas/budget.svelte';
+	import { z } from 'zod';
+
+	/**
+	 * The slice of the heartbeat's reply this page reads.
+	 *
+	 * `.nullable()`, because the server returns null when the ledger cannot be
+	 * read — it fails open rather than guessing, and so does the readout.
+	 */
+	const beatBudgetSchema = z.object({
+		budget: z
+			.object({ usedSeconds: z.number(), capSeconds: z.number(), resetsAt: z.string() })
+			.nullable()
+	});
 
 	/**
 	 * The identity gate. UX-ID-1: joining may be anonymous — no account
@@ -163,15 +177,36 @@
 		const name = data.room;
 		if (!admitted) return;
 		const beat = () => {
-			void fetch(`/api/rooms/${name}/heartbeat`, { method: 'POST' }).catch(() => {
-				// A missed beat is not an error worth surfacing: the next one
-				// covers it, and 45 seconds of grace is three chances.
-			});
+			void fetch(`/api/rooms/${name}/heartbeat`, { method: 'POST' })
+				.then(async (response) => {
+					// The beat carries the room's remaining time back with it
+					// (UX-ECON-2), because it has just moved that number and is
+					// already a round trip. Parsed defensively: this is the one
+					// place a malformed response would put a wrong number in
+					// front of people rather than merely failing.
+					if (!response.ok) return;
+					const body: unknown = await response.json();
+					const reading = beatBudgetSchema.safeParse(body);
+					if (!reading.success || reading.data.budget === null) return;
+					roomBudget.report(
+						reading.data.budget.usedSeconds,
+						reading.data.budget.capSeconds,
+						reading.data.budget.resetsAt
+					);
+				})
+				.catch(() => {
+					// A missed beat is not an error worth surfacing: the next one
+					// covers it, and 45 seconds of grace is three chances. The
+					// readout simply keeps its last value, which is at most 15
+					// seconds stale.
+				});
 		};
 		beat();
 		const timer = setInterval(beat, 15_000);
 		return () => {
 			clearInterval(timer);
+			// This room's number must not survive into the next one.
+			roomBudget.clear();
 		};
 	});
 
