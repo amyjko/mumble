@@ -9,6 +9,7 @@ import { parseClaims } from '$lib/auth/claims';
 import { supabaseAdmin } from '$lib/server/supabase-admin';
 import { loadRoomState, saveRoomState, VersionConflict } from '$lib/server/room-state';
 import { canonicalRoomName } from '$lib/model/room-name';
+import { closeIntervals, roomHasTime } from '$lib/server/ledger';
 
 /**
  * The ONLY write path (AR-SYNC-3, AR-CTRL-1).
@@ -50,6 +51,43 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 	}
 
 	const ctx = { actorId: claims.sub, isHost: membership.data.role === 'host' };
+
+	/*
+	 * The time gate (AR-COST-4, UX-ECON-2).
+	 *
+	 * HERE, and not at `join_room`, because this is where presence actually
+	 * begins: `join_room` makes you a member, which is a row that persists
+	 * between visits, while `upsert_participant` is you arriving in the room
+	 * right now. Refusing at membership would also lock a host out of their own
+	 * room's settings for a week, which is not what running out of meeting time
+	 * should mean.
+	 *
+	 * ONLY on arrival. Someone already present is re-upserting to rename
+	 * themselves or change their emoji, and a budget must never interrupt a
+	 * meeting already under way — the same call this project made for
+	 * `max_participants`, where lowering a cap never evicts anyone. A number
+	 * changing underneath a live conversation is a worse failure than a room
+	 * that stays open a little past its budget.
+	 *
+	 * One extra round trip, and only for the one mutation kind that can be an
+	 * arrival — checked before the retry loop so a contended room does not ask
+	 * the ledger six times.
+	 */
+	if (parsed.data.kind === 'upsert_participant') {
+		const present = await db
+			.from('room_participants')
+			.select('id')
+			.eq('room_id', room.data.id)
+			.eq('id', claims.sub)
+			.maybeSingle();
+
+		if (present.data === null && !(await roomHasTime(db, room.data.id))) {
+			// 402, not 403. A refusal for lack of budget is a different fact from
+			// a refusal for lack of permission, and the client renders them
+			// differently — one is "come back Monday", the other is "you may not".
+			error(402, 'This room has used its time for the week.');
+		}
+	}
 
 	/*
 	 * Bounded retry on a conflict. Bounded, not a loop: under a concurrent drag
@@ -120,6 +158,15 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 			// object would orphan its blob unless we remove it too (UX-OBJ-5). After
 			// the row commit, from the PRE-mutation state (the diff carries only ids).
 			await deleteImageBlobs(db, before, diff.objects.remove);
+
+			// A clean departure closes its ledger interval (AR-COST-2). The
+			// crash path is covered by the sweep; this is the case where we
+			// actually get told. Moves no seconds either way — they were
+			// credited beat by beat.
+			if (parsed.data.kind === 'remove_participant') {
+				await closeIntervals(db, room.data.id, [parsed.data.id]);
+			}
+
 			return json({ ok: true, version });
 		} catch (conflict) {
 			// Someone committed between our read and our write. Re-read and

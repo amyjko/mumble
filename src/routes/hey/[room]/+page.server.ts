@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { canonicalRoomName, isValidRoomName } from '$lib/model/room-name';
 import { supabaseAdmin } from '$lib/server/supabase-admin';
+import { roomBudgetResetsAt, roomHasTime } from '$lib/server/ledger';
 
 /**
  * Does this room exist? (UX-ROOM-8)
@@ -47,5 +48,29 @@ export const load: PageServerLoad = async ({ params }) => {
 		.eq('room_id', room.data.id)
 		.maybeSingle();
 
-	return { roomId: room.data.id, asksAdmission: settings.data?.admission === 'ask' };
+	/*
+	 * Has this room used its week? (AR-COST-4, UX-ECON-2)
+	 *
+	 * The COURTEOUS half of the gate. The authoritative refusal is at the
+	 * mutation route, where arrival actually happens; this exists so that the
+	 * refusal arrives as a sentence a person can act on instead of a canvas
+	 * that silently declines to accept them.
+	 *
+	 * Read here for the same reason `admission` is: the visitor cannot read it
+	 * for themselves. The budget belongs to the room's OWNER, and `accounts` is
+	 * readable only by its own holder — which is exactly right, and exactly why
+	 * a guest standing at the door needs the server to answer for them.
+	 *
+	 * Not a secret either: it says nothing about the owner's account beyond the
+	 * fact this room is closed until a date, which is what the person at the
+	 * door has to be told.
+	 */
+	const outOfTime = !(await roomHasTime(db, room.data.id));
+
+	return {
+		roomId: room.data.id,
+		asksAdmission: settings.data?.admission === 'ask',
+		outOfTime,
+		budgetResetsAt: outOfTime ? await roomBudgetResetsAt(db, room.data.id) : null
+	};
 };

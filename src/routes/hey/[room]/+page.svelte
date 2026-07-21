@@ -9,6 +9,7 @@
 	import { supabaseBrowser } from '$lib/auth/browser-client';
 	import Room from '$lib/canvas/Room.svelte';
 	import WaitingRoom from '$lib/ui/WaitingRoom.svelte';
+	import OutOfTime from '$lib/ui/OutOfTime.svelte';
 	import { SupabaseRoomStore } from '$lib/store/supabase-store.svelte';
 	import { deferredWork } from '$lib/canvas/deferred.svelte';
 
@@ -259,7 +260,15 @@
 	<title>{data.room} · mumble</title>
 </svelte:head>
 
-{#if identity === null}
+{#if data.outOfTime}
+	<!--
+		Before the join prompt, deliberately (UX-ECON-2). Asking someone to choose
+		a name and an avatar and THEN refusing them is the worse order, and the
+		refusal does not depend on who they turn out to be — the budget belongs to
+		the room.
+	-->
+	<OutOfTime resetsAt={data.budgetResetsAt} />
+{:else if identity === null}
 	<JoinPrompt
 		asks={data.asksAdmission}
 		onjoin={(joined: StoredIdentity, message: string) => {

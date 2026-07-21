@@ -250,7 +250,7 @@ PARTIAL — the id roams, the avatar does not.
 supabase start && supabase db reset      # migrations + the pgTAP helper seed
 supabase status -o env                   # copy the keys into .env
 pnpm test:unit -- --run                  # offline, no Docker needed
-pnpm test:rls                            # 39 pgTAP assertions
+pnpm test:rls                            # 96 pgTAP assertions
 pnpm test:integration                    # real JWTs against the local stack
 pnpm test:e2e                            # needs the stack (auth is real now)
 ```

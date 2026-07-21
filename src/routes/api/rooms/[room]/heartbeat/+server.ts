@@ -5,6 +5,8 @@ import { canonicalRoomName } from '$lib/model/room-name';
 import { loadRoomState, saveRoomState, VersionConflict } from '$lib/server/room-state';
 import { diffRoomState } from '$lib/model/diff';
 import { reapParticipants } from '$lib/model/rules';
+import { closeIntervals, meterBeat } from '$lib/server/ledger';
+import { STALE_AFTER_SECONDS } from '$lib/model/ledger';
 
 /**
  * "I am still here", and a sweep of everyone who is not (AR-CTRL-3, UX-STAGE-4).
@@ -26,17 +28,19 @@ import { reapParticipants } from '$lib/model/rules';
  * somebody else is gone. That is also why it uses `reapParticipants` — which
  * takes no actor and is unreachable from the mutation union — rather than the
  * user-facing `remove_participant`, which stays self-or-host.
- */
-
-/**
- * Three missed beats at the client's ~15s cadence.
  *
- * Generous on purpose. Reaping someone who is merely on a slow network takes
- * the conch from a person still sitting in the room, which is a worse failure
- * than a ghost lingering a few seconds longer — and presence already handles
- * the common case in about a second.
+ * IT IS ALSO THE METER (AR-COST-3, UX-ECON-2), as of the ledger landing, and
+ * the migration that added `last_seen` predicted exactly this: "the metering
+ * half waits for the ledger and can reuse this beat when it lands." The reuse
+ * is not opportunism. UX-ECON-2 requires time to be metered "reliably even
+ * across crashes", and a beat is the only signal this system has that survives
+ * one — a leave event is precisely what a crash fails to send. Every credited
+ * second is one where somebody said they were still here.
+ *
+ * `STALE_AFTER_SECONDS` now lives in `model/ledger.ts`, because the staleness
+ * threshold and the metering clamp are one number; see the comment there for
+ * why they must stay one.
  */
-const STALE_AFTER_SECONDS = 45;
 
 export const POST: RequestHandler = async ({ params, locals }) => {
 	const claims = parseClaims(await locals.safeGetClaims());
@@ -63,12 +67,45 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 	 * write, so heartbeating through it would turn an idle room into one
 	 * producing a write and a fan-out per participant every fifteen seconds.
 	 * Nothing renders `last_seen`, so nothing needs to hear about it.
+	 *
+	 * Read the PREVIOUS `last_seen` first: the gap between it and now is what
+	 * this beat is worth, and overwriting it before reading would destroy the
+	 * only record of how long the beater has been present. The metering credit
+	 * rides the same reasoning as the write — outside the diff path, so the
+	 * meter cannot turn an idle room into a busy one either.
 	 */
+	const previous = await db
+		.from('room_participants')
+		.select('last_seen')
+		.eq('room_id', room.data.id)
+		.eq('id', claims.sub)
+		.maybeSingle();
+
+	const now = new Date();
 	await db
 		.from('room_participants')
-		.update({ last_seen: new Date().toISOString() })
+		.update({ last_seen: now.toISOString() })
 		.eq('room_id', room.data.id)
 		.eq('id', claims.sub);
+
+	/*
+	 * Credit the room's OWNER, not the beater (UX-ID-4). A guest holds no
+	 * account by design, so there is no other coherent place for their seconds
+	 * to land — and it is the owner who chose to run the room.
+	 *
+	 * Not awaited for correctness, but awaited anyway: the beat is already a
+	 * round trip, one more is not what makes it slow, and an un-awaited write in
+	 * workerd is a write that may never happen (the isolate can be torn down
+	 * when the response is sent — the unsettled-write bug this suite was just
+	 * burned by).
+	 */
+	await meterBeat(
+		db,
+		room.data.id,
+		claims.sub,
+		previous.data === null ? null : new Date(previous.data.last_seen),
+		now
+	);
 
 	const cutoff = new Date(Date.now() - STALE_AFTER_SECONDS * 1000).toISOString();
 	const stale = await db
@@ -79,6 +116,16 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 
 	const gone = (stale.data ?? []).map((row) => row.id);
 	if (gone.length === 0) return json({ ok: true, reaped: 0 });
+
+	/*
+	 * Stamp their ledger intervals closed (AR-COST-2). Audit trail only: it
+	 * moves no seconds, because their seconds were credited beat by beat as
+	 * they were spent. Done BEFORE the state write and unconditionally, so a
+	 * sweep that loses all three attempts at the room guard still records that
+	 * these people stopped being here — a closed interval is a fact about
+	 * presence, not about whether a room-state write happened to win a race.
+	 */
+	await closeIntervals(db, room.data.id, gone);
 
 	/*
 	 * Bounded retry, as the mutation route does: the sweep changes room scalars

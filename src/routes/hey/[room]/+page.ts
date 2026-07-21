@@ -25,6 +25,11 @@ export const load: PageLoad = ({ params, data }) => {
 	return {
 		room: canonicalRoomName(params.room),
 		roomId: data.roomId,
-		asksAdmission: data.asksAdmission
+		asksAdmission: data.asksAdmission,
+		// Forwarded for the reason above, which is not hypothetical: dropping
+		// either of these leaves the page unable to tell a person why a room it
+		// has already decided to refuse them will not open (UX-ECON-2).
+		outOfTime: data.outOfTime,
+		budgetResetsAt: data.budgetResetsAt
 	};
 };

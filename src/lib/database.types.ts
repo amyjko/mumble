@@ -34,6 +34,27 @@ export type Database = {
   }
   public: {
     Tables: {
+      accounts: {
+        Row: {
+          id: string
+          week_resets_at: string
+          weekly_cap_seconds: number
+          weekly_seconds_used: number
+        }
+        Insert: {
+          id: string
+          week_resets_at?: string
+          weekly_cap_seconds?: number
+          weekly_seconds_used?: number
+        }
+        Update: {
+          id?: string
+          week_resets_at?: string
+          weekly_cap_seconds?: number
+          weekly_seconds_used?: number
+        }
+        Relationships: []
+      }
       participant_locations: {
         Row: {
           config_key: string
@@ -293,6 +314,7 @@ export type Database = {
           placers: Json
           queue: string[]
           room_id: string
+          screen_holders: string[]
           title: string
           transport: string
           updated_at: string
@@ -312,6 +334,7 @@ export type Database = {
           placers?: Json
           queue?: string[]
           room_id: string
+          screen_holders?: string[]
           title?: string
           transport?: string
           updated_at?: string
@@ -331,6 +354,7 @@ export type Database = {
           placers?: Json
           queue?: string[]
           room_id?: string
+          screen_holders?: string[]
           title?: string
           transport?: string
           updated_at?: string
@@ -376,11 +400,66 @@ export type Database = {
         }
         Relationships: []
       }
+      usage_ledger: {
+        Row: {
+          account_id: string
+          est_gb: number | null
+          id: string
+          identity_id: string
+          joined_at: string
+          left_at: string | null
+          room_id: string
+          seconds: number
+          transport_intervals: Json | null
+        }
+        Insert: {
+          account_id: string
+          est_gb?: number | null
+          id?: string
+          identity_id: string
+          joined_at?: string
+          left_at?: string | null
+          room_id: string
+          seconds?: number
+          transport_intervals?: Json | null
+        }
+        Update: {
+          account_id?: string
+          est_gb?: number | null
+          id?: string
+          identity_id?: string
+          joined_at?: string
+          left_at?: string | null
+          room_id?: string
+          seconds?: number
+          transport_intervals?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "usage_ledger_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "usage_ledger_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      close_ledger_rows: {
+        Args: { p_identities: string[]; p_room: string }
+        Returns: undefined
+      }
       get_room_state: { Args: { p_room_id: string }; Returns: Json }
       is_admitted_member: { Args: { target_room: string }; Returns: boolean }
       is_host: { Args: { target_room: string }; Returns: boolean }
@@ -393,7 +472,30 @@ export type Database = {
           out_status: string
         }[]
       }
+      may_read_door_topic: { Args: { topic: string }; Returns: boolean }
+      may_read_signal_topic: { Args: { topic: string }; Returns: boolean }
       may_use_guest_topic: { Args: { topic: string }; Returns: boolean }
+      may_use_room_topic: { Args: { topic: string }; Returns: boolean }
+      may_write_signal_topic: { Args: { topic: string }; Returns: boolean }
+      meter_seconds: {
+        Args: { p_identity: string; p_room: string; p_seconds: number }
+        Returns: undefined
+      }
+      roll_account: {
+        Args: { p_account: string }
+        Returns: {
+          id: string
+          week_resets_at: string
+          weekly_cap_seconds: number
+          weekly_seconds_used: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "accounts"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       save_room_state: {
         Args: {
           p_client?: string
@@ -405,6 +507,7 @@ export type Database = {
         }
         Returns: number
       }
+      signal_topic_shape: { Args: never; Returns: string }
     }
     Enums: {
       [_ in never]: never
