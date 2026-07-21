@@ -49,6 +49,24 @@ export function supabaseBrowser(): SupabaseClient<Database> {
 }
 
 /**
+ * The two auth calls `ensureSession` makes, and nothing else.
+ *
+ * Narrower than `SupabaseClient` deliberately: type assertions are banned in
+ * this project, so a unit test cannot fake a whole client — and the honest
+ * alternative is to say what is actually used. The real client satisfies this
+ * structurally.
+ */
+export interface SessionSource {
+	auth: {
+		getSession(): Promise<{ data: { session: { user: { id: string } } | null } }>;
+		signInAnonymously(): Promise<{
+			data: { user: { id: string } | null };
+			error: { message: string } | null;
+		}>;
+	};
+}
+
+/**
  * Ensure a session exists, signing in anonymously if not (AR-AUTH-1).
  *
  * "Anonymous guests use signInAnonymously() — so `creator_id` = the auth user
@@ -59,8 +77,44 @@ export function supabaseBrowser(): SupabaseClient<Database> {
  * Returns the user id, which replaces the localStorage UUID that anyone could
  * edit to impersonate anyone.
  */
-export async function ensureSession(): Promise<string | null> {
-	const supabase = supabaseBrowser();
+export async function ensureSession(
+	/** Injected in tests; production always uses the one memoized client. */
+	supabase: SessionSource = supabaseBrowser()
+): Promise<string | null> {
+	/*
+	 * SINGLE-FLIGHT, and this is the whole point of the function.
+	 *
+	 * It used to be a bare check-then-act: `getSession()`, and if null,
+	 * `signInAnonymously()`. Two concurrent callers therefore both saw "no
+	 * session" and both signed in — minting TWO anonymous users for one
+	 * browser, which breaks UX-ID-5's "an anonymous participant's identity is
+	 * stable per browser" at the only moment it is established.
+	 *
+	 * The room page calls this twice by design: once on mount, so an account
+	 * holder arriving on a new machine fetches their roaming profile, and again
+	 * once the join prompt supplies a hello (see hey/[room]/+page.svelte). That
+	 * is safe because `join_room` is idempotent — but idempotent PER IDENTITY,
+	 * and the race gave the two knocks different identities. At a door set to
+	 * "ask first" the host then saw the same person twice, once as a nameless
+	 * "Someone" who could never be matched to anybody, and the phantom row
+	 * stayed pending forever. Reproduced from a failing E2E and confirmed
+	 * against the database: two `room_members` rows, two anonymous users, 62ms
+	 * apart.
+	 *
+	 * The check lives INSIDE the shared promise rather than in front of it. In
+	 * front, a caller that had already passed the check could still start a
+	 * second sign-in in the window between the first settling and the memo
+	 * clearing — a smaller race, but the same one.
+	 */
+	inFlight ??= resolveSession(supabase).finally(() => {
+		inFlight = null;
+	});
+	return inFlight;
+}
+
+let inFlight: Promise<string | null> | null = null;
+
+async function resolveSession(supabase: SessionSource): Promise<string | null> {
 	const { data: existing } = await supabase.auth.getSession();
 	if (existing.session !== null) return existing.session.user.id;
 
