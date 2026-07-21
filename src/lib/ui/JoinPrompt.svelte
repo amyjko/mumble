@@ -87,6 +87,26 @@
 		<Button type="submit" variant="primary" disabled={!ready}>
 			{asks ? 'Ask to join' : 'Join'}
 		</Button>
+
+		<!--
+			AR-AUTH-6, surfaced where it is actually decided.
+
+			An anonymous identity is browser-bound: it lives in this browser and
+			does not roam, so the same person on a laptop and a phone is two
+			people to the room, and clearing storage loses the identity entirely.
+			The requirement calls this an "accepted limitation, surfaced in UX
+			copy" — it was accepted and structural for weeks, and surfaced
+			nowhere, which meant the only people who learned it were the ones it
+			had already surprised.
+
+			Said HERE rather than in a settings page nobody visits, because this
+			is the moment the choice is made, and said briefly: the person is
+			trying to get into a meeting, not read a policy.
+		-->
+		<p class="hint boundary">
+			Joining without an account keeps you to this browser — on another device you
+			will arrive as someone new.
+		</p>
 	</form>
 </dialog>
 
@@ -113,6 +133,11 @@
 		margin: 0;
 		color: var(--text-muted);
 		font-size: var(--text-sm);
+	}
+	/* Sits under the action, so it reads as a footnote on the choice rather
+	   than another instruction to follow before making it. */
+	.boundary {
+		margin-top: var(--space-2);
 	}
 	fieldset {
 		margin: 0;

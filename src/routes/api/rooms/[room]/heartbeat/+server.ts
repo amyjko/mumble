@@ -42,6 +42,22 @@ import { STALE_AFTER_SECONDS } from '$lib/model/ledger';
  * why they must stay one.
  */
 
+/**
+ * How long a knock waits before it is forgotten (AR-CTRL-5).
+ *
+ * Thirty minutes. Long enough that a host who stepped away for a coffee, or is
+ * finishing the previous meeting, still finds the person at the door; short
+ * enough that a room stops accumulating people who gave up weeks ago and whose
+ * names mean nothing to anyone now.
+ *
+ * Deliberately a different ORDER OF MAGNITUDE from `STALE_AFTER_SECONDS`, and
+ * the two must not drift together just because both are sweep thresholds in one
+ * file. That one asks "is this tab still alive", answered by a machine every
+ * fifteen seconds. This asks "is a human going to answer the door", and humans
+ * are slower than machines by about a hundredfold.
+ */
+const PENDING_EXPIRY_SECONDS = 30 * 60;
+
 export const POST: RequestHandler = async ({ params, locals }) => {
 	const claims = parseClaims(await locals.safeGetClaims());
 	if (claims === null) error(401, 'Not signed in');
@@ -128,6 +144,39 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 	 * sweep path is exactly the kind of thing nobody notices until it matters.
 	 */
 	const reply = (reaped: number) => json({ ok: true, reaped, budget });
+
+	/*
+	 * Nobody waits at the door forever (AR-CTRL-5).
+	 *
+	 * A guest who knocks at a room whose host never comes back sat in `pending`
+	 * indefinitely — visible in the host's door list months later, and unable to
+	 * do anything but wait, because `join_room` keeps a standing decision and a
+	 * reload does not re-decide.
+	 *
+	 * DELETED, not declined. A decline is a standing decision that a reload
+	 * cannot clear — that is exactly what makes it useful when a host means it,
+	 * and exactly what makes it wrong here: a host who was simply asleep would
+	 * have permanently barred someone by not answering. Removing the row instead
+	 * leaves the guest able to knock again, which is the honest outcome of "no
+	 * one answered".
+	 *
+	 * Swept HERE, with the participant sweep, for the reason that one is here
+	 * (see above): pg_cron is not enabled, a scheduled job would scan idle rooms
+	 * to find nothing, and anyone still present does the work. A room with
+	 * nobody in it needs no sweeping — its stale knocks expire the moment
+	 * someone next arrives, before they see the door list.
+	 *
+	 * `updated_at`, not `created_at`: `join_room` refreshes it whenever a
+	 * pending guest re-knocks or restates their hello, so this measures silence
+	 * rather than patience.
+	 */
+	const knockCutoff = new Date(Date.now() - PENDING_EXPIRY_SECONDS * 1000).toISOString();
+	await db
+		.from('room_members')
+		.delete()
+		.eq('room_id', room.data.id)
+		.eq('status', 'pending')
+		.lt('updated_at', knockCutoff);
 
 	const cutoff = new Date(Date.now() - STALE_AFTER_SECONDS * 1000).toISOString();
 	const stale = await db

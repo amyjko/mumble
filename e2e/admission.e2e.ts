@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { SYNC, joinRoom, roomName, settled } from './support/join';
-import { hostRoom } from './support/auth';
+import { adminClient, createRoomDirectly, hostRoom } from './support/auth';
 
 /**
  * Host admission (UX-ID-2, UX-ID-3, AR-CTRL-5).
@@ -150,4 +150,94 @@ test('an open room still lets anyone straight in (the default)', async ({ page }
 	await joinRoom(page, room, 'Anyone');
 	await expect(page.getByRole('application', { name: 'Room canvas' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Waiting to be let in' })).toHaveCount(0);
+});
+
+test('a knock nobody answers expires, and the guest may ask again (AR-CTRL-5)', async ({
+	browser
+}) => {
+	/*
+	 * A guest at a room whose host never comes back used to wait in `pending`
+	 * forever — still listed at the door months later, and unable to do anything
+	 * about it, because `join_room` keeps a standing decision and reloading does
+	 * not re-decide.
+	 *
+	 * The sweep runs in the heartbeat, beside the participant sweep, so this
+	 * drives it the way the product does: the host is present and beating.
+	 * Winding `updated_at` back stands in for the wait, the same trick the
+	 * liveness tests use on `last_seen` — the column is server-written, so
+	 * moving it is exactly equivalent to time passing.
+	 */
+	const room = roomName('stale');
+	const hostCtx = await browser.newContext();
+	const guestCtx = await browser.newContext();
+	const host = await hostCtx.newPage();
+	const guest = await guestCtx.newPage();
+
+	await hostRoom(host, room);
+	await host.getByRole('button', { name: room }).click();
+	await host.getByRole('button', { name: 'ask first' }).click();
+	await settled(host);
+	await host.keyboard.press('Escape');
+
+	await guest.goto(`/hey/${room}`);
+	await guest.getByRole('textbox', { name: 'Your name' }).fill('Patient');
+	await guest.getByRole('button', { name: 'Ask to join' }).click();
+	await expect(guest.getByRole('heading', { name: 'Waiting to be let in' })).toBeVisible();
+
+	// The host sees them, so there is something to expire.
+	await host.getByRole('button', { name: room }).click();
+	await expect(host.getByText('At the door (1)')).toBeVisible({ timeout: SYNC });
+	await host.keyboard.press('Escape');
+
+	// Thirty-one minutes of silence.
+	const roomId = await createRoomDirectly(room);
+	const { error } = await adminClient()
+		.from('room_members')
+		.update({ updated_at: new Date(Date.now() - 31 * 60_000).toISOString() })
+		.eq('room_id', roomId)
+		.eq('status', 'pending');
+	if (error !== null) throw new Error(`could not age the knock: ${error.message}`);
+
+	// One beat from anyone present sweeps the door.
+	const beat = await host.evaluate(async (name: string) => {
+		const response = await fetch(`/api/rooms/${name}/heartbeat`, { method: 'POST' });
+		return response.status;
+	}, room);
+	expect(beat).toBe(200);
+
+	const after = await adminClient()
+		.from('room_members')
+		.select('identity_id')
+		.eq('room_id', roomId)
+		.eq('status', 'pending');
+	expect(after.data).toEqual([]);
+
+	/*
+	 * DELETED, not declined, and this is the assertion that pins the difference.
+	 * A decline is a standing decision a reload cannot clear — right when a host
+	 * means it, wrong when a host was merely asleep. Removing the row leaves the
+	 * guest able to knock again, which is the honest outcome of "nobody
+	 * answered".
+	 */
+	await guest.reload();
+	await expect(guest.getByRole('heading', { name: 'Waiting to be let in' })).toBeVisible({
+		timeout: SYNC
+	});
+	await expect(guest.getByRole('heading', { name: 'Not this time' })).toHaveCount(0);
+
+	await hostCtx.close();
+	await guestCtx.close();
+});
+
+test('the join prompt says an anonymous identity is browser-bound (AR-AUTH-6)', async ({
+	page
+}) => {
+	// "Accepted limitation, surfaced in UX copy" — it was accepted and
+	// structural for weeks and surfaced nowhere, so the only people who learned
+	// it were the ones it had already surprised.
+	const room = roomName('bound');
+	await createRoomDirectly(room);
+	await page.goto(`/hey/${room}`);
+	await expect(page.getByRole('textbox', { name: 'Your name' })).toBeVisible();
+	await expect(page.getByText(/keeps you to this browser/)).toBeVisible();
 });

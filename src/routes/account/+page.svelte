@@ -54,6 +54,18 @@
 			Guests can do everything in a room except make one. Signing in with an email gives you
 			an account, and rooms of your own.
 		</p>
+		<!--
+			AR-AUTH-6, stated in full on the one page whose subject is the account.
+			The join prompt says the short version at the moment of choosing; this
+			is where someone comes to find out what being a guest actually means,
+			so it names all three ways the identity is lost rather than only the
+			one they are most likely to hit.
+		-->
+		<p>
+			A guest identity belongs to this browser: it does not follow you to another
+			device, and it is lost if you sign out or clear this browser's storage. Anything
+			you have made in a room stays yours only for as long as the identity does.
+		</p>
 		<p class="cta-row"><a class="cta" href={resolve('/login')}>Sign in</a></p>
 	{:else}
 		<section aria-labelledby="time">
