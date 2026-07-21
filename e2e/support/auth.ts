@@ -96,6 +96,42 @@ async function signInAs(page: Page, email: string): Promise<string> {
 }
 
 /**
+ * Sign a browser in as an account that arrived through OAuth (UX-ID-7).
+ *
+ * AR-TEST-8 prescribes exactly this shape and says why: "OAuth is not tested
+ * locally — no mock provider exists in the CLI and real providers require
+ * network. Instead the callback handler is unit-tested in isolation and OAuth
+ * identities are **admin-minted so downstream code sees a realistic session**."
+ *
+ * So be precise about what this does and does not prove. It does NOT walk the
+ * handshake: nothing here contacts a provider, and the session is established
+ * through the same token-hash path every other test uses. What it proves is the
+ * half that actually has downstream consequences — that an identity carrying
+ * `app_metadata.provider` of an external provider is a PERMANENT account and is
+ * treated as one: it may create a room (AR-AUTH-7), and the RESTRICTIVE
+ * `is_anonymous` policies (AR-AUTH-2) do not mistake it for a guest. That
+ * distinction is a real branch in the RLS, and it is the branch an OAuth user
+ * would be the first to hit in production.
+ *
+ * The handshake itself stays on AR-TEST-10's prod-only list, where it belongs.
+ */
+export async function signInAsOAuthAccount(page: Page, email = testEmail('oauth')): Promise<string> {
+	const admin = adminClient();
+	await admin.auth.admin.createUser({
+		email,
+		email_confirm: true,
+		// What GoTrue records for a user who came in through a provider. Set
+		// explicitly because creating a user by email would otherwise stamp this
+		// 'email', which is the identity shape this helper exists NOT to make.
+		app_metadata: { provider: 'google', providers: ['google'] },
+		// Providers return a profile; something reading `full_name` should find
+		// one, so the session is realistic rather than merely non-anonymous.
+		user_metadata: { full_name: 'Ada OAuth', email }
+	});
+	return signInAs(page, email);
+}
+
+/**
  * Sign in, create the room, and enter it as its host.
  *
  * Being a host is not a client-side flag: it is a `room_members` row, and only

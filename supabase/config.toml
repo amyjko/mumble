@@ -375,6 +375,37 @@ skip_nonce_check = false
 # If enabled, it will allow the user to successfully authenticate when the provider does not return an email address.
 email_optional = false
 
+# Google sign-in (UX-ID-7, AR-AUTH-4). The OAuth half of "email magic link and
+# OAuth at minimum"; Google rather than a developer-facing provider because the
+# people this product is for are small groups meeting for work or school, and
+# that is the account they already have.
+#
+# ENABLED HERE, AND STILL ABSENT LOCALLY, which is not a contradiction worth
+# puzzling over: this flag configures GoTrue, while whether the app OFFERS the
+# button is decided by the OAUTH_PROVIDERS environment variable
+# (src/lib/server/oauth-providers.ts). A checkout with no credentials shows
+# magic link only, because there is no mock OAuth provider in the CLI to sign in
+# against — AR-TEST-8 records that as the reason OAuth is not tested locally,
+# and AR-TEST-10 carries the handshake as a prod-only truth.
+#
+# Both values are environment substitutions and neither may ever be a literal
+# (AR-DEPLOY-6). Unset, they are empty strings, and GoTrue simply refuses a
+# handshake nobody can start from a page that renders no button.
+[auth.external.google]
+enabled = true
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+redirect_uri = ""
+url = ""
+# LOCAL-ONLY CONCESSION, and it must not be read as a production setting: the
+# Supabase CLI documents this as "Required for local sign in with Google auth"
+# (see the comment on [auth.external.apple] above, which ships it verbatim). The
+# nonce is a replay defence; a hosted project configures its own auth settings
+# from the dashboard and never reads this file, so turning it on here cannot
+# weaken production. Naming that boundary is the point of this comment.
+skip_nonce_check = true
+email_optional = false
+
 # Allow Solana wallet holders to sign in to your project via the Sign in with Solana (SIWS, EIP-4361) standard.
 # You can configure "web3" rate limit in the [auth.rate_limit] section and set up [auth.captcha] if self-hosting.
 [auth.web3.solana]
