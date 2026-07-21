@@ -42,7 +42,7 @@ test('a room link still works without passing through the landing page', async (
 	// this visitor stays the invited stranger the test is about.
 	await createRoomDirectly('lci');
 
-	await page.goto('/hey/lci');
+	await page.goto('/lci');
 	await expect(page.getByText('No such room')).toHaveCount(0);
 	await expect(page.getByRole('textbox', { name: 'Your name' })).toBeVisible();
 });

@@ -135,7 +135,7 @@ describe('drag spike (pointer capture in browser mode)', () => {
 		// Regression: SyncClient subscribes in its constructor; if the store's
 		// handler registry is reactive, constructing the pair inside $derived
 		// throws state_unsafe_mutation and blanks the page. Reading `sync`
-		// forces both deriveds to evaluate exactly as /hey/[room] does.
+		// forces both deriveds to evaluate exactly as /[room] does.
 		const cleanup = $effect.root(() => {
 			let room = $state('a');
 			const store = $derived(new MemoryRoomStore(`drv-${room}-${crypto.randomUUID()}`, ACTOR));

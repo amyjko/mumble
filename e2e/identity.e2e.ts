@@ -14,7 +14,7 @@ test('a room cannot be entered without a name', async ({ page }) => {
 	// created here instead.
 	const room = roomName('id');
 	await createRoomDirectly(room);
-	await page.goto(`/hey/${room}`);
+	await page.goto(`/${room}`);
 
 	// The prompt blocks entry, and Join stays disabled until a name is typed.
 	const join = page.getByRole('button', { name: 'Join' });

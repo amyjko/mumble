@@ -96,7 +96,7 @@ describe('the token-hash path (what the test suite mints)', () => {
 
 describe('the open-redirect guard', () => {
 	it('allows an ordinary path', async () => {
-		expect(await destinationOf('?code=abc&next=%2Fhey%2Flci')).toBe('/hey/lci');
+		expect(await destinationOf('?code=abc&next=%2Flci')).toBe('/lci');
 	});
 
 	// The one that matters: `//evil.example` starts with '/' and is NOT a path.

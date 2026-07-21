@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import type { PageProps } from './$types';
 
 	/**
 	 * The landing page.
@@ -15,6 +16,8 @@
 	 * where account creation will intercept (AR-AUTH-1). One prominent link,
 	 * one destination to guard.
 	 */
+
+	let { data }: PageProps = $props();
 
 	const features = [
 		{
@@ -75,6 +78,17 @@
 		     link costs nothing. Deliberately not repeated under the button
 		     above: making a room is the thing that will need an account. -->
 		<p>Been sent a link? Open it and you are in — no download, no account.</p>
+		<!--
+			Only for account holders, and this is the page that needs it: the
+			weekly budget could previously be read only from INSIDE a room, which
+			is after you have already committed to a meeting. A host deciding
+			which meeting to run this week is standing here (UX-ID-10). A guest is
+			not shown it, because their budget is full, unspendable, and not the
+			one that governs any room they are in.
+		-->
+		{#if data.claims !== null && !data.claims.is_anonymous}
+			<p class="account"><a href={resolve('/account')}>Your account and weekly time</a></p>
+		{/if}
 	</footer>
 </main>
 
@@ -149,5 +163,11 @@
 	}
 	footer p {
 		margin: 0;
+	}
+	.account {
+		margin-top: var(--space-2);
+	}
+	.account a {
+		color: var(--text-muted);
 	}
 </style>

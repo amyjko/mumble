@@ -537,7 +537,28 @@ export const ephemeralSchema = z.discriminatedUnion('kind', [
 		location: z.object({ x: z.number(), y: z.number() })
 	}),
 	z.object({ kind: z.literal('drag_end'), id: z.uuid() }),
-	z.object({ kind: z.literal('emote'), id: z.uuid(), emote: z.enum(EMOTE_NAMES) })
+	z.object({ kind: z.literal('emote'), id: z.uuid(), emote: z.enum(EMOTE_NAMES) }),
+	/*
+	 * How loud somebody is, as their OWN browser measured it (AR-MEDIA-6).
+	 *
+	 * Ephemeral by nature and by requirement: it changes several times a second,
+	 * it is meaningless a moment later, and persisting it would put a
+	 * continuously-changing column in room state for a value nothing renders.
+	 * AR-BACKEND-2 lists "expressive states" as a Broadcast traffic class and
+	 * this is one.
+	 *
+	 * Shared rather than measured per-listener because AR-MEDIA-6 requires ONE
+	 * selection: every peer computes the active-speaker set from the same
+	 * numbers, so nobody has to arbitrate — which matters most on P2P, where
+	 * there is no forwarder that could.
+	 *
+	 * Self-reported, and therefore not to be trusted with anything but
+	 * selection. A patched client could claim to be loud; the worst it buys is a
+	 * place among the audible, which the AR-MEDIA-2 gate has already authorized
+	 * it for. It cannot widen the authorized set — `selectActiveSpeakers` only
+	 * ever narrows it, and a test pins that.
+	 */
+	z.object({ kind: z.literal('voice_level'), id: z.uuid(), level: z.number().min(0).max(1) })
 ]);
 
 /**

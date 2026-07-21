@@ -19,6 +19,8 @@
 	import Emoji from '$lib/ui/Emoji.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import HostSlotControls from './HostSlotControls.svelte';
+	import VoiceControl from './VoiceControl.svelte';
+	import { audioPublishers } from '$lib/model/stage';
 	import TransformHandles from './TransformHandles.svelte';
 	import { clipPathCss, nextClip } from '$lib/model/clip';
 	import {
@@ -118,6 +120,29 @@
 	 * about a permission that is not its business.
 	 */
 	const blocked = $derived(isSelf && cameraDenied && hasVideo);
+
+	/**
+	 * Can this person be heard at all? (UX-STAGE-5, UX-OBJ-16)
+	 *
+	 * Read through `audioPublishers`, which is the rule engine's own union —
+	 * audio publishers are the video-slot holders PLUS the audio-slot holders —
+	 * rather than testing `audio_holders` here. A second copy of that union is
+	 * how a tile would come to offer a volume control for somebody the stage has
+	 * no intention of letting speak, or hide one for somebody it does.
+	 *
+	 * The volume control appears only for people who are actually audible.
+	 * Offering one on every avatar in the room would be a wall of sliders for
+	 * voices that do not exist, most of the time.
+	 */
+	const audible = $derived(
+		audioPublishers({
+			capacity: store.state.capacity,
+			video_holders: store.state.video_holders,
+			audio_holders: store.state.audio_holders,
+			screen_holders: store.state.screen_holders,
+			queue: store.state.queue
+		}).includes(participant.id)
+	);
 
 	/** Placement is shared state (UX-AV-2); in-flight drags overlay it. */
 	const effective = $derived(sync.participantOverlays.get(participant.id) ?? participant.location);
@@ -388,9 +413,24 @@
 		Always visible rather than revealed on hover, unlike the shape control
 		below — see HostSlotControls.svelte for why.
 	-->
-	{#if isHost && !isSelf}
-		<span class="host-controls">
-			<HostSlotControls {store} {sync} id={participant.id} name={participant.name} />
+	<!--
+		Everything that sits UNDER an avatar, in one stack.
+
+		Two controls can appear here and a host looking at a speaker sees both, so
+		they share a column rather than each positioning itself at `top: 100%` and
+		overlapping the other. They are also different in kind, which is worth
+		keeping visible: the host control decides who may speak to the ROOM
+		(UX-STAGE-4), the voice control decides what reaches THIS pair of ears
+		(UX-OBJ-16). Neither is a version of the other.
+	-->
+	{#if !isSelf && (isHost || audible)}
+		<span class="under">
+			{#if isHost}
+				<HostSlotControls {store} {sync} id={participant.id} name={participant.name} />
+			{/if}
+			{#if audible}
+				<VoiceControl id={participant.id} name={participant.name} />
+			{/if}
 		</span>
 	{/if}
 
@@ -635,11 +675,13 @@
 	 * No opacity transition and no hover gate: a host must be able to pass the
 	 * floor without hunting, and on touch there is no hover to gate on.
 	 */
-	.host-controls {
+	.under {
 		position: absolute;
 		top: 100%;
 		margin-top: calc(var(--space-1) + var(--text-xs) + var(--space-1));
 		display: flex;
-		justify-content: center;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--space-1);
 	}
 </style>

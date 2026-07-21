@@ -43,7 +43,9 @@ describe('the >=2-present rule (AR-CTRL-3, UX-ROOM-1)', () => {
 		expect(plan).toEqual({
 			capture: { video: false, audio: false, screen: false },
 			peers: [],
-			subscriptions: []
+			subscriptions: [],
+			// Nothing to gate when nothing is captured (AR-MEDIA-6).
+			gateAudio: false
 		});
 	});
 
@@ -254,5 +256,85 @@ describe('connections', () => {
 		const plan = planMedia(input({ present: [ME, YOU, THIRD] }));
 		expect(plan.capture).toEqual({ video: false, audio: false, screen: false });
 		expect([...plan.peers].sort()).toEqual([YOU, THIRD].sort());
+	});
+});
+
+/**
+ * The active-speaker cap, at the plan (AR-MEDIA-6, UX-STAGE-5).
+ *
+ * Selection itself is tested in `model/stage.spec.ts`. What these pin is the
+ * ENFORCEMENT decision — that being gated withholds the publication and not the
+ * microphone, which is the distinction the whole design turns on.
+ */
+describe('planMedia and the active-speaker cap', () => {
+	const SELF = 'me';
+	const OTHER = 'you';
+
+	function input(activeSpeakers?: readonly string[]): PlanInput {
+		return {
+			self: SELF,
+			stage: {
+				capacity: { max_participants: 20, max_av: 0, max_audio: 10 },
+				video_holders: [],
+				audio_holders: [SELF, OTHER],
+				screen_holders: [],
+				queue: []
+			},
+			present: [SELF, OTHER],
+			muted: false,
+			tiles: new Map(),
+			...(activeSpeakers === undefined ? {} : { activeSpeakers })
+		};
+	}
+
+	it('applies no cap before any selection has been computed', () => {
+		// The planner runs before the first level arrives. Treating "no selection
+		// yet" as "nobody may speak" would mute the room at exactly the moment
+		// somebody starts talking.
+		const plan = planMedia(input());
+		expect(plan.capture.audio).toBe(true);
+		expect(plan.gateAudio).toBe(false);
+	});
+
+	it('does not gate a selected speaker', () => {
+		const plan = planMedia(input([SELF, OTHER]));
+		expect(plan.capture.audio).toBe(true);
+		expect(plan.gateAudio).toBe(false);
+	});
+
+	it('gates an unselected speaker WITHOUT closing their microphone', () => {
+		/*
+		 * The assertion this whole track turns on. Dropping `capture.audio` would
+		 * look like the obvious implementation and would LATCH: selection is
+		 * driven by each publisher measuring their own microphone, so a gated
+		 * person with no capture reports silence forever and can never signal
+		 * that they have started speaking again.
+		 */
+		const plan = planMedia(input([OTHER]));
+		expect(plan.gateAudio).toBe(true);
+		expect(plan.capture.audio).toBe(true);
+	});
+
+	it('never gates somebody who is muted, because there is nothing to gate', () => {
+		// Muting already closed the microphone (UX-STAGE-10). Reporting a gate
+		// here would claim the cap did something it did not.
+		const muted = { ...input([OTHER]), muted: true };
+		expect(planMedia(muted).capture.audio).toBe(false);
+		expect(planMedia(muted).gateAudio).toBe(false);
+	});
+
+	it('never gates somebody the stage did not authorize anyway', () => {
+		const unauthorized: PlanInput = {
+			...input([OTHER]),
+			stage: {
+				capacity: { max_participants: 20, max_av: 0, max_audio: 10 },
+				video_holders: [],
+				audio_holders: [OTHER],
+				screen_holders: [],
+				queue: []
+			}
+		};
+		expect(planMedia(unauthorized).capture.audio).toBe(false);
+		expect(planMedia(unauthorized).gateAudio).toBe(false);
 	});
 });

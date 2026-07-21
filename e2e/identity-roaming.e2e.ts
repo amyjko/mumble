@@ -27,7 +27,7 @@ test('a name chosen on one machine appears on another', async ({ browser }) => {
 	await a.goto('/new');
 	await a.getByRole('textbox', { name: 'Room name' }).fill(room);
 	await a.getByRole('button', { name: 'go' }).click();
-	await a.waitForURL(new RegExp(`/hey/${room}$`));
+	await a.waitForURL(new RegExp(`/${room}$`));
 
 	const nameField = a.getByRole('textbox', { name: 'Your name' });
 	if (await nameField.isVisible().catch(() => false)) {
@@ -43,7 +43,7 @@ test('a name chosen on one machine appears on another', async ({ browser }) => {
 	const second = await browser.newContext();
 	const b = await second.newPage();
 	await signInAsAccount(b, email);
-	await b.goto(`/hey/${room}`);
+	await b.goto(`/${room}`);
 
 	// No join prompt, because the identity is known — that IS the requirement.
 	await expect(b.getByRole('button', { name: /Ada Lovelace/ })).toBeVisible({ timeout: SYNC });

@@ -41,7 +41,7 @@
 	<h1>Make a room</h1>
 	<p class="lede">Pick a name. The name is the address, so it is worth choosing one you can say out loud.</p>
 	<form method="POST" use:enhance>
-		<span class="prefix">mumble.studio/hey/</span>
+		<span class="prefix">mumble.studio/</span>
 		<input
 			name="room"
 			bind:value={room}

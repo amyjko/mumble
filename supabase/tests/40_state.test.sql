@@ -10,7 +10,7 @@ values
 	('cccccccc-0000-4000-8000-000000000003', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'other@example.test', '', now(), now(), now());
 
 select tests.auth_as('aaaaaaaa-0000-4000-8000-000000000001'::uuid);
-insert into rooms (name, owner_id) values ('demo', 'aaaaaaaa-0000-4000-8000-000000000001');
+insert into rooms (name, owner_id) values ('lci', 'aaaaaaaa-0000-4000-8000-000000000001');
 
 -- Seeded by trigger, so no code path meets a room without state.
 select isnt_empty($$select 1 from room_state$$, 'a new room gets its state row');
@@ -18,13 +18,13 @@ select isnt_empty($$select 1 from room_state$$, 'a new room gets its state row')
 -- Two objects by the GUEST: one visible, one hidden.
 set local role postgres;
 insert into room_members (room_id, identity_id, role)
-	values ((select id from rooms where name = 'demo'), 'bbbbbbbb-0000-4000-8000-000000000002', 'participant');
+	values ((select id from rooms where name = 'lci'), 'bbbbbbbb-0000-4000-8000-000000000002', 'participant');
 insert into room_members (room_id, identity_id, role)
-	values ((select id from rooms where name = 'demo'), 'cccccccc-0000-4000-8000-000000000003', 'participant');
+	values ((select id from rooms where name = 'lci'), 'cccccccc-0000-4000-8000-000000000003', 'participant');
 insert into room_objects (id, room_id, type, creator_id, hidden, transform, clip, border)
 values
-	('11111111-1111-4111-8111-111111111111', (select id from rooms where name = 'demo'), 'note', 'bbbbbbbb-0000-4000-8000-000000000002', false, '{}', '{}', '{}'),
-	('22222222-2222-4222-8222-222222222222', (select id from rooms where name = 'demo'), 'note', 'bbbbbbbb-0000-4000-8000-000000000002', true,  '{}', '{}', '{}');
+	('11111111-1111-4111-8111-111111111111', (select id from rooms where name = 'lci'), 'note', 'bbbbbbbb-0000-4000-8000-000000000002', false, '{}', '{}', '{}'),
+	('22222222-2222-4222-8222-222222222222', (select id from rooms where name = 'lci'), 'note', 'bbbbbbbb-0000-4000-8000-000000000002', true,  '{}', '{}', '{}');
 
 -- The creator sees their own hidden object.
 select tests.auth_as('bbbbbbbb-0000-4000-8000-000000000002'::uuid, true);
@@ -44,7 +44,7 @@ select is((select count(*) from room_objects)::int, 2, 'a host sees hidden objec
 -- missing GRANT and an RLS denial raise the same error class.
 select throws_ok(
 	$$insert into room_objects (id, room_id, type, creator_id, transform, clip, border)
-	  values (gen_random_uuid(), (select id from rooms where name = 'demo'), 'note', auth.uid(), '{}', '{}', '{}')$$,
+	  values (gen_random_uuid(), (select id from rooms where name = 'lci'), 'note', auth.uid(), '{}', '{}', '{}')$$,
 	'42501', null, 'a client cannot INSERT an object');
 select throws_ok(
 	$$update room_objects set hidden = false where hidden$$,

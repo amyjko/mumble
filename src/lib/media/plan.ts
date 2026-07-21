@@ -48,6 +48,21 @@ export interface PlanInput {
 	 * on the canvas and must choose rungs independently.
 	 */
 	readonly screenTiles?: ReadonlyMap<PeerId, TileSize>;
+	/**
+	 * Who the active-speaker cap currently admits (AR-MEDIA-6, UX-STAGE-5).
+	 *
+	 * Computed by `selectActiveSpeakers` from the shared voice levels — passed IN
+	 * rather than computed here so this function stays a pure function of its
+	 * arguments with no clock, and so selection keeps its single home in
+	 * `model/stage.ts`.
+	 *
+	 * `undefined` means "no selection has been computed", which applies no cap.
+	 * That is the honest default for a planner that may run before the first
+	 * level has arrived: the alternative — treating an empty selection as
+	 * "nobody may speak" — would mute the room for the moment before anyone has
+	 * measured anything, which is exactly when somebody is starting to talk.
+	 */
+	readonly activeSpeakers?: readonly PeerId[] | undefined;
 }
 
 export interface Subscription {
@@ -76,13 +91,20 @@ export interface MediaPlan {
 	/** Peers to hold a connection to, whether or not anything flows yet. */
 	readonly peers: readonly PeerId[];
 	readonly subscriptions: readonly Subscription[];
+	/**
+	 * Authorized to publish audio, but not currently among the active speakers
+	 * (AR-MEDIA-6). The microphone stays open so loudness can still be measured;
+	 * the track is simply not sent. See the note beside its computation.
+	 */
+	readonly gateAudio: boolean;
 }
 
 /** Nothing to do: no capture, no connections, no subscriptions. */
 const IDLE: MediaPlan = {
 	capture: { video: false, audio: false, screen: false },
 	peers: [],
-	subscriptions: []
+	subscriptions: [],
+	gateAudio: false
 };
 
 /**
@@ -114,11 +136,49 @@ export function planMedia(input: PlanInput): MediaPlan {
 	 * without consuming an audio slot) and mute (UX-STAGE-10) are honoured here
 	 * by construction rather than by a second implementation of them.
 	 */
+	/*
+	 * The active-speaker cap, enforced AT THE SOURCE (AR-MEDIA-6).
+	 *
+	 * "On P2P there is no forwarder, so unselected publishers gate their own
+	 * track at the source" — and this is that gate, expressed as the capture
+	 * plan rather than as a new mechanism. An unselected publisher stops
+	 * capturing audio, so the track is not merely disabled at some receiver: it
+	 * is not sent, and the encoder is not paying for it.
+	 *
+	 * Layered ON TOP of authorization, never instead of it. `canPublishAudio`
+	 * still decides who MAY speak (slots, the union rule, mute); this only
+	 * narrows that set further, and `selectActiveSpeakers` cannot widen it.
+	 */
 	const capture = {
 		video: canPublishVideo(input.stage, input.self),
 		audio: canPublishAudio(input.stage, input.self, input.muted),
 		screen: canPublishScreen(input.stage, input.self)
 	};
+
+	/*
+	 * The active-speaker cap gates the PUBLICATION, not the capture
+	 * (AR-MEDIA-6).
+	 *
+	 * The obvious implementation — drop `capture.audio` for an unselected
+	 * speaker — LATCHES, and the bug is worth keeping written down because it
+	 * looks correct. Selection is driven by each publisher measuring their own
+	 * microphone; stop capturing and the analyser has nothing to read, so a
+	 * gated person reports silence forever and can never signal that they have
+	 * started talking again. The same trap catches `track.enabled = false`, since
+	 * a disabled track feeds silence to Web Audio too.
+	 *
+	 * So the microphone stays open and measured, and the TRACK IS NOT SENT.
+	 * That is what "unselected publishers gate their own track at the source"
+	 * buys on a mesh: no bytes leave, and the person can still be heard to start
+	 * speaking by the only listener who matters for selection — themselves.
+	 *
+	 * Muting is unaffected and remains the way to actually close the microphone
+	 * (UX-STAGE-10): being gated is the room's arithmetic, muting is your choice.
+	 */
+	const gateAudio =
+		capture.audio &&
+		input.activeSpeakers !== undefined &&
+		!input.activeSpeakers.includes(input.self);
 
 	/*
 	 * Connect to everyone present, including peers publishing nothing.
@@ -188,5 +248,5 @@ export function planMedia(input: PlanInput): MediaPlan {
 		}
 	}
 
-	return { capture, peers, subscriptions };
+	return { capture, peers, subscriptions, gateAudio };
 }

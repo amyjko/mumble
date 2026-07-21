@@ -32,6 +32,8 @@
 	import HostSlotControls from './HostSlotControls.svelte';
 	import BottomBar from '$lib/canvas/BottomBar.svelte';
 	import HintBar from '$lib/canvas/HintBar.svelte';
+	import PeerVoice from '$lib/canvas/PeerVoice.svelte';
+	import { voicePreferences } from '$lib/canvas/voice.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import Field from '$lib/ui/Field.svelte';
 	import Popover from '$lib/ui/Popover.svelte';
@@ -40,7 +42,13 @@
 	import { canonicalRoomName, roomNameMessage, roomNameProblem } from '$lib/model/room-name';
 	import { wasDisplaced } from '$lib/model/placement';
 	import { canDesignRoom } from '$lib/model/permissions';
-	import { counts as stageCounts, type Capacity, type StageState } from '$lib/model/stage';
+	import {
+		counts as stageCounts,
+		selectActiveSpeakers,
+		type Capacity,
+		type StageState
+	} from '$lib/model/stage';
+	import { meterVoiceLevel } from '$lib/media/voice-level';
 	import { AVATAR_EMOJI, saveIdentity } from '$lib/model/identity';
 	import { saveMyProfile } from '$lib/auth/profile';
 	import { supabaseBrowser } from '$lib/auth/browser-client';
@@ -110,6 +118,29 @@
 	const identityReady = $derived(nameDraft.trim() !== '');
 	let configNameDraft = $state('');
 
+	/**
+	 * Who the active-speaker cap admits, as a value the reconcile effect can
+	 * depend on without re-running five times a second (AR-MEDIA-6).
+	 *
+	 * A STRING, deliberately: Svelte compares derived values by identity, and a
+	 * fresh array every time a level arrives would invalidate on every sample
+	 * even when the same three people are still speaking. Joining collapses that
+	 * to "did the SET change", which is the only question the media plan asks.
+	 */
+	const activeSpeakerKey = $derived(
+		selectActiveSpeakers(
+			{
+				capacity: store.state.capacity,
+				video_holders: store.state.video_holders,
+				audio_holders: store.state.audio_holders,
+				screen_holders: store.state.screen_holders,
+				queue: store.state.queue
+			},
+			sync.voiceLevels,
+			Date.now()
+		).join(',')
+	);
+
 	$effect(() => {
 		const current = store;
 		// Join: upsert self at the last known location, else the default spot;
@@ -129,6 +160,21 @@
 		// lands: the page then looked fine and silently received no broadcast
 		// again, which is how a second tab ended up never seeing the first's
 		// edits.
+	});
+
+	/*
+	 * Per-viewer voice choices belong to THIS room (UX-OBJ-16).
+	 *
+	 * Renaming a room navigates (UX-ROOM-10) and SvelteKit reuses this component
+	 * across it, so without this a mute applied to somebody in one room would
+	 * follow their id into the next one — silently, since the control only
+	 * appears while they are audible.
+	 */
+	$effect(() => {
+		void roomId;
+		return () => {
+			voicePreferences.clear();
+		};
 	});
 
 	/*
@@ -246,11 +292,14 @@
 	 * `':audio'`. A share's sound belongs to its object, not to this loop.
 	 */
 	const audioStreams = $derived.by(() => {
-		const streams: { key: string; stream: MediaStream }[] = [];
+		const streams: { key: string; peer: string; stream: MediaStream }[] = [];
 		for (const [key, stream] of remoteStreams) {
-			const [, kind] = key.split(':');
-			if (kind !== 'audio') continue;
-			streams.push({ key, stream });
+			const [peer, kind] = key.split(':');
+			if (kind !== 'audio' || peer === undefined) continue;
+			// The peer id is carried out as well as the key, because the per-viewer
+			// volume and mute (UX-OBJ-16) are keyed on the PERSON — the same id the
+			// avatar control writes against — not on this map's composite key.
+			streams.push({ key, peer, stream });
 		}
 		return streams;
 	});
@@ -265,16 +314,12 @@
 	 */
 	const selfId = $derived(identity.id);
 
-	/** `srcObject` is a property, not an attribute, so it cannot be set in markup. */
-	function attachStream(node: HTMLMediaElement, stream: MediaStream) {
-		node.srcObject = stream;
-		void node.play().catch(() => undefined);
-		return {
-			destroy() {
-				node.srcObject = null;
-			}
-		};
-	}
+	/*
+	 * `attachStream` used to live here — a one-liner that set `srcObject` and
+	 * swallowed a rejected `play()`. Swallowing it was the bug: a refused
+	 * autoplay became silence with no explanation. PeerVoice.svelte now owns the
+	 * whole job, including reporting the refusal so the room can offer a way out.
+	 */
 
 	$effect(() => {
 		const current = store;
@@ -317,6 +362,27 @@
 				transport.setStage(holders);
 			},
 			/*
+			 * The active-speaker cap (AR-MEDIA-6, UX-STAGE-5).
+			 *
+			 * Wired HERE because this is the only place holding both halves: the
+			 * stage (who may speak) and the peers' broadcast voice levels (who
+			 * is). The session gates its own capture on the answer, which is what
+			 * "unselected publishers gate their own track at the source" means on
+			 * a transport with no forwarder.
+			 */
+			activeSpeakers: () =>
+				selectActiveSpeakers(
+					{
+						capacity: current.state.capacity,
+						video_holders: current.state.video_holders,
+						audio_holders: current.state.audio_holders,
+						screen_holders: current.state.screen_holders,
+						queue: current.state.queue
+					},
+					sync.voiceLevels,
+					Date.now()
+				),
+			/*
 			 * The browser's own "Stop sharing" bar (UX-OBJ-6).
 			 *
 			 * Nothing else can observe this — the track simply dies, no state
@@ -341,6 +407,32 @@
 			remoteStreams.clear();
 			// The memo outlives nothing: a rejoin must not replay a dead share.
 			combiner.clear();
+		};
+	});
+
+	/*
+	 * Measure our own loudness and share it (AR-MEDIA-6, UX-STAGE-5).
+	 *
+	 * Every peer selects the active speakers from the same broadcast numbers, so
+	 * this is the input to a decision everyone makes identically — which is what
+	 * "one implementation, one source of truth" means on a transport with no
+	 * forwarder to arbitrate.
+	 *
+	 * Keyed on the TRACK, so the meter is rebuilt when the microphone changes
+	 * and not when anything else does. It keeps running while the cap has us
+	 * gated: a gated publisher that stopped measuring could never signal that it
+	 * had started speaking again.
+	 */
+	$effect(() => {
+		const track = session?.localAudio ?? null;
+		if (track === null) return;
+		const me = identity.id;
+		const client = sync;
+		const meter = meterVoiceLevel(track, (level) => {
+			client.reportVoiceLevel(me, level);
+		});
+		return () => {
+			meter?.stop();
 		};
 	});
 
@@ -378,6 +470,15 @@
 		void store.state.video_holders.length;
 		void store.state.audio_holders.length;
 		void store.state.screen_holders.length;
+		/*
+		 * The SELECTION, not the levels (AR-MEDIA-6).
+		 *
+		 * Levels arrive about five times a second per speaker; re-planning on
+		 * each would run an async reconcile pass dozens of times a second to
+		 * discover that nothing changed. The derived key changes only when the
+		 * SET of audible people does, which is the only thing the plan reads.
+		 */
+		void activeSpeakerKey;
 		void untrack(() => active.reconcile(tiles, screenTiles));
 	});
 
@@ -464,6 +565,24 @@
 	 */
 	$effect(() => {
 		document.documentElement.dataset['mediaPeers'] = String(session?.connected ?? 0);
+	});
+
+	/**
+	 * Who the active-speaker cap currently admits, mirrored onto the document
+	 * (AR-MEDIA-6, UX-STAGE-5).
+	 *
+	 * Same argument as `data-media-peers` above: the selection is a real fact
+	 * about the room that NOTHING RENDERS — being gated is meant to be
+	 * inaudible, not visible — so without one honest signal a test would have to
+	 * infer it from the absence of sound, which is exactly the sort of proxy
+	 * that turns into a fixed sleep.
+	 *
+	 * It is also the only observable that distinguishes "the cap is working"
+	 * from "the cap is a no-op", and in a two-person room it is always the
+	 * latter, so a test needs to see the SET rather than an effect of it.
+	 */
+	$effect(() => {
+		document.documentElement.dataset['activeSpeakers'] = activeSpeakerKey;
 	});
 
 	const count = $derived(Object.keys(store.state.participants).length);
@@ -843,7 +962,7 @@
 				);
 				return;
 			}
-			await goto(resolve('/hey/[room]', { room: name }));
+			await goto(resolve('/[room]', { room: name }));
 		})();
 	}
 </script>
@@ -1168,10 +1287,32 @@
 	     One element per peer rather than per tile: a tile is a position on a
 	     canvas and audio has no position yet, so mixing there would be a decision
 	     made in the wrong place. Proximity audio (Later) replaces this element,
-	     not the avatars. -->
+	     not the avatars. The per-viewer volume and mute live on each person's
+	     AVATAR (UX-OBJ-16) — a voice has no position, but the person does. -->
 	{#each audioStreams as entry (entry.key)}
-		<audio use:attachStream={entry.stream} autoplay></audio>
+		<PeerVoice peer={entry.peer} stream={entry.stream} />
 	{/each}
+	{#if voicePreferences.blocked}
+		<!--
+			The browser refused to start audio without a gesture.
+
+			Silence with no explanation is the worst failure available here: the
+			room looks like it is working and nobody can hear anyone. This is the
+			gesture the policy wants, and clicking it retries every voice at once
+			because autoplay is a per-DOCUMENT policy.
+
+			Chrome exempts MediaStream-sourced elements, so this never appears in
+			the browser the E2E suite runs — which is exactly why it exists.
+		-->
+		<div class="sound-blocked">
+			<Button
+				variant="primary"
+				onclick={() => {
+					voicePreferences.allow();
+				}}>Click to hear the room</Button
+			>
+		</div>
+	{/if}
 	<!-- ONE bottom toolbar: emotes, camera, and theme. Three separate floating
 	     clusters used to compete for this corner and overlap each other. -->
 	<BottomBar {store} {sync} {identity} {viewport} {onShareScreen} {onStopScreenShare} />

@@ -5,6 +5,8 @@ import { canonicalRoomName } from '$lib/model/room-name';
 import { loadRoomState, saveRoomState, VersionConflict } from '$lib/server/room-state';
 import { diffRoomState } from '$lib/model/diff';
 import { reapParticipants } from '$lib/model/rules';
+import { closeIntervals, meterBeat, roomBudget } from '$lib/server/ledger';
+import { STALE_AFTER_SECONDS } from '$lib/model/ledger';
 
 /**
  * "I am still here", and a sweep of everyone who is not (AR-CTRL-3, UX-STAGE-4).
@@ -26,17 +28,35 @@ import { reapParticipants } from '$lib/model/rules';
  * somebody else is gone. That is also why it uses `reapParticipants` — which
  * takes no actor and is unreachable from the mutation union — rather than the
  * user-facing `remove_participant`, which stays self-or-host.
+ *
+ * IT IS ALSO THE METER (AR-COST-3, UX-ECON-2), as of the ledger landing, and
+ * the migration that added `last_seen` predicted exactly this: "the metering
+ * half waits for the ledger and can reuse this beat when it lands." The reuse
+ * is not opportunism. UX-ECON-2 requires time to be metered "reliably even
+ * across crashes", and a beat is the only signal this system has that survives
+ * one — a leave event is precisely what a crash fails to send. Every credited
+ * second is one where somebody said they were still here.
+ *
+ * `STALE_AFTER_SECONDS` now lives in `model/ledger.ts`, because the staleness
+ * threshold and the metering clamp are one number; see the comment there for
+ * why they must stay one.
  */
 
 /**
- * Three missed beats at the client's ~15s cadence.
+ * How long a knock waits before it is forgotten (AR-CTRL-5).
  *
- * Generous on purpose. Reaping someone who is merely on a slow network takes
- * the conch from a person still sitting in the room, which is a worse failure
- * than a ghost lingering a few seconds longer — and presence already handles
- * the common case in about a second.
+ * Thirty minutes. Long enough that a host who stepped away for a coffee, or is
+ * finishing the previous meeting, still finds the person at the door; short
+ * enough that a room stops accumulating people who gave up weeks ago and whose
+ * names mean nothing to anyone now.
+ *
+ * Deliberately a different ORDER OF MAGNITUDE from `STALE_AFTER_SECONDS`, and
+ * the two must not drift together just because both are sweep thresholds in one
+ * file. That one asks "is this tab still alive", answered by a machine every
+ * fifteen seconds. This asks "is a human going to answer the door", and humans
+ * are slower than machines by about a hundredfold.
  */
-const STALE_AFTER_SECONDS = 45;
+const PENDING_EXPIRY_SECONDS = 30 * 60;
 
 export const POST: RequestHandler = async ({ params, locals }) => {
 	const claims = parseClaims(await locals.safeGetClaims());
@@ -63,12 +83,100 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 	 * write, so heartbeating through it would turn an idle room into one
 	 * producing a write and a fan-out per participant every fifteen seconds.
 	 * Nothing renders `last_seen`, so nothing needs to hear about it.
+	 *
+	 * Read the PREVIOUS `last_seen` first: the gap between it and now is what
+	 * this beat is worth, and overwriting it before reading would destroy the
+	 * only record of how long the beater has been present. The metering credit
+	 * rides the same reasoning as the write — outside the diff path, so the
+	 * meter cannot turn an idle room into a busy one either.
 	 */
+	const previous = await db
+		.from('room_participants')
+		.select('last_seen')
+		.eq('room_id', room.data.id)
+		.eq('id', claims.sub)
+		.maybeSingle();
+
+	const now = new Date();
 	await db
 		.from('room_participants')
-		.update({ last_seen: new Date().toISOString() })
+		.update({ last_seen: now.toISOString() })
 		.eq('room_id', room.data.id)
 		.eq('id', claims.sub);
+
+	/*
+	 * Credit the room's OWNER, not the beater (UX-ID-4). A guest holds no
+	 * account by design, so there is no other coherent place for their seconds
+	 * to land — and it is the owner who chose to run the room.
+	 *
+	 * Not awaited for correctness, but awaited anyway: the beat is already a
+	 * round trip, one more is not what makes it slow, and an un-awaited write in
+	 * workerd is a write that may never happen (the isolate can be torn down
+	 * when the response is sent — the unsettled-write bug this suite was just
+	 * burned by).
+	 */
+	await meterBeat(
+		db,
+		room.data.id,
+		claims.sub,
+		previous.data === null ? null : new Date(previous.data.last_seen),
+		now
+	);
+
+	/*
+	 * The room's remaining time, carried back on the beat (UX-ECON-2).
+	 *
+	 * Piggybacked rather than polled from its own endpoint, and that is the whole
+	 * reason the readout costs nothing: the beat is already a round trip, it
+	 * already runs every fifteen seconds, and it has JUST moved the number it is
+	 * reporting. A separate poll would be a second timer racing this one to
+	 * describe the same value, and would sometimes show the meter's previous
+	 * answer a moment after this one changed it.
+	 *
+	 * Read through `roomBudget`, which is the same read the gate makes — so the
+	 * footnote and the refusal cannot disagree about how much is left.
+	 */
+	const budget = await roomBudget(db, room.data.id);
+
+	/**
+	 * Every exit from here reports the budget. Four return points had four
+	 * chances to forget one, and a readout that silently stops updating on the
+	 * sweep path is exactly the kind of thing nobody notices until it matters.
+	 */
+	const reply = (reaped: number) => json({ ok: true, reaped, budget });
+
+	/*
+	 * Nobody waits at the door forever (AR-CTRL-5).
+	 *
+	 * A guest who knocks at a room whose host never comes back sat in `pending`
+	 * indefinitely — visible in the host's door list months later, and unable to
+	 * do anything but wait, because `join_room` keeps a standing decision and a
+	 * reload does not re-decide.
+	 *
+	 * DELETED, not declined. A decline is a standing decision that a reload
+	 * cannot clear — that is exactly what makes it useful when a host means it,
+	 * and exactly what makes it wrong here: a host who was simply asleep would
+	 * have permanently barred someone by not answering. Removing the row instead
+	 * leaves the guest able to knock again, which is the honest outcome of "no
+	 * one answered".
+	 *
+	 * Swept HERE, with the participant sweep, for the reason that one is here
+	 * (see above): pg_cron is not enabled, a scheduled job would scan idle rooms
+	 * to find nothing, and anyone still present does the work. A room with
+	 * nobody in it needs no sweeping — its stale knocks expire the moment
+	 * someone next arrives, before they see the door list.
+	 *
+	 * `updated_at`, not `created_at`: `join_room` refreshes it whenever a
+	 * pending guest re-knocks or restates their hello, so this measures silence
+	 * rather than patience.
+	 */
+	const knockCutoff = new Date(Date.now() - PENDING_EXPIRY_SECONDS * 1000).toISOString();
+	await db
+		.from('room_members')
+		.delete()
+		.eq('room_id', room.data.id)
+		.eq('status', 'pending')
+		.lt('updated_at', knockCutoff);
 
 	const cutoff = new Date(Date.now() - STALE_AFTER_SECONDS * 1000).toISOString();
 	const stale = await db
@@ -78,7 +186,17 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 		.lt('last_seen', cutoff);
 
 	const gone = (stale.data ?? []).map((row) => row.id);
-	if (gone.length === 0) return json({ ok: true, reaped: 0 });
+	if (gone.length === 0) return reply(0);
+
+	/*
+	 * Stamp their ledger intervals closed (AR-COST-2). Audit trail only: it
+	 * moves no seconds, because their seconds were credited beat by beat as
+	 * they were spent. Done BEFORE the state write and unconditionally, so a
+	 * sweep that loses all three attempts at the room guard still records that
+	 * these people stopped being here — a closed interval is a fact about
+	 * presence, not about whether a room-state write happened to win a race.
+	 */
+	await closeIntervals(db, room.data.id, gone);
 
 	/*
 	 * Bounded retry, as the mutation route does: the sweep changes room scalars
@@ -93,16 +211,16 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 		const before = structuredClone(room_state.state);
 		reapParticipants(room_state.state, gone);
 		const diff = diffRoomState(before, room_state.state);
-		if (diff.empty) return json({ ok: true, reaped: 0 });
+		if (diff.empty) return reply(0);
 
 		try {
 			await saveRoomState(db, room.data.id, room_state.version, diff, room_state.objectVersions);
-			return json({ ok: true, reaped: gone.length });
+			return reply(gone.length);
 		} catch (conflict) {
 			if (!(conflict instanceof VersionConflict)) throw conflict;
 		}
 	}
 
 	// Not an error the caller should act on: the next beat will try again.
-	return json({ ok: true, reaped: 0 });
+	return reply(0);
 };

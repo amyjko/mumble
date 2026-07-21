@@ -248,6 +248,20 @@ web3 = 30
 enable_signup = true
 # If enabled, a user will be required to confirm any email change on both the old, and new email
 # addresses. If disabled, only the new email is required to confirm.
+#
+# MEASURED 2026-07-20, and it does NOT do what this comment says while
+# `enable_confirmations` is false below. Both addresses are mailed — so the
+# current one is always told a change was requested — but following the link in
+# EITHER completes the change on its own; an E2E test that followed only one
+# proved it, in both directions. The account page's copy says "either" because
+# of this, and said "both" until the test contradicted it.
+#
+# The consequence: someone with a live session can move an account to their own
+# address, and the owner is notified rather than asked. Turning
+# `enable_confirmations` on would restore the two-sided requirement but changes
+# the SIGN-UP path too (a first sign-in at an unknown address would get a
+# confirm-signup mail instead of a magic link), which is why it is an open item
+# in DESIGN.md rather than a flag flipped in passing.
 double_confirm_changes = true
 # If enabled, users need to confirm their email address before signing in.
 enable_confirmations = false
@@ -359,6 +373,37 @@ url = ""
 # If enabled, the nonce check will be skipped. Required for local sign in with Google auth.
 skip_nonce_check = false
 # If enabled, it will allow the user to successfully authenticate when the provider does not return an email address.
+email_optional = false
+
+# Google sign-in (UX-ID-7, AR-AUTH-4). The OAuth half of "email magic link and
+# OAuth at minimum"; Google rather than a developer-facing provider because the
+# people this product is for are small groups meeting for work or school, and
+# that is the account they already have.
+#
+# ENABLED HERE, AND STILL ABSENT LOCALLY, which is not a contradiction worth
+# puzzling over: this flag configures GoTrue, while whether the app OFFERS the
+# button is decided by the OAUTH_PROVIDERS environment variable
+# (src/lib/server/oauth-providers.ts). A checkout with no credentials shows
+# magic link only, because there is no mock OAuth provider in the CLI to sign in
+# against — AR-TEST-8 records that as the reason OAuth is not tested locally,
+# and AR-TEST-10 carries the handshake as a prod-only truth.
+#
+# Both values are environment substitutions and neither may ever be a literal
+# (AR-DEPLOY-6). Unset, they are empty strings, and GoTrue simply refuses a
+# handshake nobody can start from a page that renders no button.
+[auth.external.google]
+enabled = true
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+redirect_uri = ""
+url = ""
+# LOCAL-ONLY CONCESSION, and it must not be read as a production setting: the
+# Supabase CLI documents this as "Required for local sign in with Google auth"
+# (see the comment on [auth.external.apple] above, which ships it verbatim). The
+# nonce is a replay defence; a hosted project configures its own auth settings
+# from the dashboard and never reads this file, so turning it on here cannot
+# weaken production. Naming that boundary is the point of this comment.
+skip_nonce_check = true
 email_optional = false
 
 # Allow Solana wallet holders to sign in to your project via the Sign in with Solana (SIWS, EIP-4361) standard.

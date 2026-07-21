@@ -47,6 +47,27 @@
 		{#if form?.message !== undefined}
 			<p class="problem" role="alert">{form.message}</p>
 		{/if}
+
+		<!--
+			Nothing renders here unless the deployment configured a provider, which
+			locally means nothing renders at all (see oauth-providers.ts). A button
+			that cannot work is worse than an absent one on the page someone reaches
+			when something else has already gone wrong.
+
+			No `use:enhance`: this navigates off-site to the provider, so there is no
+			result to apply and intercepting the submit would only get in the way.
+		-->
+		{#if data.providers.length > 0}
+			<p class="or">or</p>
+			<div class="providers">
+				{#each data.providers as provider (provider.id)}
+					<form method="POST" action="?/oauth">
+						<input type="hidden" name="provider" value={provider.id} />
+						<Button type="submit">{provider.label}</Button>
+					</form>
+				{/each}
+			</div>
+		{/if}
 	{/if}
 
 	<p class="back"><a href={resolve('/')}>Back</a></p>
@@ -71,6 +92,17 @@
 	}
 	.sent {
 		color: var(--text);
+	}
+	.or {
+		margin: var(--space-4) 0 var(--space-3);
+		color: var(--text-muted);
+		font-size: var(--text-sm);
+	}
+	.providers {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		align-items: flex-start;
 	}
 	.problem {
 		color: var(--danger);

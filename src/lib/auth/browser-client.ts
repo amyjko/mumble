@@ -92,7 +92,7 @@ export async function ensureSession(
 	 *
 	 * The room page calls this twice by design: once on mount, so an account
 	 * holder arriving on a new machine fetches their roaming profile, and again
-	 * once the join prompt supplies a hello (see hey/[room]/+page.svelte). That
+	 * once the join prompt supplies a hello (see routes/[room]/+page.svelte). That
 	 * is safe because `join_room` is idempotent — but idempotent PER IDENTITY,
 	 * and the race gave the two knocks different identities. At a door set to
 	 * "ask first" the host then saw the same person twice, once as a nameless

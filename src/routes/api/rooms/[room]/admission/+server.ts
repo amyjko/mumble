@@ -6,6 +6,7 @@ import { canonicalRoomName } from '$lib/model/room-name';
 import { loadRoomState } from '$lib/server/room-state';
 import { admits } from '$lib/model/stage';
 import { stage } from '$lib/model/rules';
+import { roomHasTime } from '$lib/server/ledger';
 
 /**
  * Admit or decline a waiting guest (UX-ID-3, AR-CTRL-5).
@@ -57,6 +58,16 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 		const present = Object.keys(room_state.state.participants).length;
 		if (!admits(stage(room_state.state), present, false)) {
 			error(409, 'This room is full');
+		}
+
+		// And the budget (AR-COST-4, UX-ECON-2). Enforced here as well as at the
+		// mutation route for the same reason capacity is: a host holding the
+		// door open must not be able to wave someone past a gate the arrival
+		// would otherwise hit a moment later. Admitting them and THEN refusing
+		// their arrival would leave a member who cannot enter the room they were
+		// just let into, which reads as a bug rather than a limit.
+		if (!(await roomHasTime(db, room.data.id))) {
+			error(402, 'This room has used its time for the week.');
 		}
 	}
 

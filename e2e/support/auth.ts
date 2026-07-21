@@ -96,22 +96,84 @@ async function signInAs(page: Page, email: string): Promise<string> {
 }
 
 /**
- * Sign in, create the room, and enter it as its host.
+ * Sign a browser in as an account that arrived through OAuth (UX-ID-7).
+ *
+ * AR-TEST-8 prescribes exactly this shape and says why: "OAuth is not tested
+ * locally — no mock provider exists in the CLI and real providers require
+ * network. Instead the callback handler is unit-tested in isolation and OAuth
+ * identities are **admin-minted so downstream code sees a realistic session**."
+ *
+ * So be precise about what this does and does not prove. It does NOT walk the
+ * handshake: nothing here contacts a provider, and the session is established
+ * through the same token-hash path every other test uses. What it proves is the
+ * half that actually has downstream consequences — that an identity carrying
+ * `app_metadata.provider` of an external provider is a PERMANENT account and is
+ * treated as one: it may create a room (AR-AUTH-7), and the RESTRICTIVE
+ * `is_anonymous` policies (AR-AUTH-2) do not mistake it for a guest. That
+ * distinction is a real branch in the RLS, and it is the branch an OAuth user
+ * would be the first to hit in production.
+ *
+ * The handshake itself stays on AR-TEST-10's prod-only list, where it belongs.
+ */
+export async function signInAsOAuthAccount(page: Page, email = testEmail('oauth')): Promise<string> {
+	const admin = adminClient();
+	await admin.auth.admin.createUser({
+		email,
+		email_confirm: true,
+		// What GoTrue records for a user who came in through a provider. Set
+		// explicitly because creating a user by email would otherwise stamp this
+		// 'email', which is the identity shape this helper exists NOT to make.
+		app_metadata: { provider: 'google', providers: ['google'] },
+		// Providers return a profile; something reading `full_name` should find
+		// one, so the session is realistic rather than merely non-anonymous.
+		user_metadata: { full_name: 'Ada OAuth', email }
+	});
+	return signInAs(page, email);
+}
+
+/**
+ * Sign in, create an EMPTY room, and enter it as its host.
  *
  * Being a host is not a client-side flag: it is a `room_members` row, and only
  * a room that EXISTS in Postgres can have one. So a test that needs host powers
  * has to create the room, which means an account (AR-AUTH-7) — the sequence is
  * the requirement, not ceremony.
  *
+ * Created out-of-band rather than through `/new`, for the same reason
+ * `joinRoom` does it: since UX-ROOM-12 a room made through the form arrives
+ * FURNISHED — five newcomer spots, a chat, a note, three saved layouts and a
+ * `max_av` of five. That is the right room for someone starting a meeting and
+ * the wrong fixture for a test about placer numbering or the stage readout,
+ * which would then be measuring the preset instead of the mechanism. The
+ * furnished path has its own fixture below, and its own test.
+ *
  * Guests keep using `joinRoom`, which needs none of this.
  */
 export async function hostRoom(page: Page, room: string, name = 'Host'): Promise<void> {
+	const ownerId = await signInAsAccount(page);
+	// The insert trigger makes the owner the room's first host, so this is a
+	// real host session and not a fixture pretending to be one.
+	await createRoomDirectly(room, ownerId);
+	await page.goto(`/${room}`);
+	await enterAsHost(page, name);
+}
+
+/**
+ * Sign in and make a room the way a person does: through the `/new` form
+ * (UX-ROOM-11), which furnishes it (UX-ROOM-12).
+ *
+ * The only fixture that exercises the seeding write end to end.
+ */
+export async function hostFurnishedRoom(page: Page, room: string, name = 'Host'): Promise<void> {
 	await signInAsAccount(page);
 	await page.goto('/new');
 	await page.getByRole('textbox', { name: 'Room name' }).fill(room);
 	await page.getByRole('button', { name: 'go' }).click();
-	await page.waitForURL(new RegExp(`/hey/${room}$`));
+	await page.waitForURL(new RegExp(`/${room}$`));
+	await enterAsHost(page, name);
+}
 
+async function enterAsHost(page: Page, name: string): Promise<void> {
 	/*
 	 * The prompt may never appear, and may appear and then LEAVE.
 	 *

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { hydrated } from './support/join';
-import { adminClient, testEmail } from './support/auth';
+import { adminClient, signInAsOAuthAccount, testEmail } from './support/auth';
 import { z } from 'zod';
 
 /** Mailpit, the local SMTP catcher the Supabase CLI runs (config.toml [local_smtp]). */
@@ -130,6 +130,67 @@ test('the magic-link email carries a link that actually signs you in', async ({ 
 	await page.goto(link.toString());
 	await page.goto('/new');
 	await expect(page.getByRole('textbox', { name: 'Room name' })).toBeVisible();
+});
+
+/**
+ * OAuth (UX-ID-7, AR-AUTH-4), as far as a local environment can go.
+ *
+ * There is no mock OAuth provider in the Supabase CLI, so the handshake is a
+ * prod-only truth (AR-TEST-8, AR-TEST-10). These two tests cover what remains,
+ * and between them they are the whole of the local claim: what the page offers
+ * when no provider is configured, and what an OAuth identity may do once it
+ * exists. The decisions in between — which providers are offered, which a form
+ * may ask for, where the handshake is told to land — are node-tested in
+ * `oauth-providers.spec.ts` and `login/oauth.spec.ts`.
+ */
+
+test('with no provider configured, the sign-in page offers magic link alone', async ({ page }) => {
+	await page.goto('/login');
+	await hydrated(page);
+
+	// The positive first, so a page that failed to render at all cannot pass
+	// this test by showing nothing.
+	await expect(page.getByRole('button', { name: /Email me a link/ })).toBeVisible();
+
+	/*
+	 * And the negative, which is the actual decision under test. A button that
+	 * cannot work is worse than an absent one HERE in particular: this is the
+	 * route someone reaches when something else has already gone wrong, and
+	 * "Unsupported provider" is indistinguishable from the product being broken.
+	 *
+	 * This asserts the LOCAL configuration (OAUTH_PROVIDERS unset). A deployment
+	 * that sets it renders the button, which is the same code path with
+	 * different data — the branch itself is pinned in oauth-providers.spec.ts.
+	 */
+	await expect(page.getByRole('button', { name: /Continue with/ })).toHaveCount(0);
+});
+
+test('an account that arrived through OAuth is a permanent account', async ({ page }) => {
+	/*
+	 * The claim with downstream consequences, per AR-TEST-8's prescription that
+	 * OAuth identities be admin-minted so downstream code sees a realistic
+	 * session. NOT the handshake — nothing here contacts a provider.
+	 *
+	 * What could actually break: `is_anonymous` is a RESTRICTIVE policy
+	 * (AR-AUTH-2), and restrictive policies AND together, so an identity that
+	 * arrived by a path nobody tested is exactly the kind that gets refused for
+	 * reasons no UI explains. An OAuth user must be a host like any other.
+	 */
+	const email = testEmail('oauth-e2e');
+	await signInAsOAuthAccount(page, email);
+
+	// Room creation is the account gate (AR-AUTH-7) and therefore the sharpest
+	// test of "permanent, not a guest" — a guest is bounced to /login here, as
+	// `making a room requires an account` proves.
+	await page.goto('/new');
+	await expect(page.getByRole('textbox', { name: 'Room name' })).toBeVisible();
+
+	// And the account page resolves them as a real account with an address
+	// rather than as the guest it tells guests they are (UX-ID-10, AR-AUTH-6).
+	await page.goto('/account');
+	await hydrated(page);
+	await expect(page.getByRole('heading', { name: 'Your account' })).toBeVisible();
+	await expect(page.getByText(email)).toBeVisible();
 });
 
 test('signing out is POST-only, so a link cannot do it', async ({ request }) => {
